@@ -80,6 +80,7 @@ Status legend:
 - [x] Settings module route scaffold
 - [x] Social module route scaffold
 - [ ] Request validation layer
+- [x] Request validation layer
 - [x] Error handling middleware
 - [x] Auth middleware
 - [x] Tenant resolution middleware
@@ -122,45 +123,45 @@ Status legend:
 - [x] Lead create/update/delete
 - [x] Lead list view data
 - [ ] Lead kanban data
-- [ ] Lead assignment
+- [x] Lead assignment
 - [ ] Partner assignment
 - [x] Lead scoring
 - [ ] Lead notes
 - [ ] Lead timeline
 - [ ] CSV import
 - [ ] Bulk update
-- [ ] Lead filters
+- [x] Lead filters
 - [ ] Convert lead to deal
 
 ### Deals
-- [ ] Deal schema
+- [x] Deal schema
 - [ ] Multiple pipelines support
-- [ ] Deal stages support
+- [x] Deal stages support
 - [ ] Deal board data
-- [ ] Deal create/update/delete
-- [ ] Deal notes
+- [x] Deal create/update/delete
+- [x] Deal notes
 - [ ] Deal value and forecast
-- [ ] Won/lost tracking
-- [ ] Lost reason tracking
+- [x] Won/lost tracking
+- [x] Lost reason tracking
 - [ ] Deal activities
 
 ### Customers
-- [ ] Customer schema
-- [ ] Customer profile
+- [x] Customer schema
+- [x] Customer profile
 - [ ] Lead history on customer
 - [ ] Deal history on customer
 - [ ] Task history on customer
 - [ ] Campaign history on customer
 - [ ] Notes and attachments
-- [ ] Tags
+- [x] Tags
 - [ ] Custom fields
 
 ### Tasks and follow-ups
-- [ ] Task schema
+- [x] Task schema
 - [ ] Follow-up schema
-- [ ] Task creation
-- [ ] Task assignment
-- [ ] Recurring tasks
+- [x] Task creation
+- [x] Task assignment
+- [x] Recurring tasks
 - [ ] Follow-up reminders
 - [ ] Overdue alerts
 - [ ] Calendar view
@@ -241,16 +242,16 @@ Status legend:
 Implemented now:
 - isolated `crm-saas` workspace
 - installable frontend and backend foundations
-- frontend dashboard/module page skeletons
-- backend modular route skeletons
-- basic independent validation for both apps
+- Supabase-backed auth + tenant-scoped middleware foundation
+- real database schema for tenancy + leads + customers + deals + tasks
+- real tenant-scoped APIs for auth, leads, customers, deals, and tasks
+- dashboard pages wired to live CRUD/filter flows for leads/customers/deals/tasks
+- independent type/build/test validation for both apps
 
 Not implemented yet:
-- real auth
-- real database schema
-- real APIs
-- real CRM workflows
-- real dashboards
+- signup/password reset UX
+- advanced CRM workflows (kanban, bulk ops, timeline, partner routing)
+- analytics/reporting and automation
 - real settings
 - real reports
 - real campaigns/automation
@@ -260,4 +261,4 @@ Not implemented yet:
 - [x] Add backend middleware for auth, tenant scope, and roles
 - [x] Add frontend authenticated layout and route protection
 - [x] Implement company, membership, and store schema
-- [ ] Implement first real CRM entities: customers, leads, deals, tasks
+- [x] Implement first real CRM entities: customers, leads, deals, tasks
