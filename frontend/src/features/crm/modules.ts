@@ -1,0 +1,57 @@
+export interface CrmModuleDefinition {
+  slug: string;
+  title: string;
+  summary: string;
+  capabilities: string[];
+}
+
+export const crmModules: CrmModuleDefinition[] = [
+  {
+    slug: "dashboard",
+    title: "Dashboard",
+    summary: "Operational overview for tasks, pipeline, campaigns, partner work, and overdue follow-ups.",
+    capabilities: ["My tasks", "Pipeline summary", "Forecast snapshot", "Recent activities"],
+  },
+  {
+    slug: "leads",
+    title: "Leads",
+    summary: "Lead capture, qualification, assignment, scoring, partner routing, and conversion readiness.",
+    capabilities: ["Kanban", "CSV import", "Assignment", "Lead scoring"],
+  },
+  {
+    slug: "deals",
+    title: "Deals",
+    summary: "Deal pipelines, stages, notes, expected value, and won/lost lifecycle tracking.",
+    capabilities: ["Pipeline board", "Multiple pipelines", "Forecast", "Lost reasons"],
+  },
+  {
+    slug: "customers",
+    title: "Customers",
+    summary: "Unified customer profile with lead, deal, task, campaign, and attachment history.",
+    capabilities: ["Profile", "Attachments", "Tags", "Custom fields"],
+  },
+  {
+    slug: "tasks",
+    title: "Tasks & Follow-ups",
+    summary: "Action engine for reminders, due work, recurring items, and calendar-based follow-up execution.",
+    capabilities: ["Assignments", "Recurring tasks", "Calendar view", "Overdue alerts"],
+  },
+  {
+    slug: "partners",
+    title: "Partners",
+    summary: "Partner company access, assigned lead/deal ownership, performance tracking, and scoped permissions.",
+    capabilities: ["Partner companies", "Partner users", "Lead assignment", "Performance"],
+  },
+  {
+    slug: "campaigns",
+    title: "Campaigns & Templates",
+    summary: "Audience targeting, email campaigns, template management, scheduling, and analytics.",
+    capabilities: ["Email campaigns", "Template library", "Scheduling", "Analytics"],
+  },
+  {
+    slug: "automation",
+    title: "Automation",
+    summary: "Trigger-based CRM workflows with multi-step actions and execution logs.",
+    capabilities: ["Builder", "Triggers", "Actions", "Logs"],
+  },
+];
