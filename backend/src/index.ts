@@ -1,10 +1,9 @@
 import { app } from "@/app/router";
-
-const port = Number(process.env.PORT ?? 8787);
+import { env } from "@/lib/config";
 
 Bun.serve({
-  port,
+  port: env.PORT,
   fetch: app.fetch,
 });
 
-console.log(`crm-saas backend listening on http://localhost:${port}`);
+console.log(`crm-saas backend listening on http://localhost:${env.PORT}`);

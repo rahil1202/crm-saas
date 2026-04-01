@@ -1,5 +1,10 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 
+import { env } from "@/lib/config";
+import { ok } from "@/lib/api";
+import { errorMiddleware, requestIdMiddleware } from "@/middleware/common";
+import type { AppVariables } from "@/types/app";
 import { authRoutes } from "@/modules/auth/routes";
 import { automationRoutes } from "@/modules/automation/routes";
 import { campaignRoutes } from "@/modules/campaigns/routes";
@@ -16,21 +21,35 @@ import { taskRoutes } from "@/modules/tasks/routes";
 import { templateRoutes } from "@/modules/templates/routes";
 import { userRoutes } from "@/modules/users/routes";
 
-export const app = new Hono();
+export type AppEnv = { Variables: AppVariables };
 
-app.get("/", (c) => {
-  return c.json({
+export const app = new Hono<AppEnv>();
+
+app.use("*", requestIdMiddleware);
+app.use(
+  "/api/*",
+  cors({
+    origin: env.FRONTEND_URL,
+    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization", "x-company-id", "x-store-id", "x-request-id"],
+    exposeHeaders: ["x-request-id"],
+    credentials: true,
+  }),
+);
+
+app.onError(errorMiddleware);
+
+app.get("/", (c) =>
+  ok(c, {
     name: "crm-saas-backend",
     status: "ok",
     workspace: "crm-saas/backend",
-  });
-});
+  }),
+);
 
-app.get("/health", (c) => {
-  return c.json({ ok: true });
-});
+app.get("/health", (c) => ok(c, { ok: true }));
 
-const api = new Hono().basePath("/api/v1");
+const api = new Hono<AppEnv>().basePath("/api/v1");
 
 api.route("/", authRoutes);
 api.route("/", companyRoutes);

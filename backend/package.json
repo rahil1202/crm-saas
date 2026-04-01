@@ -6,15 +6,23 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "build": "tsc",
+    "test": "bun test",
+    "db:migrate": "bun src/db/scripts/migrate.ts",
+    "db:seed": "bun src/db/scripts/seed.ts"
   },
   "dependencies": {
+    "dotenv": "^17.3.1",
     "drizzle-orm": "^0.44.0",
-    "hono": "^4.8.0"
+    "hono": "^4.8.0",
+    "jose": "^6.2.2",
+    "postgres": "^3.4.8",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
     "@types/bun": "^1.2.0",
+    "@types/node": "^24.0.0",
     "drizzle-kit": "^0.31.0",
     "typescript": "^5.9.0"
   }

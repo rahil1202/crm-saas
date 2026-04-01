@@ -54,9 +54,9 @@ Status legend:
 - [x] Settings page scaffold
 - [ ] Company admin pages
 - [ ] Super-admin pages
-- [ ] Authenticated route guards
+- [x] Authenticated route guards
 - [ ] Shared design system
-- [ ] Data fetching layer
+- [x] Data fetching layer
 - [ ] Form system
 
 ### Backend API skeleton
@@ -80,28 +80,28 @@ Status legend:
 - [x] Settings module route scaffold
 - [x] Social module route scaffold
 - [ ] Request validation layer
-- [ ] Error handling middleware
-- [ ] Auth middleware
-- [ ] Tenant resolution middleware
-- [ ] Role/permission middleware
+- [x] Error handling middleware
+- [x] Auth middleware
+- [x] Tenant resolution middleware
+- [x] Role/permission middleware
 
 ## Phase 2: Core SaaS Platform
 
 ### Identity and tenancy
-- [ ] Supabase auth integration
+- [x] Supabase auth integration
 - [ ] Signup flow
-- [ ] Login flow
+- [x] Login flow
 - [ ] Password reset flow
-- [ ] Invite acceptance flow
-- [ ] Profile model
-- [ ] Company model
-- [ ] Company memberships model
-- [ ] Company invites model
+- [x] Invite acceptance flow
+- [x] Profile model
+- [x] Company model
+- [x] Company memberships model
+- [x] Company invites model
 - [ ] Company plans model
-- [ ] Store/branch model
+- [x] Store/branch model
 - [ ] Super-admin model
-- [ ] Company isolation enforcement
-- [ ] Active workspace resolution
+- [x] Company isolation enforcement
+- [x] Active workspace resolution
 
 ### Company administration
 - [ ] Company profile management
@@ -118,13 +118,13 @@ Status legend:
 ## Phase 3: Core CRM Operations
 
 ### Leads
-- [ ] Lead schema
-- [ ] Lead create/update/delete
-- [ ] Lead list view data
+- [x] Lead schema
+- [x] Lead create/update/delete
+- [x] Lead list view data
 - [ ] Lead kanban data
 - [ ] Lead assignment
 - [ ] Partner assignment
-- [ ] Lead scoring
+- [x] Lead scoring
 - [ ] Lead notes
 - [ ] Lead timeline
 - [ ] CSV import
@@ -256,8 +256,8 @@ Not implemented yet:
 - real campaigns/automation
 
 ## Immediate Next Todo
-- [ ] Build tenancy and auth models in backend
-- [ ] Add backend middleware for auth, tenant scope, and roles
-- [ ] Add frontend authenticated layout and route protection
-- [ ] Implement company, membership, and store schema
+- [x] Build tenancy and auth models in backend
+- [x] Add backend middleware for auth, tenant scope, and roles
+- [x] Add frontend authenticated layout and route protection
+- [x] Implement company, membership, and store schema
 - [ ] Implement first real CRM entities: customers, leads, deals, tasks
