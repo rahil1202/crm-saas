@@ -5,6 +5,7 @@ import {
   createDeal,
   createDealTimeline,
   deleteDeal,
+  getDealForecast,
   getDealsBoard,
   getDealTimeline,
   listDeals,
@@ -14,6 +15,7 @@ import {
   boardDealsSchema,
   createDealSchema,
   createDealTimelineSchema,
+  dealForecastQuerySchema,
   dealTimelineQuerySchema,
   listDealsSchema,
   updateDealSchema,
@@ -26,6 +28,7 @@ dealRoutes.use("*", requireAuth, requireTenant);
 
 dealRoutes.get("/", validateQuery(listDealsSchema), listDeals);
 dealRoutes.get("/board", validateQuery(boardDealsSchema), getDealsBoard);
+dealRoutes.get("/forecast", validateQuery(dealForecastQuerySchema), getDealForecast);
 dealRoutes.post("/", validateJson(createDealSchema), createDeal);
 dealRoutes.patch("/:dealId", validateJson(updateDealSchema), updateDeal);
 dealRoutes.get("/:dealId/timeline", validateQuery(dealTimelineQuerySchema), getDealTimeline);

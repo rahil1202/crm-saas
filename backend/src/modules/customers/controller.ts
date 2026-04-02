@@ -3,7 +3,7 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { customers, deals, leads, tasks } from "@/db/schema";
+import { campaignCustomers, campaigns, customers, deals, leads, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { customerParamSchema } from "@/modules/customers/schema";
@@ -50,7 +50,7 @@ export async function getCustomerHistory(c: Context<AppEnv>) {
     throw AppError.notFound("Customer not found");
   }
 
-  const [lead, customerDeals, customerTasks] = await Promise.all([
+  const [lead, customerDeals, customerTasks, customerCampaigns] = await Promise.all([
     customer.leadId
       ? db
           .select()
@@ -69,6 +69,19 @@ export async function getCustomerHistory(c: Context<AppEnv>) {
       .from(tasks)
       .where(and(eq(tasks.companyId, tenant.companyId), eq(tasks.customerId, customer.id), isNull(tasks.deletedAt)))
       .orderBy(desc(tasks.createdAt)),
+    db
+      .select({
+        id: campaigns.id,
+        name: campaigns.name,
+        channel: campaigns.channel,
+        status: campaigns.status,
+        scheduledAt: campaigns.scheduledAt,
+        createdAt: campaigns.createdAt,
+      })
+      .from(campaignCustomers)
+      .innerJoin(campaigns, eq(campaigns.id, campaignCustomers.campaignId))
+      .where(and(eq(campaignCustomers.companyId, tenant.companyId), eq(campaignCustomers.customerId, customer.id), isNull(campaigns.deletedAt)))
+      .orderBy(desc(campaigns.createdAt)),
   ]);
 
   return ok(c, {
@@ -76,11 +89,13 @@ export async function getCustomerHistory(c: Context<AppEnv>) {
     lead,
     deals: customerDeals,
     tasks: customerTasks,
+    campaigns: customerCampaigns,
     summary: {
       openDeals: customerDeals.filter((deal) => deal.status === "open").length,
       wonDeals: customerDeals.filter((deal) => deal.status === "won").length,
       pendingTasks: customerTasks.filter((task) => task.status !== "done").length,
       completedTasks: customerTasks.filter((task) => task.status === "done").length,
+      campaigns: customerCampaigns.length,
     },
   });
 }

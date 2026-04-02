@@ -12,6 +12,7 @@ import type {
   BoardDealsQuery,
   CreateDealInput,
   CreateDealTimelineInput,
+  DealForecastQuery,
   DealTimelineQuery,
   ListDealsQuery,
   UpdateDealInput,
@@ -129,6 +130,104 @@ export async function getDealsBoard(c: Context<AppEnv>) {
     columns,
     wonCount: items.filter((deal) => deal.status === "won").length,
     lostCount: items.filter((deal) => deal.status === "lost").length,
+  });
+}
+
+function startOfMonth(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
+}
+
+export async function getDealForecast(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as DealForecastQuery;
+  const now = new Date();
+  const windowStart = startOfMonth(now);
+  const windowEnd = addMonths(windowStart, query.horizonMonths);
+
+  const openDeals = await db
+    .select({
+      id: deals.id,
+      title: deals.title,
+      value: deals.value,
+      pipeline: deals.pipeline,
+      stage: deals.stage,
+      expectedCloseDate: deals.expectedCloseDate,
+    })
+    .from(deals)
+    .where(and(eq(deals.companyId, tenant.companyId), eq(deals.status, "open"), isNull(deals.deletedAt)))
+    .orderBy(asc(deals.expectedCloseDate), desc(deals.updatedAt), desc(deals.createdAt));
+
+  const buckets = Array.from({ length: query.horizonMonths }, (_, index) => {
+    const bucketStart = addMonths(windowStart, index);
+    const key = `${bucketStart.getUTCFullYear()}-${String(bucketStart.getUTCMonth() + 1).padStart(2, "0")}`;
+    const label = bucketStart.toLocaleString("en-US", {
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+
+    return {
+      key,
+      label,
+      value: 0,
+      count: 0,
+    };
+  });
+
+  let overdueValue = 0;
+  let unassignedForecastValue = 0;
+
+  for (const deal of openDeals) {
+    if (!deal.expectedCloseDate) {
+      unassignedForecastValue += deal.value;
+      continue;
+    }
+
+    const closeDate = new Date(deal.expectedCloseDate);
+    if (closeDate < windowStart) {
+      overdueValue += deal.value;
+      continue;
+    }
+    if (closeDate >= windowEnd) {
+      continue;
+    }
+
+    const bucketIndex =
+      (closeDate.getUTCFullYear() - windowStart.getUTCFullYear()) * 12 +
+      (closeDate.getUTCMonth() - windowStart.getUTCMonth());
+
+    if (bucketIndex >= 0 && bucketIndex < buckets.length) {
+      buckets[bucketIndex]!.value += deal.value;
+      buckets[bucketIndex]!.count += 1;
+    }
+  }
+
+  const forecastValue = buckets.reduce((sum, bucket) => sum + bucket.value, 0);
+
+  return ok(c, {
+    summary: {
+      openValue: openDeals.reduce((sum, deal) => sum + deal.value, 0),
+      forecastValue,
+      overdueValue,
+      unassignedForecastValue,
+      currentMonthValue: buckets[0]?.value ?? 0,
+      nextMonthValue: buckets[1]?.value ?? 0,
+    },
+    buckets,
+    upcomingDeals: openDeals
+      .filter((deal) => {
+        if (!deal.expectedCloseDate) {
+          return false;
+        }
+
+        const closeDate = new Date(deal.expectedCloseDate);
+        return closeDate >= windowStart && closeDate < windowEnd;
+      })
+      .slice(0, 5),
   });
 }
 

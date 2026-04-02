@@ -21,6 +21,7 @@ export const dealStatusEnum = pgEnum("deal_status", ["open", "won", "lost"]);
 export const taskStatusEnum = pgEnum("task_status", ["todo", "in_progress", "done", "overdue"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high"]);
 export const partnerStatusEnum = pgEnum("partner_status", ["active", "inactive"]);
+export const campaignStatusEnum = pgEnum("campaign_status", ["draft", "scheduled", "active", "completed", "paused"]);
 
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
@@ -360,6 +361,61 @@ export const tasks = pgTable(
   }),
 );
 
+export const campaigns = pgTable(
+  "campaigns",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 180 }).notNull(),
+    channel: varchar("channel", { length: 40 }).notNull().default("email"),
+    status: campaignStatusEnum("status").notNull().default("draft"),
+    audienceDescription: varchar("audience_description", { length: 240 }),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    launchedAt: timestamp("launched_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    sentCount: integer("sent_count").notNull().default(0),
+    deliveredCount: integer("delivered_count").notNull().default(0),
+    openedCount: integer("opened_count").notNull().default(0),
+    clickedCount: integer("clicked_count").notNull().default(0),
+    notes: text("notes"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("campaigns_company_idx").on(table.companyId),
+    byStatusIdx: index("campaigns_status_idx").on(table.companyId, table.status),
+    byScheduledIdx: index("campaigns_scheduled_idx").on(table.scheduledAt),
+  }),
+);
+
+export const campaignCustomers = pgTable(
+  "campaign_customers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => campaigns.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    campaignCustomerUnique: uniqueIndex("campaign_customers_campaign_customer_unique").on(table.campaignId, table.customerId),
+    byCompanyIdx: index("campaign_customers_company_idx").on(table.companyId),
+    byCustomerIdx: index("campaign_customers_customer_idx").on(table.customerId),
+  }),
+);
+
 export const authRefreshTokens = pgTable(
   "auth_refresh_tokens",
   {
@@ -387,6 +443,7 @@ export const companyRelations = relations(companies, ({ many }) => ({
   memberships: many(companyMemberships),
   invites: many(companyInvites),
   partners: many(partnerCompanies),
+  campaigns: many(campaigns),
   leads: many(leads),
   customers: many(customers),
   deals: many(deals),

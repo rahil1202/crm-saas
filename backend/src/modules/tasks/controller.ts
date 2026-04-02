@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ilike, isNull, lte } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, isNull, lte } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
@@ -7,7 +7,7 @@ import { tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { taskParamSchema } from "@/modules/tasks/schema";
-import type { CreateTaskInput, ListTasksQuery, UpdateTaskInput } from "@/modules/tasks/schema";
+import type { CreateTaskInput, ListTasksQuery, TaskCalendarQuery, UpdateTaskInput } from "@/modules/tasks/schema";
 
 export async function listTasks(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
@@ -42,6 +42,95 @@ export async function listTasks(c: Context<AppEnv>) {
     total: totalRows[0]?.count ?? 0,
     limit: query.limit,
     offset: query.offset,
+  });
+}
+
+function getMonthBounds(monthValue?: string) {
+  const now = new Date();
+  const [year, month] = monthValue
+    ? monthValue.split("-").map(Number)
+    : [now.getUTCFullYear(), now.getUTCMonth() + 1];
+
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1));
+
+  return { start, end };
+}
+
+export async function getTaskSummary(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const now = new Date();
+
+  const items = await db
+    .select({
+      id: tasks.id,
+      status: tasks.status,
+      priority: tasks.priority,
+      dueAt: tasks.dueAt,
+    })
+    .from(tasks)
+    .where(and(eq(tasks.companyId, tenant.companyId), isNull(tasks.deletedAt)));
+
+  const openTasks = items.filter((task) => task.status !== "done");
+  const overdueTasks = openTasks.filter((task) => task.dueAt && new Date(task.dueAt) <= now);
+  const dueTodayTasks = openTasks.filter((task) => {
+    if (!task.dueAt) {
+      return false;
+    }
+
+    const dueAt = new Date(task.dueAt);
+    return dueAt.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
+  });
+
+  return ok(c, {
+    total: items.length,
+    open: openTasks.length,
+    overdue: overdueTasks.length,
+    dueToday: dueTodayTasks.length,
+    highPriorityOpen: openTasks.filter((task) => task.priority === "high").length,
+    completed: items.filter((task) => task.status === "done").length,
+  });
+}
+
+export async function getTaskCalendar(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as TaskCalendarQuery;
+  const { start, end } = getMonthBounds(query.month);
+
+  const items = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.companyId, tenant.companyId), isNull(tasks.deletedAt), lte(tasks.dueAt, end)))
+    .orderBy(asc(tasks.dueAt), desc(tasks.createdAt));
+
+  const days = new Map<string, Array<(typeof items)[number]>>();
+
+  for (const task of items) {
+    if (!task.dueAt) {
+      continue;
+    }
+
+    const dueAt = new Date(task.dueAt);
+    if (dueAt < start || dueAt >= end) {
+      continue;
+    }
+
+    const key = dueAt.toISOString().slice(0, 10);
+    const bucket = days.get(key) ?? [];
+    bucket.push(task);
+    days.set(key, bucket);
+  }
+
+  return ok(c, {
+    month: start.toISOString().slice(0, 7),
+    days: Array.from(days.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([date, dayItems]) => ({
+        date,
+        total: dayItems.length,
+        overdue: dayItems.filter((task) => task.status !== "done" && task.dueAt && new Date(task.dueAt) < new Date()).length,
+        items: dayItems,
+      })),
   });
 }
 

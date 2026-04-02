@@ -13,6 +13,10 @@ export const boardDealsSchema = z.object({
   pipeline: z.string().trim().optional(),
 });
 
+export const dealForecastQuerySchema = z.object({
+  horizonMonths: z.coerce.number().int().min(1).max(12).default(6),
+});
+
 export const createDealSchema = z.object({
   title: z.string().trim().min(1).max(180),
   pipeline: z.string().trim().min(1).max(100).default("default"),
@@ -44,6 +48,7 @@ export const createDealTimelineSchema = z.object({
 
 export type ListDealsQuery = z.infer<typeof listDealsSchema>;
 export type BoardDealsQuery = z.infer<typeof boardDealsSchema>;
+export type DealForecastQuery = z.infer<typeof dealForecastQuerySchema>;
 export type CreateDealInput = z.infer<typeof createDealSchema>;
 export type UpdateDealInput = z.infer<typeof updateDealSchema>;
 export type DealTimelineQuery = z.infer<typeof dealTimelineQuerySchema>;

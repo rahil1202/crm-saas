@@ -146,12 +146,12 @@ Status legend:
 ### Deals
 
 - [x] Deal schema
-- [ ] Multiple pipelines support
+- [x] Multiple pipelines support
 - [x] Deal stages support
 - [x] Deal board data
 - [x] Deal create/update/delete
 - [x] Deal notes
-- [ ] Deal value and forecast
+- [x] Deal value and forecast
 - [x] Won/lost tracking
 - [x] Lost reason tracking
 - [x] Deal activities
@@ -164,7 +164,7 @@ Status legend:
 - [x] Deal history on customer
 - [x] Task history on customer
 - [ ] Campaign history on customer
-- [ ] Notes and attachments
+- [-] Notes and attachments
 - [x] Tags
 - [ ] Custom fields
 
@@ -176,8 +176,8 @@ Status legend:
 - [x] Task assignment
 - [x] Recurring tasks
 - [ ] Follow-up reminders
-- [ ] Overdue alerts
-- [ ] Calendar view
+- [x] Overdue alerts
+- [x] Calendar view
 
 ### Partners
 
@@ -192,12 +192,12 @@ Status legend:
 
 ### Campaigns
 
-- [ ] Campaign schema
-- [ ] Audience selection
-- [ ] Email campaigns
-- [ ] Campaign scheduling
-- [ ] Campaign analytics
-- [ ] Campaign-to-customer history linkage
+- [x] Campaign schema
+- [x] Audience selection
+- [x] Email campaigns
+- [x] Campaign scheduling
+- [x] Campaign analytics
+- [x] Campaign-to-customer history linkage
 
 ### Templates
 

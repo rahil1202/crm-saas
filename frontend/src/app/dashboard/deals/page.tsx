@@ -15,6 +15,7 @@ interface Deal {
   pipeline: string;
   stage: string;
   value: number;
+  expectedCloseDate?: string | null;
   partnerCompanyId?: string | null;
 }
 
@@ -52,6 +53,24 @@ interface DealBoardResponse {
   lostCount: number;
 }
 
+interface DealForecastResponse {
+  summary: {
+    openValue: number;
+    forecastValue: number;
+    overdueValue: number;
+    unassignedForecastValue: number;
+    currentMonthValue: number;
+    nextMonthValue: number;
+  };
+  buckets: Array<{
+    key: string;
+    label: string;
+    value: number;
+    count: number;
+  }>;
+  upcomingDeals: Deal[];
+}
+
 interface PipelineSettings {
   defaultDealPipeline: string;
   dealPipelines: Array<{
@@ -78,6 +97,7 @@ export default function DealsPage() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [title, setTitle] = useState("");
   const [value, setValue] = useState("0");
+  const [expectedCloseDate, setExpectedCloseDate] = useState("");
   const [partnerCompanyId, setPartnerCompanyId] = useState("");
   const [pipelineSettings, setPipelineSettings] = useState<PipelineSettings | null>(null);
   const [partners, setPartners] = useState<PartnerListResponse["items"]>([]);
@@ -85,6 +105,7 @@ export default function DealsPage() {
   const [stage, setStage] = useState("new");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [board, setBoard] = useState<DealBoardResponse | null>(null);
+  const [forecast, setForecast] = useState<DealForecastResponse | null>(null);
   const [boardPipeline, setBoardPipeline] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -133,6 +154,15 @@ export default function DealsPage() {
 
   const activePipeline = pipelineSettings?.dealPipelines.find((item) => item.key === pipeline) ?? null;
 
+  const loadForecast = useCallback(async () => {
+    try {
+      const data = await apiRequest<DealForecastResponse>("/deals/forecast?horizonMonths=6");
+      setForecast(data);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal forecast");
+    }
+  }, []);
+
   const loadBoard = useCallback(async () => {
     try {
       const params = new URLSearchParams();
@@ -172,6 +202,10 @@ export default function DealsPage() {
     }
   }, [boardPipeline, loadBoard]);
 
+  useEffect(() => {
+    void loadForecast();
+  }, [loadForecast]);
+
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
@@ -180,13 +214,22 @@ export default function DealsPage() {
     try {
       await apiRequest("/deals", {
         method: "POST",
-        body: JSON.stringify({ title, value: Number(value) || 0, pipeline, stage, partnerCompanyId: partnerCompanyId || undefined }),
+        body: JSON.stringify({
+          title,
+          value: Number(value) || 0,
+          pipeline,
+          stage,
+          expectedCloseDate: expectedCloseDate ? new Date(`${expectedCloseDate}T00:00:00.000Z`).toISOString() : undefined,
+          partnerCompanyId: partnerCompanyId || undefined,
+        }),
       });
       setTitle("");
       setValue("0");
+      setExpectedCloseDate("");
       setPartnerCompanyId("");
       await loadDeals();
       await loadBoard();
+      await loadForecast();
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to create deal");
     } finally {
@@ -208,12 +251,40 @@ export default function DealsPage() {
       });
       await loadDeals();
       await loadBoard();
+      await loadForecast();
       if (expandedDealId === dealId) {
         await loadTimeline(dealId);
       }
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to update deal");
     }
+  };
+
+  const updateExpectedCloseDate = async (dealId: string, nextDate: string) => {
+    try {
+      await apiRequest(`/deals/${dealId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          expectedCloseDate: nextDate ? new Date(`${nextDate}T00:00:00.000Z`).toISOString() : null,
+        }),
+      });
+      await loadDeals();
+      await loadBoard();
+      await loadForecast();
+      if (expandedDealId === dealId) {
+        await loadTimeline(dealId);
+      }
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to update close date");
+    }
+  };
+
+  const formatDate = (value?: string | null) => {
+    if (!value) {
+      return "No close date";
+    }
+
+    return new Date(value).toLocaleDateString();
   };
 
   const toggleTimeline = async (dealId: string) => {
@@ -254,6 +325,7 @@ export default function DealsPage() {
         <form onSubmit={handleCreate} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Deal title" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
           <input value={value} onChange={(event) => setValue(event.target.value)} type="number" min={0} placeholder="Value" style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
+          <input value={expectedCloseDate} onChange={(event) => setExpectedCloseDate(event.target.value)} type="date" style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
           <select value={partnerCompanyId} onChange={(event) => setPartnerCompanyId(event.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }}>
             <option value="">No partner</option>
             {partners.map((partner) => (
@@ -280,6 +352,72 @@ export default function DealsPage() {
             {submitting ? "Creating..." : "Create"}
           </button>
         </form>
+      </section>
+
+      <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16, marginBottom: 16, display: "grid", gap: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <h2 style={{ margin: 0 }}>Forecast</h2>
+          <span style={{ color: "#556371" }}>6-month revenue projection from open deals with close dates</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+          {[
+            { label: "Open pipeline", value: forecast?.summary.openValue ?? 0 },
+            { label: "Forecast window", value: forecast?.summary.forecastValue ?? 0 },
+            { label: "This month", value: forecast?.summary.currentMonthValue ?? 0 },
+            { label: "Next month", value: forecast?.summary.nextMonthValue ?? 0 },
+            { label: "Overdue close dates", value: forecast?.summary.overdueValue ?? 0 },
+            { label: "Missing close dates", value: forecast?.summary.unassignedForecastValue ?? 0 },
+          ].map((item) => (
+            <div key={item.label} style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, background: "#f8fbff" }}>
+              <div style={{ color: "#556371", fontSize: 13 }}>{item.label}</div>
+              <strong style={{ fontSize: 20 }}>{item.value}</strong>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(280px, 1fr)", gap: 12 }}>
+          <div style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
+            <strong>Monthly buckets</strong>
+            {(forecast?.buckets ?? []).map((bucket) => (
+              <div key={bucket.key} style={{ display: "grid", gridTemplateColumns: "140px 1fr auto", gap: 10, alignItems: "center" }}>
+                <span style={{ color: "#35414d", fontSize: 14 }}>{bucket.label}</span>
+                <div style={{ height: 10, borderRadius: 999, background: "#e8edf3", overflow: "hidden" }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${bucket.value > 0
+                        ? Math.max(
+                            8,
+                            forecast?.summary.forecastValue
+                              ? Math.round((bucket.value / forecast.summary.forecastValue) * 100)
+                              : 0,
+                          )
+                        : 0}%`,
+                      background: "#102031",
+                    }}
+                  />
+                </div>
+                <span style={{ color: "#556371", fontSize: 13 }}>
+                  {bucket.count} deals · {bucket.value}
+                </span>
+              </div>
+            ))}
+            {(forecast?.buckets.length ?? 0) === 0 ? <p style={{ margin: 0, color: "#556371" }}>No forecast data available yet.</p> : null}
+          </div>
+
+          <div style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
+            <strong>Upcoming deals</strong>
+            {(forecast?.upcomingDeals ?? []).map((deal) => (
+              <div key={deal.id} style={{ border: "1px solid #e8edf3", borderRadius: 10, padding: 10, background: "#fff" }}>
+                <div style={{ fontWeight: 600 }}>{deal.title}</div>
+                <div style={{ color: "#556371", fontSize: 13 }}>{formatDate(deal.expectedCloseDate)}</div>
+                <div style={{ color: "#556371", fontSize: 13 }}>
+                  {deal.pipeline} / {deal.stage} · {deal.value}
+                </div>
+              </div>
+            ))}
+            {(forecast?.upcomingDeals.length ?? 0) === 0 ? <p style={{ margin: 0, color: "#556371" }}>No upcoming forecasted deals.</p> : null}
+          </div>
+        </div>
       </section>
 
       <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16 }}>
@@ -315,6 +453,7 @@ export default function DealsPage() {
                     <strong>{deal.title}</strong>
                     <span style={{ color: "#556371" }}>Value: {deal.value}</span>
                     <span style={{ color: "#556371" }}>Pipeline: {deal.pipeline} / {deal.stage}</span>
+                    <span style={{ color: "#556371" }}>Expected close: {formatDate(deal.expectedCloseDate)}</span>
                     <span style={{ color: "#556371" }}>Partner: {deal.partnerCompanyId ? "Assigned" : "Unassigned"}</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <span>Status</span>
@@ -325,6 +464,12 @@ export default function DealsPage() {
                           </option>
                         ))}
                       </select>
+                      <input
+                        type="date"
+                        value={deal.expectedCloseDate ? new Date(deal.expectedCloseDate).toISOString().slice(0, 10) : ""}
+                        onChange={(event) => void updateExpectedCloseDate(deal.id, event.target.value)}
+                        style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0" }}
+                      />
                       <button type="button" onClick={() => void toggleTimeline(deal.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}>
                         {expandedDealId === deal.id ? "Hide timeline" : "Show timeline"}
                       </button>

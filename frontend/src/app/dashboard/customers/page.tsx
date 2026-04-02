@@ -17,10 +17,12 @@ import {
   Field,
   FieldGroup,
   FieldLabel,
+  FieldDescription,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest } from "@/lib/api";
 
 interface Customer {
@@ -29,6 +31,14 @@ interface Customer {
   email: string | null;
   phone: string | null;
   createdAt: string;
+  tags?: string[];
+  notes?: string | null;
+}
+
+interface CustomerUpdatePayload {
+  fullName?: string;
+  email?: string | null;
+  phone?: string | null;
   tags?: string[];
   notes?: string | null;
 }
@@ -61,6 +71,15 @@ interface TaskHistory {
   createdAt: string;
 }
 
+interface CampaignHistory {
+  id: string;
+  name: string;
+  channel: string;
+  status: "draft" | "scheduled" | "active" | "completed" | "paused";
+  scheduledAt: string | null;
+  createdAt: string;
+}
+
 interface ListResponse {
   items: Customer[];
 }
@@ -70,11 +89,13 @@ interface CustomerHistoryResponse {
   lead: LeadHistory | null;
   deals: DealHistory[];
   tasks: TaskHistory[];
+  campaigns: CampaignHistory[];
   summary: {
     openDeals: number;
     wonDeals: number;
     pendingTasks: number;
     completedTasks: number;
+    campaigns: number;
   };
 }
 
@@ -90,17 +111,36 @@ const taskTone: Record<TaskHistory["priority"], "outline" | "secondary" | "destr
   high: "destructive",
 };
 
+const campaignTone: Record<CampaignHistory["status"], "outline" | "secondary" | "default" | "destructive"> = {
+  draft: "outline",
+  scheduled: "secondary",
+  active: "default",
+  completed: "default",
+  paused: "destructive",
+};
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [query, setQuery] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+  const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
   const [historyByCustomer, setHistoryByCustomer] = useState<Record<string, CustomerHistoryResponse>>({});
   const [historyLoadingCustomerId, setHistoryLoadingCustomerId] = useState<string | null>(null);
+  const [editStateByCustomer, setEditStateByCustomer] = useState<Record<string, { fullName: string; email: string; phone: string; tagsInput: string; notes: string }>>({});
+  const [savingCustomerId, setSavingCustomerId] = useState<string | null>(null);
+
+  const parseTags = (value: string) =>
+    value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
 
   const loadCustomers = useCallback(async () => {
     setLoading(true);
@@ -145,10 +185,19 @@ export default function CustomersPage() {
     try {
       await apiRequest("/customers", {
         method: "POST",
-        body: JSON.stringify({ fullName: name, email: email || undefined }),
+        body: JSON.stringify({
+          fullName: name,
+          email: email || undefined,
+          phone: phone || undefined,
+          tags: parseTags(tagsInput),
+          notes: notes || undefined,
+        }),
       });
       setName("");
       setEmail("");
+      setPhone("");
+      setTagsInput("");
+      setNotes("");
       await loadCustomers();
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to create customer");
@@ -163,6 +212,11 @@ export default function CustomersPage() {
       return;
     }
 
+    const selectedCustomer = customers.find((customer) => customer.id === customerId);
+    if (selectedCustomer && !editStateByCustomer[customerId]) {
+      initializeEditState(selectedCustomer);
+    }
+
     setExpandedCustomerId(customerId);
 
     if (!historyByCustomer[customerId]) {
@@ -170,10 +224,87 @@ export default function CustomersPage() {
     }
   };
 
+  const initializeEditState = (customer: Customer) => {
+    setEditStateByCustomer((current) => ({
+      ...current,
+      [customer.id]: {
+        fullName: customer.fullName,
+        email: customer.email ?? "",
+        phone: customer.phone ?? "",
+        tagsInput: (customer.tags ?? []).join(", "),
+        notes: customer.notes ?? "",
+      },
+    }));
+  };
+
+  const handleEditFieldChange = (
+    customerId: string,
+    field: "fullName" | "email" | "phone" | "tagsInput" | "notes",
+    value: string,
+  ) => {
+    setEditStateByCustomer((current) => ({
+      ...current,
+      [customerId]: {
+        ...(current[customerId] ?? { fullName: "", email: "", phone: "", tagsInput: "", notes: "" }),
+        [field]: value,
+      },
+    }));
+  };
+
+  const updateCustomerInState = (updatedCustomer: Customer) => {
+    setCustomers((current) => current.map((customer) => (customer.id === updatedCustomer.id ? { ...customer, ...updatedCustomer } : customer)));
+    setHistoryByCustomer((current) =>
+      current[updatedCustomer.id]
+        ? {
+            ...current,
+            [updatedCustomer.id]: {
+              ...current[updatedCustomer.id],
+              customer: {
+                ...current[updatedCustomer.id].customer,
+                ...updatedCustomer,
+              },
+            },
+          }
+        : current,
+    );
+  };
+
+  const saveCustomerProfile = async (customerId: string) => {
+    const draft = editStateByCustomer[customerId];
+    if (!draft) {
+      return;
+    }
+
+    setSavingCustomerId(customerId);
+    setError(null);
+
+    const payload: CustomerUpdatePayload = {
+      fullName: draft.fullName,
+      email: draft.email.trim() ? draft.email.trim() : null,
+      phone: draft.phone.trim() ? draft.phone.trim() : null,
+      tags: parseTags(draft.tagsInput),
+      notes: draft.notes.trim() ? draft.notes.trim() : null,
+    };
+
+    try {
+      const updated = await apiRequest<Customer>(`/customers/${customerId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+
+      updateCustomerInState(updated);
+      initializeEditState(updated);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to update customer");
+    } finally {
+      setSavingCustomerId(null);
+    }
+  };
+
   return (
     <AppShell
       title="Customers"
-      description="Customer directory with linked lead, deal, and task history."
+      description="Customer directory with linked lead, deal, task, and campaign history."
     >
       <div className="grid gap-6">
         {error ? (
@@ -212,7 +343,36 @@ export default function CustomersPage() {
                       placeholder="riya@acme.com"
                     />
                   </Field>
+                  <Field>
+                    <FieldLabel htmlFor="customer-phone">Phone</FieldLabel>
+                    <Input
+                      id="customer-phone"
+                      value={phone}
+                      onChange={(event) => setPhone(event.target.value)}
+                      placeholder="+91 98765 43210"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="customer-tags">Tags</FieldLabel>
+                    <Input
+                      id="customer-tags"
+                      value={tagsInput}
+                      onChange={(event) => setTagsInput(event.target.value)}
+                      placeholder="vip, renewals, north"
+                    />
+                    <FieldDescription>Comma-separated tags are stored on the customer profile.</FieldDescription>
+                  </Field>
                 </FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="customer-notes">Notes</FieldLabel>
+                  <Textarea
+                    id="customer-notes"
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    placeholder="Account context, preferences, handoff notes..."
+                    className="min-h-28"
+                  />
+                </Field>
                 <Button disabled={submitting} type="submit" className="w-fit">
                   {submitting ? "Creating..." : "Create customer"}
                 </Button>
@@ -250,6 +410,7 @@ export default function CustomersPage() {
                   {customers.map((customer) => {
                     const history = historyByCustomer[customer.id];
                     const isExpanded = expandedCustomerId === customer.id;
+                    const editState = editStateByCustomer[customer.id];
 
                     return (
                       <Card key={customer.id} size="sm">
@@ -268,6 +429,12 @@ export default function CustomersPage() {
                           <CardDescription>
                             {customer.email ?? "No email"}{customer.phone ? ` • ${customer.phone}` : ""}
                           </CardDescription>
+                          <div className="flex flex-wrap gap-2">
+                            {(customer.tags ?? []).map((tag) => (
+                              <Badge key={tag} variant="secondary">{tag}</Badge>
+                            ))}
+                            {customer.tags?.length ? null : <Badge variant="outline">No tags</Badge>}
+                          </div>
                         </CardHeader>
                         {isExpanded ? (
                           <CardContent className="grid gap-4">
@@ -277,7 +444,67 @@ export default function CustomersPage() {
 
                             {history ? (
                               <>
-                                <div className="grid gap-3 md:grid-cols-4">
+                                <div className="grid gap-4 rounded-xl border bg-muted/20 p-4">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="font-medium">Customer profile</div>
+                                      <div className="text-sm text-muted-foreground">Edit notes, contact fields, and customer tags.</div>
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={savingCustomerId === customer.id}
+                                      onClick={() => void saveCustomerProfile(customer.id)}
+                                    >
+                                      {savingCustomerId === customer.id ? "Saving..." : "Save profile"}
+                                    </Button>
+                                  </div>
+
+                                  <FieldGroup>
+                                    <Field>
+                                      <FieldLabel>Full name</FieldLabel>
+                                      <Input
+                                        value={editState?.fullName ?? customer.fullName}
+                                        onChange={(event) => handleEditFieldChange(customer.id, "fullName", event.target.value)}
+                                      />
+                                    </Field>
+                                    <Field>
+                                      <FieldLabel>Email</FieldLabel>
+                                      <Input
+                                        type="email"
+                                        value={editState?.email ?? (customer.email ?? "")}
+                                        onChange={(event) => handleEditFieldChange(customer.id, "email", event.target.value)}
+                                      />
+                                    </Field>
+                                    <Field>
+                                      <FieldLabel>Phone</FieldLabel>
+                                      <Input
+                                        value={editState?.phone ?? (customer.phone ?? "")}
+                                        onChange={(event) => handleEditFieldChange(customer.id, "phone", event.target.value)}
+                                      />
+                                    </Field>
+                                    <Field>
+                                      <FieldLabel>Tags</FieldLabel>
+                                      <Input
+                                        value={editState?.tagsInput ?? (customer.tags ?? []).join(", ")}
+                                        onChange={(event) => handleEditFieldChange(customer.id, "tagsInput", event.target.value)}
+                                      />
+                                      <FieldDescription>Use comma-separated tags.</FieldDescription>
+                                    </Field>
+                                  </FieldGroup>
+
+                                  <Field>
+                                    <FieldLabel>Notes</FieldLabel>
+                                    <Textarea
+                                      value={editState?.notes ?? (customer.notes ?? "")}
+                                      onChange={(event) => handleEditFieldChange(customer.id, "notes", event.target.value)}
+                                      className="min-h-28"
+                                    />
+                                  </Field>
+                                </div>
+
+                                <div className="grid gap-3 md:grid-cols-5">
                                   <div className="rounded-xl border bg-muted/20 p-3">
                                     <div className="text-xs uppercase tracking-wide text-muted-foreground">Open deals</div>
                                     <div className="mt-1 text-2xl font-semibold">{history.summary.openDeals}</div>
@@ -294,6 +521,10 @@ export default function CustomersPage() {
                                     <div className="text-xs uppercase tracking-wide text-muted-foreground">Completed tasks</div>
                                     <div className="mt-1 text-2xl font-semibold">{history.summary.completedTasks}</div>
                                   </div>
+                                  <div className="rounded-xl border bg-muted/20 p-3">
+                                    <div className="text-xs uppercase tracking-wide text-muted-foreground">Campaigns</div>
+                                    <div className="mt-1 text-2xl font-semibold">{history.summary.campaigns}</div>
+                                  </div>
                                 </div>
 
                                 <Tabs defaultValue="lead" className="grid gap-4">
@@ -301,6 +532,7 @@ export default function CustomersPage() {
                                     <TabsTrigger value="lead">Lead</TabsTrigger>
                                     <TabsTrigger value="deals">Deals</TabsTrigger>
                                     <TabsTrigger value="tasks">Tasks</TabsTrigger>
+                                    <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
                                   </TabsList>
 
                                   <TabsContent value="lead">
@@ -360,6 +592,28 @@ export default function CustomersPage() {
                                       {history.tasks.length === 0 ? (
                                         <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
                                           No task history on this customer.
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </TabsContent>
+
+                                  <TabsContent value="campaigns">
+                                    <div className="grid gap-3">
+                                      {history.campaigns.map((campaign) => (
+                                        <div key={campaign.id} className="grid gap-2 rounded-xl border p-4">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <div className="font-medium">{campaign.name}</div>
+                                            <Badge variant={campaignTone[campaign.status]}>{campaign.status}</Badge>
+                                            <Badge variant="outline">{campaign.channel}</Badge>
+                                          </div>
+                                          <div className="text-sm text-muted-foreground">
+                                            {campaign.scheduledAt ? `Scheduled ${new Date(campaign.scheduledAt).toLocaleString()}` : "No scheduled time"}
+                                          </div>
+                                        </div>
+                                      ))}
+                                      {history.campaigns.length === 0 ? (
+                                        <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+                                          No campaign history on this customer.
                                         </div>
                                       ) : null}
                                     </div>

@@ -24,9 +24,17 @@ export const createTaskSchema = z.object({
   storeId: z.string().uuid().nullable().optional(),
 });
 
+export const taskCalendarQuerySchema = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .optional(),
+});
+
 export const updateTaskSchema = createTaskSchema.partial();
 export const taskParamSchema = z.object({ taskId: z.string().uuid() });
 
 export type ListTasksQuery = z.infer<typeof listTasksSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
+export type TaskCalendarQuery = z.infer<typeof taskCalendarQuerySchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
