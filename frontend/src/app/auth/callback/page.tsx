@@ -2,7 +2,13 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AlertCircle, LoaderCircle, ShieldCheck } from "lucide-react";
 
+import { AuthShell } from "@/components/auth/auth-shell";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { fetchAuthMe } from "@/lib/auth-client";
 import { getFrontendEnv } from "@/lib/env";
 import { supabase } from "@/lib/supabase";
 
@@ -17,14 +23,25 @@ function AuthCallbackContent() {
 
     const run = async () => {
       try {
+        const hashParams = new URLSearchParams(window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash);
         const code = searchParams.get("code");
-        const tokenHash = searchParams.get("token_hash");
-        const type = searchParams.get("type");
+        const tokenHash = searchParams.get("token_hash") ?? hashParams.get("token_hash");
+        const type = searchParams.get("type") ?? hashParams.get("type");
+        const accessTokenFromUrl = searchParams.get("access_token") ?? hashParams.get("access_token");
+        const refreshTokenFromUrl = searchParams.get("refresh_token") ?? hashParams.get("refresh_token");
 
         if (code) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) {
             throw exchangeError;
+          }
+        } else if (accessTokenFromUrl && refreshTokenFromUrl) {
+          const { error: setSessionError } = await supabase.auth.setSession({
+            access_token: accessTokenFromUrl,
+            refresh_token: refreshTokenFromUrl,
+          });
+          if (setSessionError) {
+            throw setSessionError;
           }
         } else if (tokenHash && type) {
           const { error: verifyError } = await supabase.auth.verifyOtp({
@@ -34,6 +51,15 @@ function AuthCallbackContent() {
           if (verifyError) {
             throw verifyError;
           }
+        }
+
+        if (window.location.hash) {
+          window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        }
+
+        if (type === "recovery") {
+          router.replace("/reset-password");
+          return;
         }
 
         const { data } = await supabase.auth.getSession();
@@ -59,17 +85,9 @@ function AuthCallbackContent() {
 
         await supabase.auth.signOut();
 
-        const meResponse = await fetch(`${env.apiUrl}/api/v1/auth/me`, {
-          credentials: "include",
-        });
-
-        if (!meResponse.ok) {
-          throw new Error("Unable to resolve authenticated user");
-        }
-
-        const me = (await meResponse.json()) as { data?: { needsOnboarding?: boolean } };
+        const me = await fetchAuthMe();
         if (!disposed) {
-          router.replace(me.data?.needsOnboarding ? "/onboarding" : "/dashboard");
+          router.replace(me?.needsOnboarding ? "/onboarding" : "/dashboard");
         }
       } catch (caughtError) {
         if (!disposed) {
@@ -86,12 +104,34 @@ function AuthCallbackContent() {
   }, [env.apiUrl, router, searchParams]);
 
   return (
-    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-      <section style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 12px 30px rgba(0, 0, 0, 0.08)" }}>
-        <h1 style={{ marginTop: 0 }}>Completing sign-in</h1>
-        {error ? <p style={{ color: "#b02020" }}>{error}</p> : <p style={{ color: "#556371" }}>Verifying your account and creating a secure session.</p>}
-      </section>
-    </main>
+    <AuthShell
+      badge="Auth callback"
+      title="Completing secure verification"
+      description="The callback normalizes Supabase verification flows, then routes the user into recovery, onboarding, or the dashboard."
+    >
+      {error ? (
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertTitle>Callback failed</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : (
+        <Card className="border-border/60 bg-muted/25">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ShieldCheck />
+              <CardTitle className="text-base">Verifying session</CardTitle>
+            </div>
+            <CardDescription>Finalizing the verified session and computing the next route.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
+      )}
+    </AuthShell>
   );
 }
 
@@ -99,12 +139,17 @@ export default function AuthCallbackPage() {
   return (
     <Suspense
       fallback={
-        <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-          <section style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 12px 30px rgba(0, 0, 0, 0.08)" }}>
-            <h1 style={{ marginTop: 0 }}>Completing sign-in</h1>
-            <p style={{ color: "#556371" }}>Verifying your account and creating a secure session.</p>
-          </section>
-        </main>
+        <AuthShell
+          badge="Auth callback"
+          title="Completing secure verification"
+          description="Finalizing your session and determining whether to continue to recovery, onboarding, or the dashboard."
+        >
+          <Alert>
+            <LoaderCircle className="animate-spin" />
+            <AlertTitle>Working on it</AlertTitle>
+            <AlertDescription>Completing the callback and preparing the next screen.</AlertDescription>
+          </Alert>
+        </AuthShell>
       }
     >
       <AuthCallbackContent />

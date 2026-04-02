@@ -20,6 +20,7 @@ export const leadStatusEnum = pgEnum("lead_status", ["new", "qualified", "propos
 export const dealStatusEnum = pgEnum("deal_status", ["open", "won", "lost"]);
 export const taskStatusEnum = pgEnum("task_status", ["todo", "in_progress", "done", "overdue"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high"]);
+export const partnerStatusEnum = pgEnum("partner_status", ["active", "inactive"]);
 
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
@@ -39,6 +40,94 @@ export const companies = pgTable("companies", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
+
+export const companySettings = pgTable(
+  "company_settings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    defaultDealPipeline: varchar("default_deal_pipeline", { length: 100 }).notNull().default("default"),
+    dealPipelines: jsonb("deal_pipelines")
+      .$type<Array<{ key: string; label: string; stages: Array<{ key: string; label: string }> }>>()
+      .notNull()
+      .default([
+        {
+          key: "default",
+          label: "Default Pipeline",
+          stages: [
+            { key: "new", label: "New" },
+            { key: "qualified", label: "Qualified" },
+            { key: "proposal", label: "Proposal" },
+            { key: "negotiation", label: "Negotiation" },
+            { key: "won", label: "Won" },
+          ],
+        },
+      ]),
+    leadSources: jsonb("lead_sources")
+      .$type<Array<{ key: string; label: string }>>()
+      .notNull()
+      .default([
+        { key: "website", label: "Website" },
+        { key: "referral", label: "Referral" },
+        { key: "walk_in", label: "Walk In" },
+        { key: "campaign", label: "Campaign" },
+      ]),
+    businessHours: jsonb("business_hours")
+      .$type<Array<{ day: string; enabled: boolean; open: string; close: string }>>()
+      .notNull()
+      .default([
+        { day: "monday", enabled: true, open: "09:00", close: "18:00" },
+        { day: "tuesday", enabled: true, open: "09:00", close: "18:00" },
+        { day: "wednesday", enabled: true, open: "09:00", close: "18:00" },
+        { day: "thursday", enabled: true, open: "09:00", close: "18:00" },
+        { day: "friday", enabled: true, open: "09:00", close: "18:00" },
+        { day: "saturday", enabled: false, open: "10:00", close: "14:00" },
+        { day: "sunday", enabled: false, open: "00:00", close: "00:00" },
+      ]),
+    branding: jsonb("branding")
+      .$type<{ companyLabel: string; primaryColor: string; accentColor: string; logoUrl: string | null }>()
+      .notNull()
+      .default({
+        companyLabel: "",
+        primaryColor: "#102031",
+        accentColor: "#d97706",
+        logoUrl: null,
+      }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    companyUnique: uniqueIndex("company_settings_company_unique").on(table.companyId),
+  }),
+  );
+
+export const partnerCompanies = pgTable(
+  "partner_companies",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 180 }).notNull(),
+    contactName: varchar("contact_name", { length: 180 }),
+    email: varchar("email", { length: 320 }),
+    phone: varchar("phone", { length: 40 }),
+    notes: text("notes"),
+    status: partnerStatusEnum("status").notNull().default("active"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("partner_companies_company_idx").on(table.companyId),
+    byStatusIdx: index("partner_companies_status_idx").on(table.companyId, table.status),
+  }),
+);
 
 export const stores = pgTable(
   "stores",
@@ -117,6 +206,7 @@ export const leads = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: "cascade" }),
     storeId: uuid("store_id").references(() => stores.id, { onDelete: "set null" }),
+    partnerCompanyId: uuid("partner_company_id").references(() => partnerCompanies.id, { onDelete: "set null" }),
     assignedToUserId: uuid("assigned_to_user_id").references(() => profiles.id, { onDelete: "set null" }),
     title: varchar("title", { length: 180 }).notNull(),
     fullName: varchar("full_name", { length: 180 }),
@@ -135,11 +225,12 @@ export const leads = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
-    byCompanyIdx: index("leads_company_idx").on(table.companyId),
-    byCompanyStatusIdx: index("leads_company_status_idx").on(table.companyId, table.status),
-    byAssignedIdx: index("leads_assigned_idx").on(table.assignedToUserId),
-  }),
-);
+      byCompanyIdx: index("leads_company_idx").on(table.companyId),
+      byCompanyStatusIdx: index("leads_company_status_idx").on(table.companyId, table.status),
+      byAssignedIdx: index("leads_assigned_idx").on(table.assignedToUserId),
+      byPartnerIdx: index("leads_partner_idx").on(table.partnerCompanyId),
+    }),
+  );
 
 export const leadActivities = pgTable("lead_activities", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -195,6 +286,7 @@ export const deals = pgTable(
     storeId: uuid("store_id").references(() => stores.id, { onDelete: "set null" }),
     customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
     leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    partnerCompanyId: uuid("partner_company_id").references(() => partnerCompanies.id, { onDelete: "set null" }),
     assignedToUserId: uuid("assigned_to_user_id").references(() => profiles.id, { onDelete: "set null" }),
     title: varchar("title", { length: 180 }).notNull(),
     pipeline: varchar("pipeline", { length: 100 }).notNull().default("default"),
@@ -212,11 +304,12 @@ export const deals = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
-    byCompanyIdx: index("deals_company_idx").on(table.companyId),
-    byCompanyStatusIdx: index("deals_company_status_idx").on(table.companyId, table.status),
-    byAssignedIdx: index("deals_assigned_idx").on(table.assignedToUserId),
-  }),
-);
+      byCompanyIdx: index("deals_company_idx").on(table.companyId),
+      byCompanyStatusIdx: index("deals_company_status_idx").on(table.companyId, table.status),
+      byAssignedIdx: index("deals_assigned_idx").on(table.assignedToUserId),
+      byPartnerIdx: index("deals_partner_idx").on(table.partnerCompanyId),
+    }),
+  );
 
 export const dealActivities = pgTable("deal_activities", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -293,6 +386,7 @@ export const companyRelations = relations(companies, ({ many }) => ({
   stores: many(stores),
   memberships: many(companyMemberships),
   invites: many(companyInvites),
+  partners: many(partnerCompanies),
   leads: many(leads),
   customers: many(customers),
   deals: many(deals),

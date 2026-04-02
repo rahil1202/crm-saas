@@ -3,7 +3,36 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface Lead {
   id: string;
@@ -12,6 +41,7 @@ interface Lead {
   email: string | null;
   phone: string | null;
   source: string | null;
+  partnerCompanyId?: string | null;
   status: "new" | "qualified" | "proposal" | "won" | "lost";
   score: number;
   createdAt: string;
@@ -42,7 +72,53 @@ interface ConvertLeadResponse {
   converted: true;
 }
 
+interface LeadBoardResponse {
+  columns: Array<{
+    key: string;
+    label: string;
+    items: Lead[];
+  }>;
+  total: number;
+}
+
+interface LeadSourceSettings {
+  leadSources: Array<{
+    key: string;
+    label: string;
+  }>;
+}
+
+interface PartnerListResponse {
+  items: Array<{
+    id: string;
+    name: string;
+    status: "active" | "inactive";
+  }>;
+}
+
+interface CsvImportResponse {
+  createdCount: number;
+  attemptedCount: number;
+  errorCount: number;
+  leadIds: string[];
+  errors: Array<{
+    row: number;
+    message: string;
+  }>;
+}
+
 const leadStatuses = ["new", "qualified", "proposal", "won", "lost"] as const;
+const statusToneByValue: Record<Lead["status"], "outline" | "secondary" | "default" | "destructive"> = {
+  new: "outline",
+  qualified: "secondary",
+  proposal: "default",
+  won: "default",
+  lost: "destructive",
+};
+
+const importExample = `title,full_name,email,source,status,score,tags
+Acme HQ fit-out,Riya Mehta,riya@acme.com,website,new,78,priority|enterprise
+North zone referral,Vikram Singh,,referral,qualified,62,partner`;
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -54,8 +130,21 @@ export default function LeadsPage() {
   const [newLeadTitle, setNewLeadTitle] = useState("");
   const [newLeadName, setNewLeadName] = useState("");
   const [newLeadEmail, setNewLeadEmail] = useState("");
+  const [newLeadSource, setNewLeadSource] = useState("");
+  const [newLeadPartnerId, setNewLeadPartnerId] = useState("");
   const [creating, setCreating] = useState(false);
   const [convertingLeadId, setConvertingLeadId] = useState<string | null>(null);
+  const [leadSourceSettings, setLeadSourceSettings] = useState<LeadSourceSettings | null>(null);
+  const [partners, setPartners] = useState<PartnerListResponse["items"]>([]);
+  const [board, setBoard] = useState<LeadBoardResponse | null>(null);
+  const [sourceFilter, setSourceFilter] = useState<string>("");
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<string>("");
+  const [bulkSource, setBulkSource] = useState<string>("");
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [importCsv, setImportCsv] = useState(importExample);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<CsvImportResponse | null>(null);
 
   const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null);
   const [timelineByLead, setTimelineByLead] = useState<Record<string, LeadActivity[]>>({});
@@ -77,6 +166,7 @@ export default function LeadsPage() {
     try {
       const data = await apiRequest<ListLeadResponse>(`/leads?${searchParams.toString()}`);
       setLeads(data.items);
+      setSelectedLeadIds((current) => current.filter((id) => data.items.some((lead) => lead.id === id)));
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load leads");
     } finally {
@@ -96,9 +186,44 @@ export default function LeadsPage() {
     }
   }, []);
 
+  const loadBoard = useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (sourceFilter) {
+        params.set("source", sourceFilter);
+      }
+      const data = await apiRequest<LeadBoardResponse>(`/leads/board?${params.toString()}`);
+      setBoard(data);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead board");
+    }
+  }, [sourceFilter]);
+
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
+
+  useEffect(() => {
+    const loadLeadSources = async () => {
+      try {
+        const [leadSourceData, partnerData] = await Promise.all([
+          apiRequest<LeadSourceSettings>("/settings/lead-sources"),
+          apiRequest<PartnerListResponse>("/partners"),
+        ]);
+        setLeadSourceSettings(leadSourceData);
+        setPartners(partnerData.items.filter((item) => item.status === "active"));
+        setNewLeadSource(leadSourceData.leadSources[0]?.key ?? "");
+      } catch (requestError) {
+        setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead sources");
+      }
+    };
+
+    void loadLeadSources();
+  }, []);
+
+  useEffect(() => {
+    void loadBoard();
+  }, [loadBoard]);
 
   const handleCreateLead = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -109,20 +234,47 @@ export default function LeadsPage() {
       await apiRequest<Lead>("/leads", {
         method: "POST",
         body: JSON.stringify({
-          title: newLeadTitle,
-          fullName: newLeadName || undefined,
-          email: newLeadEmail || undefined,
-        }),
-      });
+            title: newLeadTitle,
+            fullName: newLeadName || undefined,
+            email: newLeadEmail || undefined,
+            source: newLeadSource || undefined,
+            partnerCompanyId: newLeadPartnerId || undefined,
+          }),
+        });
 
       setNewLeadTitle("");
       setNewLeadName("");
       setNewLeadEmail("");
+      setNewLeadSource(leadSourceSettings?.leadSources[0]?.key ?? "");
+      setNewLeadPartnerId("");
       await loadLeads();
+      await loadBoard();
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to create lead");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleImportCsv = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setImporting(true);
+    setError(null);
+    setImportResult(null);
+
+    try {
+      const result = await apiRequest<CsvImportResponse>("/leads/import-csv", {
+        method: "POST",
+        body: JSON.stringify({ csv: importCsv }),
+      });
+
+      setImportResult(result);
+      await loadLeads();
+      await loadBoard();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to import CSV");
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -133,6 +285,7 @@ export default function LeadsPage() {
         body: JSON.stringify({ status }),
       });
       await loadLeads();
+      await loadBoard();
       if (expandedLeadId === leadId) {
         await loadTimeline(leadId);
       }
@@ -154,6 +307,7 @@ export default function LeadsPage() {
         }),
       });
       await loadLeads();
+      await loadBoard();
       if (expandedLeadId === leadId) {
         await loadTimeline(leadId);
       }
@@ -192,90 +346,446 @@ export default function LeadsPage() {
     }
   };
 
+  const toggleLeadSelection = (leadId: string, checked: boolean) => {
+    setSelectedLeadIds((current) =>
+      checked ? [...new Set([...current, leadId])] : current.filter((id) => id !== leadId),
+    );
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedLeadIds(checked ? leads.map((lead) => lead.id) : []);
+  };
+
+  const handleBulkUpdate = async () => {
+    if (selectedLeadIds.length === 0) {
+      return;
+    }
+
+    setBulkUpdating(true);
+    setError(null);
+
+    try {
+      await apiRequest("/leads/bulk-update", {
+        method: "POST",
+        body: JSON.stringify({
+          leadIds: selectedLeadIds,
+          ...(bulkStatus ? { status: bulkStatus } : {}),
+          ...(bulkSource ? { source: bulkSource } : {}),
+        }),
+      });
+
+      setSelectedLeadIds([]);
+      setBulkStatus("");
+      setBulkSource("");
+      await loadLeads();
+      await loadBoard();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to bulk update leads");
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
   return (
     <AppShell
       title="Leads"
-      description="Lead workspace with tenant-scoped CRUD, conversion, filters, and timeline activities."
+      description="Import, triage, and convert tenant-scoped leads from one workspace."
     >
-      <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16, marginBottom: 16 }}>
-        <h2 style={{ marginTop: 0, marginBottom: 12 }}>Create lead</h2>
-        <form onSubmit={handleCreateLead} style={{ display: "grid", gap: 10 }}>
-          <input value={newLeadTitle} onChange={(event) => setNewLeadTitle(event.target.value)} placeholder="Lead title" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-          <input value={newLeadName} onChange={(event) => setNewLeadName(event.target.value)} placeholder="Contact name" style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-          <input value={newLeadEmail} onChange={(event) => setNewLeadEmail(event.target.value)} placeholder="Contact email" type="email" style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-          <button type="submit" disabled={creating} style={{ width: "fit-content", padding: "10px 14px", borderRadius: 10, border: "none", background: "#102031", color: "#fff", cursor: "pointer" }}>
-            {creating ? "Creating..." : "Create lead"}
-          </button>
-        </form>
-      </section>
+      <div className="grid gap-6">
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Request failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16 }}>
-        <h2 style={{ marginTop: 0 }}>Lead list</h2>
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title" style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }}>
-            <option value="">All statuses</option>
-            {leadStatuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={() => void loadLeads()} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0", cursor: "pointer" }}>
-            Apply filters
-          </button>
-        </div>
+        {importResult ? (
+          <Alert>
+            <AlertTitle>CSV import complete</AlertTitle>
+            <AlertDescription>
+              Created {importResult.createdCount} of {importResult.attemptedCount} rows.{" "}
+              {importResult.errorCount > 0 ? `${importResult.errorCount} rows need correction.` : "No row errors returned."}
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
-        {error ? <p style={{ color: "#b02020" }}>{error}</p> : null}
-        {loading ? <p>Loading leads...</p> : null}
+        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+          <Card>
+            <CardHeader>
+              <CardTitle>Create lead</CardTitle>
+              <CardDescription>Add one lead manually with the configured source list.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-4" onSubmit={handleCreateLead}>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="lead-title">Lead title</FieldLabel>
+                    <Input
+                      id="lead-title"
+                      value={newLeadTitle}
+                      onChange={(event) => setNewLeadTitle(event.target.value)}
+                      placeholder="Acme office expansion"
+                      required
+                    />
+                  </Field>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field>
+                      <FieldLabel htmlFor="lead-name">Contact name</FieldLabel>
+                      <Input
+                        id="lead-name"
+                        value={newLeadName}
+                        onChange={(event) => setNewLeadName(event.target.value)}
+                        placeholder="Riya Mehta"
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="lead-email">Contact email</FieldLabel>
+                      <Input
+                        id="lead-email"
+                        type="email"
+                        value={newLeadEmail}
+                        onChange={(event) => setNewLeadEmail(event.target.value)}
+                        placeholder="riya@acme.com"
+                      />
+                    </Field>
+                  </div>
+                    <Field>
+                      <FieldLabel>Lead source</FieldLabel>
+                      <Select value={newLeadSource || "__none"} onValueChange={(value) => setNewLeadSource(!value || value === "__none" ? "" : value)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a source" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">No source</SelectItem>
+                        {(leadSourceSettings?.leadSources ?? []).map((source) => (
+                          <SelectItem key={source.key} value={source.key}>
+                            {source.label}
+                          </SelectItem>
+                        ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field>
+                      <FieldLabel>Partner assignment</FieldLabel>
+                      <Select value={newLeadPartnerId || "__none"} onValueChange={(value) => setNewLeadPartnerId(!value || value === "__none" ? "" : value)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select partner" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">No partner</SelectItem>
+                          {partners.map((partner) => (
+                            <SelectItem key={partner.id} value={partner.id}>
+                              {partner.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </FieldGroup>
+                <Button disabled={creating} type="submit" className="w-fit">
+                  {creating ? "Creating..." : "Create lead"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
 
-        {!loading ? (
-          <div style={{ display: "grid", gap: 10 }}>
-            {leads.map((lead) => (
-              <article key={lead.id} style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
-                <strong>{lead.title}</strong>
-                <span style={{ color: "#556371" }}>{lead.fullName ?? "No contact name"}</span>
-                <span style={{ color: "#556371" }}>{lead.email ?? "No email"}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span>Status</span>
-                  <select value={lead.status} onChange={(event) => void handleStatusChange(lead.id, event.target.value as Lead["status"])} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0" }}>
-                    {leadStatuses.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" disabled={convertingLeadId === lead.id} onClick={() => void handleConvertLead(lead.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#f8fbff", cursor: "pointer" }}>
-                    {convertingLeadId === lead.id ? "Converting..." : "Convert to deal"}
-                  </button>
-                  <button type="button" onClick={() => void toggleTimeline(lead.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff", cursor: "pointer" }}>
-                    {expandedLeadId === lead.id ? "Hide timeline" : "Show timeline"}
-                  </button>
+          <Card>
+            <CardHeader>
+              <CardTitle>Import CSV</CardTitle>
+              <CardDescription>Paste up to 200 rows. Supported headers include `title`, `full_name`, `email`, `source`, `status`, `score`, `notes`, and `tags`.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-4" onSubmit={handleImportCsv}>
+                <Field>
+                  <FieldLabel htmlFor="lead-import">CSV payload</FieldLabel>
+                  <FieldContent>
+                    <Textarea
+                      id="lead-import"
+                      value={importCsv}
+                      onChange={(event) => setImportCsv(event.target.value)}
+                      className="min-h-52 font-mono text-xs"
+                    />
+                    <FieldDescription>
+                      `tags` can be separated by `|`, `,`, or `;`. Invalid rows are returned with line numbers and do not block valid inserts.
+                    </FieldDescription>
+                  </FieldContent>
+                </Field>
+                <div className="flex flex-wrap gap-3">
+                  <Button disabled={importing} type="submit">
+                    {importing ? "Importing..." : "Import leads"}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setImportCsv(importExample)}>
+                    Reset sample
+                  </Button>
                 </div>
-
-                {expandedLeadId === lead.id ? (
-                  <div style={{ marginTop: 8, borderTop: "1px solid #e8edf3", paddingTop: 10, display: "grid", gap: 8 }}>
-                    {timelineLoadingLeadId === lead.id ? <p>Loading timeline...</p> : null}
-                    {(timelineByLead[lead.id] ?? []).map((activity) => (
-                      <div key={activity.id} style={{ fontSize: 13, color: "#35414d" }}>
-                        <strong>{activity.type}</strong> - {String(activity.payload?.message ?? "") || JSON.stringify(activity.payload)}
+                {importResult?.errors.length ? (
+                  <div className="grid gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                    <div className="font-medium">Rows that need correction</div>
+                    {importResult.errors.slice(0, 8).map((item) => (
+                      <div key={`${item.row}-${item.message}`} className="text-muted-foreground">
+                        Row {item.row}: {item.message}
                       </div>
                     ))}
-                    {(timelineByLead[lead.id] ?? []).length === 0 && timelineLoadingLeadId !== lead.id ? <p>No timeline activity yet.</p> : null}
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input value={timelineDraftByLead[lead.id] ?? ""} onChange={(event) => setTimelineDraftByLead((prev) => ({ ...prev, [lead.id]: event.target.value }))} placeholder="Add timeline note" style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0" }} />
-                      <button type="button" onClick={() => void addTimelineNote(lead.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}>
-                        Add
-                      </button>
-                    </div>
+                    {importResult.errors.length > 8 ? (
+                      <div className="text-muted-foreground">
+                        {importResult.errors.length - 8} more row errors returned by the API.
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
-              </article>
-            ))}
-            {leads.length === 0 ? <p>No leads found for this workspace.</p> : null}
-          </div>
-        ) : null}
-      </section>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Lead workspace</CardTitle>
+            <CardDescription>Use list mode for bulk actions and board mode for status distribution.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="list" className="grid gap-4">
+              <TabsList className="w-fit">
+                <TabsTrigger value="list">List</TabsTrigger>
+                <TabsTrigger value="board">Board</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="list" className="grid gap-4">
+                <div className="grid gap-4 rounded-xl border bg-muted/30 p-4 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+                  <Field>
+                    <FieldLabel htmlFor="lead-search">Search</FieldLabel>
+                    <Input
+                      id="lead-search"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search lead titles"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Status</FieldLabel>
+                    <Select value={statusFilter || "__all"} onValueChange={(value) => setStatusFilter(!value || value === "__all" ? "" : value)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="All statuses" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all">All statuses</SelectItem>
+                        {leadStatuses.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <div className="flex items-end">
+                    <Button type="button" variant="outline" onClick={() => void loadLeads()}>
+                      Apply filters
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 rounded-xl border bg-card p-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                      <Checkbox
+                        checked={leads.length > 0 && selectedLeadIds.length === leads.length}
+                        onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+                        aria-label="Select all visible leads"
+                      />
+                      <span className="text-sm text-muted-foreground">{selectedLeadIds.length} selected</span>
+                    </div>
+                    <Select value={bulkStatus || "__keep"} onValueChange={(value) => setBulkStatus(!value || value === "__keep" ? "" : value)}>
+                      <SelectTrigger className="w-full md:w-52">
+                        <SelectValue placeholder="Keep current status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__keep">Keep current status</SelectItem>
+                        {leadStatuses.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {status}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={bulkSource || "__keep"} onValueChange={(value) => setBulkSource(!value || value === "__keep" ? "" : value)}>
+                      <SelectTrigger className="w-full md:w-52">
+                        <SelectValue placeholder="Keep current source" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__keep">Keep current source</SelectItem>
+                        {(leadSourceSettings?.leadSources ?? []).map((source) => (
+                          <SelectItem key={source.key} value={source.key}>
+                            {source.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      disabled={bulkUpdating || selectedLeadIds.length === 0 || (!bulkStatus && !bulkSource)}
+                      onClick={() => void handleBulkUpdate()}
+                    >
+                      {bulkUpdating ? "Updating..." : "Apply bulk update"}
+                    </Button>
+                  </div>
+
+                  {loading ? <div className="text-sm text-muted-foreground">Loading leads...</div> : null}
+
+                  {!loading ? (
+                    <div className="grid gap-3">
+                      {leads.map((lead) => (
+                        <article
+                          key={lead.id}
+                          className="grid gap-4 rounded-xl border bg-background p-4"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                              <Checkbox
+                                checked={selectedLeadIds.includes(lead.id)}
+                                onCheckedChange={(checked) => toggleLeadSelection(lead.id, checked === true)}
+                                aria-label={`Select lead ${lead.title}`}
+                              />
+                              <div className="grid gap-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h3 className="font-medium">{lead.title}</h3>
+                                  <Badge variant={statusToneByValue[lead.status]}>{lead.status}</Badge>
+                                  {lead.source ? <Badge variant="outline">{lead.source}</Badge> : null}
+                                  {lead.partnerCompanyId ? <Badge variant="secondary">Partner assigned</Badge> : null}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  {lead.fullName ?? "No contact name"}{lead.email ? ` • ${lead.email}` : ""}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  Score {lead.score}{lead.phone ? ` • ${lead.phone}` : ""}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Select value={lead.status} onValueChange={(value) => value ? void handleStatusChange(lead.id, value as Lead["status"]) : undefined}>
+                                <SelectTrigger className="w-40">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {leadStatuses.map((status) => (
+                                    <SelectItem key={status} value={status}>
+                                      {status}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={convertingLeadId === lead.id}
+                                onClick={() => void handleConvertLead(lead.id)}
+                              >
+                                {convertingLeadId === lead.id ? "Converting..." : "Convert to deal"}
+                              </Button>
+                              <Button type="button" variant="ghost" onClick={() => void toggleTimeline(lead.id)}>
+                                {expandedLeadId === lead.id ? "Hide timeline" : "Show timeline"}
+                              </Button>
+                            </div>
+                          </div>
+
+                          {expandedLeadId === lead.id ? (
+                            <div className="grid gap-3 rounded-xl border bg-muted/30 p-4">
+                              {timelineLoadingLeadId === lead.id ? (
+                                <div className="text-sm text-muted-foreground">Loading timeline...</div>
+                              ) : null}
+                              {(timelineByLead[lead.id] ?? []).length ? (
+                                <div className="grid gap-2">
+                                  {(timelineByLead[lead.id] ?? []).map((activity) => (
+                                    <div key={activity.id} className="rounded-lg border bg-background p-3 text-sm">
+                                      <div className="font-medium">{activity.type}</div>
+                                      <div className="text-muted-foreground">
+                                        {String(activity.payload?.message ?? "") || JSON.stringify(activity.payload)}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : timelineLoadingLeadId !== lead.id ? (
+                                <div className="text-sm text-muted-foreground">No timeline activity yet.</div>
+                              ) : null}
+                              <div className="flex flex-col gap-3 sm:flex-row">
+                                <Input
+                                  value={timelineDraftByLead[lead.id] ?? ""}
+                                  onChange={(event) =>
+                                    setTimelineDraftByLead((prev) => ({ ...prev, [lead.id]: event.target.value }))
+                                  }
+                                  placeholder="Add timeline note"
+                                />
+                                <Button type="button" onClick={() => void addTimelineNote(lead.id)}>
+                                  Add note
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </article>
+                      ))}
+                      {leads.length === 0 ? (
+                        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                          No leads found for this workspace.
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="board" className="grid gap-4">
+                <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-muted/30 p-4">
+                  <Field className="min-w-52 flex-1">
+                    <FieldLabel>Source filter</FieldLabel>
+                    <Select value={sourceFilter || "__all"} onValueChange={(value) => setSourceFilter(!value || value === "__all" ? "" : value)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="All sources" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__all">All sources</SelectItem>
+                        {(leadSourceSettings?.leadSources ?? []).map((source) => (
+                          <SelectItem key={source.key} value={source.key}>
+                            {source.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Button type="button" variant="outline" onClick={() => void loadBoard()}>
+                    Refresh board
+                  </Button>
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-5">
+                  {(board?.columns ?? []).map((column) => (
+                    <Card key={column.key} className="bg-muted/20">
+                      <CardHeader>
+                        <CardTitle className="flex items-center justify-between gap-2 text-sm">
+                          <span className="capitalize">{column.label}</span>
+                          <Badge variant="outline">{column.items.length}</Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="grid gap-3">
+                        {column.items.map((lead) => (
+                          <div key={lead.id} className={cn("grid gap-1 rounded-xl border bg-background p-3")}>
+                            <div className="font-medium">{lead.title}</div>
+                            <div className="text-sm text-muted-foreground">{lead.fullName ?? "No contact name"}</div>
+                            <div className="text-xs text-muted-foreground">{lead.source ?? "Unspecified source"}</div>
+                          </div>
+                        ))}
+                        {column.items.length === 0 ? (
+                          <div className="rounded-xl border border-dashed bg-background p-4 text-sm text-muted-foreground">
+                            No leads in this status.
+                          </div>
+                        ) : null}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </div>
     </AppShell>
   );
 }

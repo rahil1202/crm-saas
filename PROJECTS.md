@@ -58,7 +58,7 @@ Status legend:
 - [x] Partners page scaffold
 - [x] Campaigns page scaffold
 - [x] Settings page scaffold
-- [ ] Company admin pages
+- [-] Company admin pages
 - [ ] Super-admin pages
 - [x] Authenticated route guards
 - [ ] Shared design system
@@ -100,7 +100,7 @@ Status legend:
 - [x] Supabase auth integration
 - [x] Signup flow
 - [x] Login flow
-- [ ] Password reset flow
+- [x] Password reset flow
 - [x] Invite acceptance flow
 - [x] Profile model
 - [x] Company model
@@ -114,16 +114,16 @@ Status legend:
 
 ### Company administration
 
-- [ ] Company profile management
-- [ ] Branch management
-- [ ] Lead source configuration
-- [ ] Default pipeline configuration
-- [ ] Business hours setup
-- [ ] Timezone and currency setup
-- [ ] Custom branding
+- [x] Company profile management
+- [x] Branch management
+- [x] Lead source configuration
+- [x] Default pipeline configuration
+- [x] Business hours setup
+- [x] Timezone and currency setup
+- [x] Custom branding
 - [x] Team invite and onboarding
-- [ ] Roles and permissions management
-- [ ] User deactivation flow
+- [x] Roles and permissions management
+- [x] User deactivation flow
 
 ## Phase 3: Core CRM Operations
 
@@ -132,14 +132,14 @@ Status legend:
 - [x] Lead schema
 - [x] Lead create/update/delete
 - [x] Lead list view data
-- [ ] Lead kanban data
+- [x] Lead kanban data
 - [x] Lead assignment
-- [ ] Partner assignment
+- [x] Partner assignment
 - [x] Lead scoring
 - [x] Lead notes
 - [x] Lead timeline
-- [ ] CSV import
-- [ ] Bulk update
+- [x] CSV import
+- [x] Bulk update
 - [x] Lead filters
 - [x] Convert lead to deal
 
@@ -148,7 +148,7 @@ Status legend:
 - [x] Deal schema
 - [ ] Multiple pipelines support
 - [x] Deal stages support
-- [ ] Deal board data
+- [x] Deal board data
 - [x] Deal create/update/delete
 - [x] Deal notes
 - [ ] Deal value and forecast
@@ -160,9 +160,9 @@ Status legend:
 
 - [x] Customer schema
 - [x] Customer profile
-- [ ] Lead history on customer
-- [ ] Deal history on customer
-- [ ] Task history on customer
+- [x] Lead history on customer
+- [x] Deal history on customer
+- [x] Task history on customer
 - [ ] Campaign history on customer
 - [ ] Notes and attachments
 - [x] Tags
@@ -181,11 +181,11 @@ Status legend:
 
 ### Partners
 
-- [ ] Partner company schema
+- [x] Partner company schema
 - [ ] Partner user schema
 - [ ] Partner access control
-- [ ] Partner lead assignment
-- [ ] Partner deal assignment
+- [x] Partner lead assignment
+- [x] Partner deal assignment
 - [ ] Partner performance reporting
 
 ## Phase 4: Engagement, Automation, and Assets
@@ -253,7 +253,7 @@ Status legend:
 
 ### Settings
 
-- [ ] Pipeline settings UI
+- [x] Pipeline settings UI
 - [ ] Custom fields UI
 - [ ] Tags UI
 - [ ] Notification rules
@@ -273,10 +273,8 @@ Implemented now:
 
 Not implemented yet:
 
-- signup/password reset UX
-- advanced CRM workflows (kanban, bulk ops, timeline, partner routing)
+- advanced CRM workflows (partner access control and partner users)
 - analytics/reporting and automation
-- real settings
 - real reports
 - real campaigns/automation
 

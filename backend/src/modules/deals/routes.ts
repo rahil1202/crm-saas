@@ -4,8 +4,9 @@ import { z } from "zod";
 
 import type { AppEnv } from "@/app/router";
 import { db } from "@/db/client";
-import { dealActivities, deals } from "@/db/schema";
+import { dealActivities, deals, partnerCompanies } from "@/db/schema";
 import { ok } from "@/lib/api";
+import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
 import { requireAuth, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
@@ -19,6 +20,10 @@ const listSchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+const boardSchema = z.object({
+  pipeline: z.string().trim().optional(),
+});
+
 const createSchema = z.object({
   title: z.string().trim().min(1).max(180),
   pipeline: z.string().trim().min(1).max(100).default("default"),
@@ -28,6 +33,7 @@ const createSchema = z.object({
   expectedCloseDate: z.string().datetime().optional(),
   lostReason: z.string().trim().max(250).optional(),
   notes: z.string().trim().max(4000).optional(),
+  partnerCompanyId: z.string().uuid().nullable().optional(),
   assignedToUserId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid().nullable().optional(),
   leadId: z.string().uuid().nullable().optional(),
@@ -55,6 +61,37 @@ async function addDealActivity(input: {
   payload: Record<string, unknown>;
 }) {
   await db.insert(dealActivities).values(input);
+}
+
+async function assertValidPipelineStage(companyId: string, pipelineKey: string, stageKey: string) {
+  const settings = await getCompanySettings(companyId);
+  const pipeline = settings.dealPipelines.find((item) => item.key === pipelineKey);
+
+  if (!pipeline) {
+    throw AppError.badRequest("Selected pipeline does not exist in company settings");
+  }
+
+  const stage = pipeline.stages.find((item) => item.key === stageKey);
+
+  if (!stage) {
+    throw AppError.badRequest("Selected stage does not exist in the configured pipeline");
+  }
+}
+
+async function assertValidPartnerCompany(companyId: string, partnerCompanyId?: string | null) {
+  if (!partnerCompanyId) {
+    return;
+  }
+
+  const [partner] = await db
+    .select({ id: partnerCompanies.id })
+    .from(partnerCompanies)
+    .where(and(eq(partnerCompanies.id, partnerCompanyId), eq(partnerCompanies.companyId, companyId), isNull(partnerCompanies.deletedAt)))
+    .limit(1);
+
+  if (!partner) {
+    throw AppError.badRequest("Partner is not available in this company");
+  }
 }
 
 export const dealRoutes = new Hono<AppEnv>().basePath("/deals");
@@ -93,10 +130,54 @@ dealRoutes.get("/", validateQuery(listSchema), async (c) => {
   });
 });
 
+dealRoutes.get("/board", validateQuery(boardSchema), async (c) => {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as z.infer<typeof boardSchema>;
+  const settings = await getCompanySettings(tenant.companyId);
+  const selectedPipelineKey = query.pipeline ?? settings.defaultDealPipeline;
+  const selectedPipeline = settings.dealPipelines.find((item) => item.key === selectedPipelineKey);
+
+  if (!selectedPipeline) {
+    throw AppError.badRequest("Selected pipeline does not exist in company settings");
+  }
+
+  const items = await db
+    .select()
+    .from(deals)
+    .where(and(eq(deals.companyId, tenant.companyId), eq(deals.pipeline, selectedPipeline.key), isNull(deals.deletedAt)))
+    .orderBy(desc(deals.updatedAt), desc(deals.createdAt));
+
+  const columns = selectedPipeline.stages.map((stage) => ({
+    key: stage.key,
+    label: stage.label,
+    items: items.filter((deal) => deal.stage === stage.key && deal.status === "open"),
+    totalValue: items
+      .filter((deal) => deal.stage === stage.key && deal.status === "open")
+      .reduce((sum, deal) => sum + deal.value, 0),
+  }));
+
+  return ok(c, {
+    pipeline: {
+      key: selectedPipeline.key,
+      label: selectedPipeline.label,
+    },
+    availablePipelines: settings.dealPipelines.map((pipeline) => ({
+      key: pipeline.key,
+      label: pipeline.label,
+    })),
+    columns,
+    wonCount: items.filter((deal) => deal.status === "won").length,
+    lostCount: items.filter((deal) => deal.status === "lost").length,
+  });
+});
+
 dealRoutes.post("/", validateJson(createSchema), async (c) => {
   const tenant = c.get("tenant");
   const user = c.get("user");
   const body = c.get("validatedBody") as z.infer<typeof createSchema>;
+
+  await assertValidPipelineStage(tenant.companyId, body.pipeline, body.stage);
+  await assertValidPartnerCompany(tenant.companyId, body.partnerCompanyId);
 
   const [created] = await db
     .insert(deals)
@@ -105,6 +186,7 @@ dealRoutes.post("/", validateJson(createSchema), async (c) => {
       storeId: body.storeId ?? tenant.storeId ?? null,
       customerId: body.customerId ?? null,
       leadId: body.leadId ?? null,
+      partnerCompanyId: body.partnerCompanyId ?? null,
       assignedToUserId: body.assignedToUserId ?? null,
       title: body.title,
       pipeline: body.pipeline,
@@ -140,13 +222,23 @@ dealRoutes.patch("/:dealId", validateJson(updateSchema), async (c) => {
   }
 
   const [before] = await db
-    .select({ status: deals.status })
+    .select({ status: deals.status, pipeline: deals.pipeline, stage: deals.stage })
     .from(deals)
     .where(and(eq(deals.id, params.dealId), eq(deals.companyId, tenant.companyId), isNull(deals.deletedAt)))
     .limit(1);
 
   if (!before) {
     throw AppError.notFound("Deal not found");
+  }
+
+  const effectivePipeline = body.pipeline ?? before.pipeline;
+  const effectiveStage = body.stage ?? before.stage;
+
+  if (body.pipeline !== undefined || body.stage !== undefined) {
+    await assertValidPipelineStage(tenant.companyId, effectivePipeline, effectiveStage);
+  }
+  if (body.partnerCompanyId !== undefined) {
+    await assertValidPartnerCompany(tenant.companyId, body.partnerCompanyId);
   }
 
   const [updated] = await db
@@ -162,6 +254,7 @@ dealRoutes.patch("/:dealId", validateJson(updateSchema), async (c) => {
         : {}),
       ...(body.lostReason !== undefined ? { lostReason: body.lostReason ?? null } : {}),
       ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
+      ...(body.partnerCompanyId !== undefined ? { partnerCompanyId: body.partnerCompanyId ?? null } : {}),
       ...(body.assignedToUserId !== undefined ? { assignedToUserId: body.assignedToUserId ?? null } : {}),
       ...(body.customerId !== undefined ? { customerId: body.customerId ?? null } : {}),
       ...(body.leadId !== undefined ? { leadId: body.leadId ?? null } : {}),

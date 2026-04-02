@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { AppEnv } from "@/app/router";
 import { db } from "@/db/client";
-import { customers } from "@/db/schema";
+import { customers, deals, leads, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { requireAuth, requireTenant } from "@/middleware/auth";
@@ -57,6 +57,55 @@ customerRoutes.get("/", validateQuery(listSchema), async (c) => {
     total: totalRows[0]?.count ?? 0,
     limit: query.limit,
     offset: query.offset,
+  });
+});
+
+customerRoutes.get("/:customerId/history", async (c) => {
+  const tenant = c.get("tenant");
+  const params = paramSchema.parse(c.req.param());
+
+  const [customer] = await db
+    .select()
+    .from(customers)
+    .where(and(eq(customers.id, params.customerId), eq(customers.companyId, tenant.companyId), isNull(customers.deletedAt)))
+    .limit(1);
+
+  if (!customer) {
+    throw AppError.notFound("Customer not found");
+  }
+
+  const [lead, customerDeals, customerTasks] = await Promise.all([
+    customer.leadId
+      ? db
+          .select()
+          .from(leads)
+          .where(and(eq(leads.id, customer.leadId), eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt)))
+          .limit(1)
+          .then((items) => items[0] ?? null)
+      : Promise.resolve(null),
+    db
+      .select()
+      .from(deals)
+      .where(and(eq(deals.companyId, tenant.companyId), eq(deals.customerId, customer.id), isNull(deals.deletedAt)))
+      .orderBy(desc(deals.createdAt)),
+    db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.companyId, tenant.companyId), eq(tasks.customerId, customer.id), isNull(tasks.deletedAt)))
+      .orderBy(desc(tasks.createdAt)),
+  ]);
+
+  return ok(c, {
+    customer,
+    lead,
+    deals: customerDeals,
+    tasks: customerTasks,
+    summary: {
+      openDeals: customerDeals.filter((deal) => deal.status === "open").length,
+      wonDeals: customerDeals.filter((deal) => deal.status === "won").length,
+      pendingTasks: customerTasks.filter((task) => task.status !== "done").length,
+      completedTasks: customerTasks.filter((task) => task.status === "done").length,
+    },
   });
 });
 

@@ -15,11 +15,27 @@ export interface SupabaseIdentity {
   email: string | null;
 }
 
+interface SupabasePasswordSession extends SupabaseIdentity {
+  accessToken: string;
+}
+
 export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
   refreshTokenExpiresAt: Date;
   refreshTokenJti: string;
+}
+
+export interface PasswordPolicyCheck {
+  key: string;
+  label: string;
+  passed: boolean;
+}
+
+export interface PasswordPolicyResult {
+  valid: boolean;
+  score: number;
+  checks: PasswordPolicyCheck[];
 }
 
 interface AccessTokenPayload {
@@ -138,6 +154,87 @@ export function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
+export function evaluatePasswordPolicy(
+  password: string,
+  context?: {
+    email?: string | null;
+    fullName?: string | null;
+  },
+): PasswordPolicyResult {
+  const emailLocalPart = context?.email?.split("@")[0]?.toLowerCase() ?? "";
+  const fullNameTokens =
+    context?.fullName
+      ?.toLowerCase()
+      .split(/[^a-z0-9]+/i)
+      .filter((token) => token.length >= 3) ?? [];
+  const loweredPassword = password.toLowerCase();
+
+  const checks: PasswordPolicyCheck[] = [
+    {
+      key: "length",
+      label: "At least 8 characters",
+      passed: password.length >= 8,
+    },
+    {
+      key: "lowercase",
+      label: "One lowercase letter",
+      passed: /[a-z]/.test(password),
+    },
+    {
+      key: "uppercase",
+      label: "One uppercase letter",
+      passed: /[A-Z]/.test(password),
+    },
+    {
+      key: "number",
+      label: "One number",
+      passed: /\d/.test(password),
+    },
+    {
+      key: "special",
+      label: "One special character",
+      passed: /[^A-Za-z0-9]/.test(password),
+    },
+    {
+      key: "email",
+      label: "Does not contain your email name",
+      passed: emailLocalPart.length < 3 || !loweredPassword.includes(emailLocalPart),
+    },
+    {
+      key: "name",
+      label: "Does not contain your name",
+      passed: !fullNameTokens.some((token) => loweredPassword.includes(token)),
+    },
+  ];
+
+  const passedChecks = checks.filter((check) => check.passed).length;
+
+  return {
+    valid: checks.every((check) => check.passed),
+    score: Math.round((passedChecks / checks.length) * 100),
+    checks,
+  };
+}
+
+export function assertPasswordPolicy(
+  password: string,
+  context?: {
+    email?: string | null;
+    fullName?: string | null;
+  },
+) {
+  const policy = evaluatePasswordPolicy(password, context);
+
+  if (!policy.valid) {
+    throw AppError.badRequest("Password does not meet security requirements", {
+      checks: policy.checks,
+      score: policy.score,
+    });
+  }
+
+  return policy;
+}
+
 export async function verifySupabaseAccessToken(token: string): Promise<SupabaseIdentity> {
   try {
     const { payload } = await jwtVerify(token, jwks, {
@@ -158,7 +255,7 @@ export async function verifySupabaseAccessToken(token: string): Promise<Supabase
   }
 }
 
-export async function loginWithSupabasePassword(email: string, password: string): Promise<SupabaseIdentity> {
+async function createSupabasePasswordSession(email: string, password: string): Promise<SupabasePasswordSession> {
   const response = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST",
     headers: {
@@ -173,20 +270,35 @@ export async function loginWithSupabasePassword(email: string, password: string)
   }
 
   const payload = (await response.json()) as {
+    access_token?: string;
     user?: {
       id?: string;
       email?: string | null;
     };
   };
 
-  if (!payload.user?.id) {
+  if (!payload.user?.id || !payload.access_token) {
     throw AppError.unauthorized("Unable to resolve Supabase user");
   }
 
   return {
+    accessToken: payload.access_token,
     userId: payload.user.id,
     email: payload.user.email ?? null,
   };
+}
+
+export async function loginWithSupabasePassword(email: string, password: string): Promise<SupabaseIdentity> {
+  const session = await createSupabasePasswordSession(email, password);
+
+  return {
+    userId: session.userId,
+    email: session.email,
+  };
+}
+
+export async function loginWithSupabasePasswordSession(email: string, password: string): Promise<SupabasePasswordSession> {
+  return createSupabasePasswordSession(email, password);
 }
 
 export async function registerWithSupabase(input: {
@@ -237,6 +349,68 @@ export async function registerWithSupabase(input: {
     email: payload.user?.email ?? null,
     emailConfirmationRequired: payload.session == null,
   };
+}
+
+export async function sendPasswordRecoveryEmail(email: string) {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/recover`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({
+      email,
+      options: {
+        redirectTo: env.AUTH_CALLBACK_URL,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { msg?: string; error_description?: string } | null;
+    throw AppError.badRequest(payload?.msg ?? payload?.error_description ?? "Unable to send password reset email");
+  }
+}
+
+export async function resendSupabaseVerificationEmail(email: string) {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/resend`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({
+      type: "signup",
+      email,
+      options: {
+        emailRedirectTo: env.AUTH_CALLBACK_URL,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { msg?: string; error_description?: string } | null;
+    throw AppError.badRequest(payload?.msg ?? payload?.error_description ?? "Unable to resend verification email");
+  }
+}
+
+export async function updateSupabasePassword(input: { accessToken: string; password: string }) {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${input.accessToken}`,
+    },
+    body: JSON.stringify({
+      password: input.password,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { msg?: string; error_description?: string } | null;
+    throw AppError.badRequest(payload?.msg ?? payload?.error_description ?? "Unable to update password");
+  }
 }
 
 export async function checkSupabaseConnection() {

@@ -7,10 +7,15 @@ import type { AppEnv } from "@/app/router";
 import { db } from "@/db/client";
 import { authRefreshTokens, companies, companyInvites, companyMemberships, profiles, stores } from "@/db/schema";
 import {
+  assertPasswordPolicy,
   hashToken,
   issueSessionTokens,
   loginWithSupabasePassword,
+  loginWithSupabasePasswordSession,
   registerWithSupabase,
+  resendSupabaseVerificationEmail,
+  sendPasswordRecoveryEmail,
+  updateSupabasePassword,
   verifyRefreshToken,
   verifySupabaseAccessToken,
 } from "@/lib/auth";
@@ -61,6 +66,36 @@ const registerSchema = z
 const exchangeSupabaseSchema = z.object({
   supabaseAccessToken: z.string().min(1),
 });
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resendVerificationSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z
+  .object({
+    supabaseAccessToken: z.string().min(1),
+    password: z.string().min(8),
+    confirmPassword: z.string().min(8),
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
+const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1),
+    password: z.string().min(8),
+    confirmPassword: z.string().min(8),
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
 
 const refreshSchema = z.object({
   refreshToken: z.string().optional(),
@@ -159,6 +194,10 @@ authRoutes.get("/google/url", (c) => {
 
 authRoutes.post("/register", validateJson(registerSchema), async (c) => {
   const body = c.get("validatedBody") as z.infer<typeof registerSchema>;
+  assertPasswordPolicy(body.password, {
+    email: body.email,
+    fullName: body.fullName,
+  });
   const registration = await registerWithSupabase({
     email: body.email,
     password: body.password,
@@ -214,6 +253,81 @@ authRoutes.post("/exchange-supabase", validateJson(exchangeSupabaseSchema), asyn
       email: identity.email,
     },
     authenticated: true,
+  });
+});
+
+authRoutes.post("/forgot-password", validateJson(forgotPasswordSchema), async (c) => {
+  const body = c.get("validatedBody") as z.infer<typeof forgotPasswordSchema>;
+  await sendPasswordRecoveryEmail(body.email);
+
+  return ok(c, {
+    sent: true,
+    email: body.email,
+  });
+});
+
+authRoutes.post("/resend-verification", validateJson(resendVerificationSchema), async (c) => {
+  const body = c.get("validatedBody") as z.infer<typeof resendVerificationSchema>;
+  await resendSupabaseVerificationEmail(body.email);
+
+  return ok(c, {
+    sent: true,
+    email: body.email,
+  });
+});
+
+authRoutes.post("/reset-password", validateJson(resetPasswordSchema), async (c) => {
+  const body = c.get("validatedBody") as z.infer<typeof resetPasswordSchema>;
+  const identity = await verifySupabaseAccessToken(body.supabaseAccessToken);
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, identity.userId)).limit(1);
+
+  assertPasswordPolicy(body.password, {
+    email: identity.email,
+    fullName: profile?.fullName ?? null,
+  });
+
+  await updateSupabasePassword({
+    accessToken: body.supabaseAccessToken,
+    password: body.password,
+  });
+
+  return ok(c, {
+    reset: true,
+  });
+});
+
+authRoutes.post("/change-password", requireAuth, validateJson(changePasswordSchema), async (c) => {
+  const body = c.get("validatedBody") as z.infer<typeof changePasswordSchema>;
+  const user = c.get("user");
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
+  const email = profile?.email ?? user.email;
+
+  if (!email) {
+    throw AppError.badRequest("A verified email is required before changing the password");
+  }
+
+  if (body.currentPassword === body.password) {
+    throw AppError.conflict("New password must be different from the current password");
+  }
+
+  assertPasswordPolicy(body.password, {
+    email,
+    fullName: profile?.fullName ?? null,
+  });
+
+  const supabaseSession = await loginWithSupabasePasswordSession(email, body.currentPassword);
+
+  if (supabaseSession.userId !== user.id) {
+    throw AppError.unauthorized("Current password does not match the authenticated account");
+  }
+
+  await updateSupabasePassword({
+    accessToken: supabaseSession.accessToken,
+    password: body.password,
+  });
+
+  return ok(c, {
+    changed: true,
   });
 });
 

@@ -2,15 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
+import { AlertCircle, Building2, CheckCircle2, LoaderCircle } from "lucide-react";
 
+import { AuthShell } from "@/components/auth/auth-shell";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { fetchAuthMe, readApiError } from "@/lib/auth-client";
 import { getFrontendEnv } from "@/lib/env";
-
-interface MeResponse {
-  needsOnboarding: boolean;
-  user: {
-    fullName: string | null;
-  };
-}
 
 export default function OnboardingPage() {
   const env = getFrontendEnv();
@@ -19,6 +19,7 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [completed, setCompleted] = useState(false);
 
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -30,23 +31,20 @@ export default function OnboardingPage() {
     let disposed = false;
 
     const bootstrap = async () => {
-      const response = await fetch(`${env.apiUrl}/api/v1/auth/me`, {
-        credentials: "include",
-      });
+      const me = await fetchAuthMe();
 
-      if (!response.ok) {
+      if (!me) {
         router.replace("/login");
         return;
       }
 
-      const me = (await response.json()) as { data?: MeResponse };
       if (!disposed) {
-        if (!me.data?.needsOnboarding) {
+        if (!me.needsOnboarding) {
           router.replace("/dashboard");
           return;
         }
 
-        setFullName(me.data.user.fullName ?? "");
+        setFullName(me.user.fullName ?? "");
         setLoading(false);
       }
     };
@@ -56,7 +54,7 @@ export default function OnboardingPage() {
     return () => {
       disposed = true;
     };
-  }, [env.apiUrl, router]);
+  }, [router]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -79,45 +77,78 @@ export default function OnboardingPage() {
     });
 
     if (!response.ok) {
-      let message = "Onboarding failed";
-      try {
-        const json = (await response.json()) as { error?: { message?: string } };
-        message = json.error?.message ?? message;
-      } catch {
-        // ignore
-      }
-      setError(message);
+      setError(await readApiError(response, "Onboarding failed"));
       setSubmitting(false);
       return;
     }
 
-    router.replace("/dashboard");
+    setCompleted(true);
+    setSubmitting(false);
+    setTimeout(() => {
+      router.replace("/dashboard");
+    }, 1200);
   };
 
   return (
-    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-      <section style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 520, boxShadow: "0 12px 30px rgba(0, 0, 0, 0.08)" }}>
-        <h1 style={{ marginTop: 0 }}>Set up your workspace</h1>
-        <p style={{ color: "#556371" }}>Complete your company and owner profile to finish account setup.</p>
+    <AuthShell
+      badge="Onboarding"
+      title="Create the first workspace"
+      description="This step creates the owner profile, company record, default branch, and owner membership in one transaction."
+    >
+      {loading ? (
+        <Alert>
+          <LoaderCircle className="animate-spin" />
+          <AlertTitle>Loading onboarding state</AlertTitle>
+          <AlertDescription>Checking whether this account already belongs to a company workspace.</AlertDescription>
+        </Alert>
+      ) : null}
 
-        {loading ? (
-          <p>Loading onboarding...</p>
-        ) : (
-          <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12 }}>
-            <input value={fullName} onChange={(event) => setFullName(event.target.value)} placeholder="Your full name" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-            <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Company name" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-            <input value={storeName} onChange={(event) => setStoreName(event.target.value)} placeholder="Primary branch / store name" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-            <input value={timezone} onChange={(event) => setTimezone(event.target.value)} placeholder="Timezone" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-            <input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} placeholder="Currency" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
+      {error ? (
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertTitle>Onboarding failed</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
-            {error ? <p style={{ color: "#b02020", margin: 0 }}>{error}</p> : null}
+      {completed ? (
+        <Alert>
+          <CheckCircle2 />
+          <AlertTitle>Workspace created</AlertTitle>
+          <AlertDescription>Company setup is complete. Redirecting to the dashboard now.</AlertDescription>
+        </Alert>
+      ) : (
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="fullName">Owner name</FieldLabel>
+              <Input id="fullName" value={fullName} onChange={(event) => setFullName(event.target.value)} required />
+              <FieldDescription>This is the full name shown across CRM ownership and assignments.</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="companyName">Company name</FieldLabel>
+              <Input id="companyName" value={companyName} onChange={(event) => setCompanyName(event.target.value)} required />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="storeName">Primary branch or store</FieldLabel>
+              <Input id="storeName" value={storeName} onChange={(event) => setStoreName(event.target.value)} required />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="timezone">Timezone</FieldLabel>
+              <Input id="timezone" value={timezone} onChange={(event) => setTimezone(event.target.value)} required />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="currency">Currency</FieldLabel>
+              <Input id="currency" value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} required />
+            </Field>
+          </FieldGroup>
 
-            <button type="submit" disabled={submitting} style={{ padding: "10px 12px", borderRadius: 10, border: "none", background: "#102031", color: "#fff", cursor: "pointer" }}>
-              {submitting ? "Creating workspace..." : "Finish onboarding"}
-            </button>
-          </form>
-        )}
-      </section>
-    </main>
+          <Button type="submit" size="lg" disabled={submitting || loading}>
+            <Building2 data-icon="inline-start" />
+            {submitting ? "Creating workspace..." : "Finish onboarding"}
+          </Button>
+        </form>
+      )}
+    </AuthShell>
   );
 }
