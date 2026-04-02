@@ -218,6 +218,22 @@ export const deals = pgTable(
   }),
 );
 
+export const dealActivities = pgTable("deal_activities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  dealId: uuid("deal_id")
+    .notNull()
+    .references(() => deals.id, { onDelete: "cascade" }),
+  actorUserId: uuid("actor_user_id")
+    .notNull()
+    .references(() => profiles.id),
+  type: varchar("type", { length: 80 }).notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const tasks = pgTable(
   "tasks",
   {

@@ -3,11 +3,13 @@
 This file tracks what has been implemented and what is still pending for the standalone `crm-saas` product.
 
 Rules:
+
 - This tracker applies only to `crm-saas/frontend` and `crm-saas/backend`.
 - The TalkTime project remains untouched and is not part of delivery status.
 - Update this file as implementation progresses.
 
 Status legend:
+
 - `[x]` Implemented
 - `[-]` In progress / partial scaffold
 - `[ ]` Not implemented
@@ -15,6 +17,7 @@ Status legend:
 ## Phase 0: Workspace Boundary and Project Foundation
 
 ### Workspace setup
+
 - [x] `crm-saas/` root workspace created
 - [x] `crm-saas/frontend` created
 - [x] `crm-saas/backend` created
@@ -27,6 +30,7 @@ Status legend:
 - [x] Backend Drizzle config added
 
 ### Independent development setup
+
 - [x] Frontend dependencies installed
 - [x] Backend dependencies installed
 - [x] Frontend builds independently
@@ -36,6 +40,7 @@ Status legend:
 ## Phase 1: Application Skeleton
 
 ### Frontend shell
+
 - [x] Global app layout added
 - [x] Landing page updated for workspace messaging
 - [x] Login route scaffold added
@@ -45,6 +50,7 @@ Status legend:
 - [x] CRM module definitions file added
 
 ### Frontend module route scaffolds
+
 - [x] Leads page scaffold
 - [x] Deals page scaffold
 - [x] Customers page scaffold
@@ -60,6 +66,7 @@ Status legend:
 - [ ] Form system
 
 ### Backend API skeleton
+
 - [x] Hono app bootstrap added
 - [x] Health route added
 - [x] API response helper added
@@ -89,6 +96,7 @@ Status legend:
 ## Phase 2: Core SaaS Platform
 
 ### Identity and tenancy
+
 - [x] Supabase auth integration
 - [ ] Signup flow
 - [x] Login flow
@@ -105,6 +113,7 @@ Status legend:
 - [x] Active workspace resolution
 
 ### Company administration
+
 - [ ] Company profile management
 - [ ] Branch management
 - [ ] Lead source configuration
@@ -119,6 +128,7 @@ Status legend:
 ## Phase 3: Core CRM Operations
 
 ### Leads
+
 - [x] Lead schema
 - [x] Lead create/update/delete
 - [x] Lead list view data
@@ -126,14 +136,15 @@ Status legend:
 - [x] Lead assignment
 - [ ] Partner assignment
 - [x] Lead scoring
-- [ ] Lead notes
-- [ ] Lead timeline
+- [x] Lead notes
+- [x] Lead timeline
 - [ ] CSV import
 - [ ] Bulk update
 - [x] Lead filters
-- [ ] Convert lead to deal
+- [x] Convert lead to deal
 
 ### Deals
+
 - [x] Deal schema
 - [ ] Multiple pipelines support
 - [x] Deal stages support
@@ -143,9 +154,10 @@ Status legend:
 - [ ] Deal value and forecast
 - [x] Won/lost tracking
 - [x] Lost reason tracking
-- [ ] Deal activities
+- [x] Deal activities
 
 ### Customers
+
 - [x] Customer schema
 - [x] Customer profile
 - [ ] Lead history on customer
@@ -157,6 +169,7 @@ Status legend:
 - [ ] Custom fields
 
 ### Tasks and follow-ups
+
 - [x] Task schema
 - [ ] Follow-up schema
 - [x] Task creation
@@ -167,6 +180,7 @@ Status legend:
 - [ ] Calendar view
 
 ### Partners
+
 - [ ] Partner company schema
 - [ ] Partner user schema
 - [ ] Partner access control
@@ -177,6 +191,7 @@ Status legend:
 ## Phase 4: Engagement, Automation, and Assets
 
 ### Campaigns
+
 - [ ] Campaign schema
 - [ ] Audience selection
 - [ ] Email campaigns
@@ -185,6 +200,7 @@ Status legend:
 - [ ] Campaign-to-customer history linkage
 
 ### Templates
+
 - [ ] Email templates
 - [ ] WhatsApp template model
 - [ ] SMS template model
@@ -192,6 +208,7 @@ Status legend:
 - [ ] Pipeline templates
 
 ### Automation
+
 - [ ] Automation schema
 - [ ] Automation builder backend
 - [ ] Trigger conditions
@@ -200,6 +217,7 @@ Status legend:
 - [ ] Automation logs
 
 ### Files and documents
+
 - [ ] File upload support
 - [ ] Attach files to leads
 - [ ] Attach files to deals
@@ -207,6 +225,7 @@ Status legend:
 - [ ] File search
 
 ### Notifications
+
 - [ ] Notification schema
 - [ ] Lead alerts
 - [ ] Task alerts
@@ -217,6 +236,7 @@ Status legend:
 ## Phase 5: Reporting, Social, and Settings Expansion
 
 ### Reports
+
 - [ ] Lead reports
 - [ ] Deal reports
 - [ ] Revenue forecast
@@ -225,12 +245,14 @@ Status legend:
 - [ ] Dashboard metrics wiring
 
 ### Social media
+
 - [ ] Social account connections
 - [ ] Social lead capture
 - [ ] Social inbox
 - [ ] Social lead assignment
 
 ### Settings
+
 - [ ] Pipeline settings UI
 - [ ] Custom fields UI
 - [ ] Tags UI
@@ -240,6 +262,7 @@ Status legend:
 ## Current Implementation Summary
 
 Implemented now:
+
 - isolated `crm-saas` workspace
 - installable frontend and backend foundations
 - Supabase-backed auth + tenant-scoped middleware foundation
@@ -249,6 +272,7 @@ Implemented now:
 - independent type/build/test validation for both apps
 
 Not implemented yet:
+
 - signup/password reset UX
 - advanced CRM workflows (kanban, bulk ops, timeline, partner routing)
 - analytics/reporting and automation
@@ -257,6 +281,7 @@ Not implemented yet:
 - real campaigns/automation
 
 ## Immediate Next Todo
+
 - [x] Build tenancy and auth models in backend
 - [x] Add backend middleware for auth, tenant scope, and roles
 - [x] Add frontend authenticated layout and route protection

@@ -16,8 +16,19 @@ interface Deal {
   value: number;
 }
 
+interface DealActivity {
+  id: string;
+  type: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
 interface ListResponse {
   items: Deal[];
+}
+
+interface TimelineResponse {
+  items: DealActivity[];
 }
 
 const statuses: DealStatus[] = ["open", "won", "lost"];
@@ -30,6 +41,11 @@ export default function DealsPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [expandedDealId, setExpandedDealId] = useState<string | null>(null);
+  const [timelineByDeal, setTimelineByDeal] = useState<Record<string, DealActivity[]>>({});
+  const [timelineDraftByDeal, setTimelineDraftByDeal] = useState<Record<string, string>>({});
+  const [timelineLoadingDealId, setTimelineLoadingDealId] = useState<string | null>(null);
 
   const loadDeals = useCallback(async () => {
     setLoading(true);
@@ -48,6 +64,18 @@ export default function DealsPage() {
       setLoading(false);
     }
   }, [statusFilter]);
+
+  const loadTimeline = useCallback(async (dealId: string) => {
+    setTimelineLoadingDealId(dealId);
+    try {
+      const data = await apiRequest<TimelineResponse>(`/deals/${dealId}/timeline`);
+      setTimelineByDeal((prev) => ({ ...prev, [dealId]: data.items }));
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal timeline");
+    } finally {
+      setTimelineLoadingDealId(null);
+    }
+  }, []);
 
   useEffect(() => {
     void loadDeals();
@@ -80,15 +108,46 @@ export default function DealsPage() {
         body: JSON.stringify({ status }),
       });
       await loadDeals();
+      if (expandedDealId === dealId) {
+        await loadTimeline(dealId);
+      }
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to update deal");
+    }
+  };
+
+  const toggleTimeline = async (dealId: string) => {
+    if (expandedDealId === dealId) {
+      setExpandedDealId(null);
+      return;
+    }
+
+    setExpandedDealId(dealId);
+    await loadTimeline(dealId);
+  };
+
+  const addTimelineNote = async (dealId: string) => {
+    const message = (timelineDraftByDeal[dealId] ?? "").trim();
+    if (!message) {
+      return;
+    }
+
+    try {
+      await apiRequest(`/deals/${dealId}/timeline`, {
+        method: "POST",
+        body: JSON.stringify({ type: "note", message }),
+      });
+      setTimelineDraftByDeal((prev) => ({ ...prev, [dealId]: "" }));
+      await loadTimeline(dealId);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to add deal timeline note");
     }
   };
 
   return (
     <AppShell
       title="Deals"
-      description="Tenant-scoped deals workspace with create/list/update operations wired to backend APIs."
+      description="Tenant-scoped deals workspace with timeline tracking for lifecycle changes."
     >
       <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <h2 style={{ marginTop: 0 }}>Create deal</h2>
@@ -126,7 +185,7 @@ export default function DealsPage() {
               <article key={deal.id} style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
                 <strong>{deal.title}</strong>
                 <span style={{ color: "#556371" }}>Value: {deal.value}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span>Status</span>
                   <select value={deal.status} onChange={(event) => void updateStatus(deal.id, event.target.value as DealStatus)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0" }}>
                     {statuses.map((status) => (
@@ -135,7 +194,28 @@ export default function DealsPage() {
                       </option>
                     ))}
                   </select>
+                  <button type="button" onClick={() => void toggleTimeline(deal.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}>
+                    {expandedDealId === deal.id ? "Hide timeline" : "Show timeline"}
+                  </button>
                 </div>
+
+                {expandedDealId === deal.id ? (
+                  <div style={{ marginTop: 8, borderTop: "1px solid #e8edf3", paddingTop: 10, display: "grid", gap: 8 }}>
+                    {timelineLoadingDealId === deal.id ? <p>Loading timeline...</p> : null}
+                    {(timelineByDeal[deal.id] ?? []).map((activity) => (
+                      <div key={activity.id} style={{ fontSize: 13, color: "#35414d" }}>
+                        <strong>{activity.type}</strong> - {String(activity.payload?.message ?? "") || JSON.stringify(activity.payload)}
+                      </div>
+                    ))}
+                    {(timelineByDeal[deal.id] ?? []).length === 0 && timelineLoadingDealId !== deal.id ? <p>No timeline activity yet.</p> : null}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={timelineDraftByDeal[deal.id] ?? ""} onChange={(event) => setTimelineDraftByDeal((prev) => ({ ...prev, [deal.id]: event.target.value }))} placeholder="Add timeline note" style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0" }} />
+                      <button type="button" onClick={() => void addTimelineNote(deal.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}>
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </article>
             ))}
             {deals.length === 0 ? <p>No deals found.</p> : null}
