@@ -1,4 +1,4 @@
-import { app } from "@/app/router";
+import { app } from "@/app/route";
 import { checkSupabaseConnection } from "@/lib/auth";
 import { env } from "@/lib/config";
 

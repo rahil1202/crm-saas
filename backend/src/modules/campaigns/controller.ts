@@ -1,12 +1,8 @@
-import { Hono } from "hono";
-
 import { ok } from "@/lib/api";
 
-export const campaignRoutes = new Hono().basePath("/campaigns");
-
-campaignRoutes.get("/", (c) =>
-  ok(c, {
+export function getCampaignOverview(c: Parameters<typeof ok>[0]) {
+  return ok(c, {
     module: "campaigns",
     capabilities: ["create-campaign", "audience-selection", "email-campaigns", "scheduling", "analytics"],
-  }),
-);
+  });
+}
