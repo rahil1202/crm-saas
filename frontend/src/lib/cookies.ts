@@ -1,4 +1,3 @@
-const ACCESS_TOKEN_COOKIE = "crm_access_token";
 const COMPANY_COOKIE = "crm_company_id";
 const STORE_COOKIE = "crm_store_id";
 
@@ -28,18 +27,6 @@ export function clearCookie(name: string) {
   }
 
   document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
-}
-
-export function getAccessTokenFromCookie() {
-  return getCookie(ACCESS_TOKEN_COOKIE);
-}
-
-export function setAccessTokenCookie(token: string) {
-  setCookie(ACCESS_TOKEN_COOKIE, token);
-}
-
-export function clearAccessTokenCookie() {
-  clearCookie(ACCESS_TOKEN_COOKIE);
 }
 
 export function getCompanyCookie() {

@@ -3,7 +3,7 @@ export type CompanyRole = "owner" | "admin" | "member";
 export interface AuthUser {
   id: string;
   email: string | null;
-  rawToken: string;
+  sessionId: string;
 }
 
 export interface TenantContext {

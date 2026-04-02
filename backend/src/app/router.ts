@@ -20,6 +20,7 @@ import { socialRoutes } from "@/modules/social/routes";
 import { taskRoutes } from "@/modules/tasks/routes";
 import { templateRoutes } from "@/modules/templates/routes";
 import { userRoutes } from "@/modules/users/routes";
+import { uptime } from "process";
 
 export type AppEnv = { Variables: AppVariables };
 
@@ -41,9 +42,9 @@ app.onError(errorMiddleware);
 
 app.get("/", (c) =>
   ok(c, {
-    name: "crm-saas-backend",
+    name: "backend-api",
     status: "ok",
-    workspace: "crm-saas/backend",
+    uptime: uptime(),
   }),
 );
 

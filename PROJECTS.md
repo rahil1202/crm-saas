@@ -98,7 +98,7 @@ Status legend:
 ### Identity and tenancy
 
 - [x] Supabase auth integration
-- [ ] Signup flow
+- [x] Signup flow
 - [x] Login flow
 - [ ] Password reset flow
 - [x] Invite acceptance flow
@@ -121,7 +121,7 @@ Status legend:
 - [ ] Business hours setup
 - [ ] Timezone and currency setup
 - [ ] Custom branding
-- [ ] Team invite and onboarding
+- [x] Team invite and onboarding
 - [ ] Roles and permissions management
 - [ ] User deactivation flow
 

@@ -1,4 +1,4 @@
-import { getAccessTokenFromCookie, getCompanyCookie, getStoreCookie } from "@/lib/cookies";
+import { getCompanyCookie, getStoreCookie } from "@/lib/cookies";
 import { getFrontendEnv } from "@/lib/env";
 
 export interface ApiErrorPayload {
@@ -34,19 +34,18 @@ export async function apiRequest<T>(
   path: string,
   init?: Omit<RequestInit, "headers"> & {
     headers?: Record<string, string>;
-    token?: string | null;
+    skipRefresh?: boolean;
   },
 ): Promise<T> {
   const env = getFrontendEnv();
-  const token = init?.token ?? getAccessTokenFromCookie();
   const companyId = getCompanyCookie();
   const storeId = getStoreCookie();
 
   const response = await fetch(`${env.apiUrl}/api/v1${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(companyId ? { "x-company-id": companyId } : {}),
       ...(storeId ? { "x-store-id": storeId } : {}),
       ...(init?.headers ?? {}),
@@ -54,6 +53,21 @@ export async function apiRequest<T>(
   });
 
   const payload = (await response.json()) as ApiSuccess<T> | ApiFailure;
+
+  if (response.status === 401 && !init?.skipRefresh && path !== "/auth/refresh") {
+    const refreshResponse = await fetch(`${env.apiUrl}/api/v1/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({}),
+    });
+
+    if (refreshResponse.ok) {
+      return apiRequest<T>(path, { ...init, skipRefresh: true });
+    }
+  }
 
   if (!response.ok || payload.success === false) {
     const error = payload.success === false ? payload.error : { code: "UNKNOWN", message: "Unknown API error" };

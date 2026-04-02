@@ -25,7 +25,7 @@ export default function HomePage() {
           The existing TalkTime project remains untouched and is not used as a runtime dependency.
         </p>
         <p>
-          Initial app routes are available under <code>/dashboard</code> and <code>/login</code>.
+          Initial app routes are available under <code>/dashboard</code>, <code>/login</code>, and <code>/register</code>.
         </p>
       </section>
     </main>

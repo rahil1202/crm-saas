@@ -7,10 +7,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { apiRequest, ApiError } from "@/lib/api";
 import {
-  clearAccessTokenCookie,
   clearCompanyCookie,
   clearStoreCookie,
-  getAccessTokenFromCookie,
   getCompanyCookie,
   setCompanyCookie,
   setStoreCookie,
@@ -32,8 +30,10 @@ interface MeResponse {
   user: {
     id: string;
     email: string | null;
+    fullName: string | null;
   };
   memberships: Membership[];
+  needsOnboarding: boolean;
 }
 
 const navItems = [
@@ -74,18 +74,17 @@ export function AppShell({
   }, [activeMembership?.role]);
 
   useEffect(() => {
-    const token = getAccessTokenFromCookie();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-
     let disposed = false;
 
     const loadMe = async () => {
       try {
         const response = await apiRequest<MeResponse>("/auth/me");
         if (disposed) {
+          return;
+        }
+
+        if (response.needsOnboarding) {
+          router.replace("/onboarding");
           return;
         }
 
@@ -109,7 +108,6 @@ export function AppShell({
       } catch (error) {
         const fallbackMessage = "Failed to load workspace context.";
         if (error instanceof ApiError && error.status === 401) {
-          clearAccessTokenCookie();
           clearCompanyCookie();
           clearStoreCookie();
           router.replace("/login");
@@ -151,7 +149,14 @@ export function AppShell({
   };
 
   const handleLogout = async () => {
-    clearAccessTokenCookie();
+    try {
+      await apiRequest("/auth/logout", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } catch {
+      // ignore
+    }
     clearCompanyCookie();
     clearStoreCookie();
     router.replace("/login");

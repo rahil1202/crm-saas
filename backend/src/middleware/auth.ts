@@ -1,21 +1,27 @@
 import type { MiddlewareHandler } from "hono";
+import { getCookie } from "hono/cookie";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { companyMemberships, profiles } from "@/db/schema";
-import { verifySupabaseAccessToken } from "@/lib/auth";
+import { verifyAccessToken } from "@/lib/auth";
 import { AppError } from "@/lib/errors";
 import { hasMinimumRole } from "@/middleware/roles";
 import type { CompanyRole } from "@/types/app";
 
+const ACCESS_COOKIE = "crm_access_token";
+
 export const requireAuth: MiddlewareHandler = async (c, next) => {
   const authorization = c.req.header("authorization");
-  if (!authorization || !authorization.startsWith("Bearer ")) {
-    throw AppError.unauthorized("Missing bearer token");
+  const bearerToken = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : null;
+  const cookieToken = getCookie(c, ACCESS_COOKIE) ?? null;
+  const token = bearerToken ?? cookieToken;
+
+  if (!token) {
+    throw AppError.unauthorized("Missing access token");
   }
 
-  const token = authorization.slice("Bearer ".length);
-  const verified = await verifySupabaseAccessToken(token);
+  const verified = await verifyAccessToken(token);
 
   if (verified.email) {
     await db
@@ -36,7 +42,7 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
   c.set("user", {
     id: verified.userId,
     email: verified.email,
-    rawToken: verified.rawToken,
+    sessionId: verified.sessionId,
   });
 
   await next();

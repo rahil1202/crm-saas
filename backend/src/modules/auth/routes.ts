@@ -1,14 +1,34 @@
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import type { AppEnv } from "@/app/router";
 import { db } from "@/db/client";
-import { companies, companyInvites, companyMemberships, profiles, stores } from "@/db/schema";
+import { authRefreshTokens, companies, companyInvites, companyMemberships, profiles, stores } from "@/db/schema";
+import {
+  hashToken,
+  issueSessionTokens,
+  loginWithSupabasePassword,
+  registerWithSupabase,
+  verifyRefreshToken,
+  verifySupabaseAccessToken,
+} from "@/lib/auth";
 import { ok } from "@/lib/api";
+import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { requireAuth, requireRole, requireTenant } from "@/middleware/auth";
 import { validateJson } from "@/middleware/common";
-import type { AppEnv } from "@/app/router";
+
+const ACCESS_COOKIE = "crm_access_token";
+const REFRESH_COOKIE = "crm_refresh_token";
+const SESSION_COOKIE = "crm_session";
+
+const authCookieBase = {
+  path: "/",
+  sameSite: "Lax" as const,
+  secure: env.COOKIE_SECURE,
+};
 
 const inviteSchema = z.object({
   email: z.string().email(),
@@ -21,10 +41,259 @@ const acceptInviteSchema = z.object({
   token: z.string().min(1),
 });
 
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+});
+
+const registerSchema = z
+  .object({
+    fullName: z.string().trim().min(2).max(180),
+    email: z.string().email(),
+    password: z.string().min(8),
+    confirmPassword: z.string().min(8),
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
+const exchangeSupabaseSchema = z.object({
+  supabaseAccessToken: z.string().min(1),
+});
+
+const refreshSchema = z.object({
+  refreshToken: z.string().optional(),
+});
+
+const onboardingSchema = z.object({
+  fullName: z.string().trim().min(2).max(180),
+  companyName: z.string().trim().min(2).max(180),
+  storeName: z.string().trim().min(2).max(180),
+  timezone: z.string().trim().min(2).max(80).default("UTC"),
+  currency: z.string().trim().min(3).max(8).default("USD"),
+});
+
+function setAuthCookies(c: Parameters<typeof setCookie>[0], input: { accessToken: string; refreshToken: string }) {
+  setCookie(c, ACCESS_COOKIE, input.accessToken, {
+    ...authCookieBase,
+    maxAge: env.ACCESS_TOKEN_TTL_SECONDS,
+    httpOnly: true,
+  });
+
+  setCookie(c, REFRESH_COOKIE, input.refreshToken, {
+    ...authCookieBase,
+    maxAge: env.REFRESH_TOKEN_TTL_SECONDS,
+    httpOnly: true,
+  });
+
+  setCookie(c, SESSION_COOKIE, "1", {
+    ...authCookieBase,
+    maxAge: env.REFRESH_TOKEN_TTL_SECONDS,
+    httpOnly: false,
+  });
+}
+
+function clearAuthCookies(c: Parameters<typeof setCookie>[0]) {
+  deleteCookie(c, ACCESS_COOKIE, { path: "/" });
+  deleteCookie(c, REFRESH_COOKIE, { path: "/" });
+  deleteCookie(c, SESSION_COOKIE, { path: "/" });
+}
+
+async function upsertProfile(userId: string, email: string | null) {
+  if (!email) {
+    return;
+  }
+
+  await db
+    .insert(profiles)
+    .values({
+      id: userId,
+      email,
+    })
+    .onConflictDoUpdate({
+      target: profiles.id,
+      set: {
+        email,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+async function createSession(c: Parameters<typeof setCookie>[0], identity: { userId: string; email: string | null }, sessionId?: string) {
+  await upsertProfile(identity.userId, identity.email);
+
+  const effectiveSessionId = sessionId ?? crypto.randomUUID();
+  const tokens = await issueSessionTokens({
+    userId: identity.userId,
+    email: identity.email,
+    sessionId: effectiveSessionId,
+  });
+
+  await db.insert(authRefreshTokens).values({
+    userId: identity.userId,
+    sessionId: effectiveSessionId,
+    tokenHash: hashToken(tokens.refreshToken),
+    jti: tokens.refreshTokenJti,
+    expiresAt: tokens.refreshTokenExpiresAt,
+  });
+
+  setAuthCookies(c, {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+  });
+}
+
 export const authRoutes = new Hono<AppEnv>().basePath("/auth");
+
+authRoutes.get("/google/url", (c) => {
+  const url = new URL(`${env.SUPABASE_URL}/auth/v1/authorize`);
+  url.searchParams.set("provider", "google");
+  url.searchParams.set("redirect_to", env.AUTH_CALLBACK_URL);
+
+  return ok(c, {
+    provider: "google",
+    url: url.toString(),
+  });
+});
+
+authRoutes.post("/register", validateJson(registerSchema), async (c) => {
+  const body = c.get("validatedBody") as z.infer<typeof registerSchema>;
+  const registration = await registerWithSupabase({
+    email: body.email,
+    password: body.password,
+    fullName: body.fullName,
+  });
+
+  if (registration.userId && registration.email) {
+    await upsertProfile(registration.userId, registration.email);
+    await db
+      .update(profiles)
+      .set({
+        fullName: body.fullName,
+        updatedAt: new Date(),
+      })
+      .where(eq(profiles.id, registration.userId));
+  }
+
+  return ok(
+    c,
+    {
+      registered: true,
+      email: registration.email ?? body.email,
+      emailConfirmationRequired: registration.emailConfirmationRequired,
+    },
+    201,
+  );
+});
+
+authRoutes.post("/login", validateJson(loginSchema), async (c) => {
+  const body = c.get("validatedBody") as z.infer<typeof loginSchema>;
+  const identity = await loginWithSupabasePassword(body.email, body.password);
+
+  await createSession(c, identity);
+
+  return ok(c, {
+    user: {
+      id: identity.userId,
+      email: identity.email,
+    },
+    authenticated: true,
+  });
+});
+
+authRoutes.post("/exchange-supabase", validateJson(exchangeSupabaseSchema), async (c) => {
+  const body = c.get("validatedBody") as z.infer<typeof exchangeSupabaseSchema>;
+  const identity = await verifySupabaseAccessToken(body.supabaseAccessToken);
+
+  await createSession(c, identity);
+
+  return ok(c, {
+    user: {
+      id: identity.userId,
+      email: identity.email,
+    },
+    authenticated: true,
+  });
+});
+
+authRoutes.post("/refresh", validateJson(refreshSchema), async (c) => {
+  const body = c.get("validatedBody") as z.infer<typeof refreshSchema>;
+  const refreshToken = body.refreshToken ?? getCookie(c, REFRESH_COOKIE);
+
+  if (!refreshToken) {
+    throw AppError.unauthorized("Missing refresh token");
+  }
+
+  const verified = await verifyRefreshToken(refreshToken);
+  const tokenHash = hashToken(refreshToken);
+
+  const [storedToken] = await db
+    .select()
+    .from(authRefreshTokens)
+    .where(
+      and(
+        eq(authRefreshTokens.userId, verified.userId),
+        eq(authRefreshTokens.tokenHash, tokenHash),
+        eq(authRefreshTokens.jti, verified.jti),
+        isNull(authRefreshTokens.revokedAt),
+        gt(authRefreshTokens.expiresAt, new Date()),
+      ),
+    )
+    .limit(1);
+
+  if (!storedToken) {
+    throw AppError.unauthorized("Refresh token is invalid or revoked");
+  }
+
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, verified.userId)).limit(1);
+
+  await createSession(
+    c,
+    {
+      userId: verified.userId,
+      email: profile?.email ?? verified.email,
+    },
+    verified.sessionId,
+  );
+
+  const [replacementToken] = await db
+    .select({ id: authRefreshTokens.id })
+    .from(authRefreshTokens)
+    .where(and(eq(authRefreshTokens.userId, verified.userId), eq(authRefreshTokens.sessionId, verified.sessionId), isNull(authRefreshTokens.revokedAt)))
+    .orderBy(desc(authRefreshTokens.createdAt))
+    .limit(1);
+
+  await db
+    .update(authRefreshTokens)
+    .set({
+      revokedAt: new Date(),
+      replacedByTokenId: replacementToken?.id ?? null,
+    })
+    .where(eq(authRefreshTokens.id, storedToken.id));
+
+  return ok(c, { refreshed: true });
+});
+
+authRoutes.post("/logout", async (c) => {
+  const refreshToken = getCookie(c, REFRESH_COOKIE);
+  if (refreshToken) {
+    const tokenHash = hashToken(refreshToken);
+    await db
+      .update(authRefreshTokens)
+      .set({
+        revokedAt: new Date(),
+      })
+      .where(and(eq(authRefreshTokens.tokenHash, tokenHash), isNull(authRefreshTokens.revokedAt)));
+  }
+
+  clearAuthCookies(c);
+  return ok(c, { loggedOut: true });
+});
 
 authRoutes.get("/me", requireAuth, async (c) => {
   const user = c.get("user");
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
 
   const memberships = await db
     .select({
@@ -49,9 +318,87 @@ authRoutes.get("/me", requireAuth, async (c) => {
     );
 
   return ok(c, {
-    user,
+    user: {
+      ...user,
+      fullName: profile?.fullName ?? null,
+    },
     memberships,
+    needsOnboarding: memberships.length === 0,
   });
+});
+
+authRoutes.post("/onboarding", requireAuth, validateJson(onboardingSchema), async (c) => {
+  const user = c.get("user");
+  const body = c.get("validatedBody") as z.infer<typeof onboardingSchema>;
+
+  const existingMembership = await db
+    .select({ id: companyMemberships.id })
+    .from(companyMemberships)
+    .where(and(eq(companyMemberships.userId, user.id), eq(companyMemberships.status, "active"), isNull(companyMemberships.deletedAt)))
+    .limit(1);
+
+  if (existingMembership.length > 0) {
+    throw AppError.conflict("Onboarding already completed for this user");
+  }
+
+  await upsertProfile(user.id, user.email);
+  await db
+    .update(profiles)
+    .set({
+      fullName: body.fullName,
+      updatedAt: new Date(),
+    })
+    .where(eq(profiles.id, user.id));
+
+  const [company] = await db
+    .insert(companies)
+    .values({
+      name: body.companyName,
+      timezone: body.timezone,
+      currency: body.currency.toUpperCase(),
+      createdBy: user.id,
+    })
+    .returning();
+
+  const storeCode = (
+    body.storeName
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || "MAIN"
+  );
+
+  const [store] = await db
+    .insert(stores)
+    .values({
+      companyId: company.id,
+      name: body.storeName,
+      code: storeCode,
+      isDefault: true,
+    })
+    .returning();
+
+  const [membership] = await db
+    .insert(companyMemberships)
+    .values({
+      companyId: company.id,
+      userId: user.id,
+      role: "owner",
+      status: "active",
+      storeId: store.id,
+    })
+    .returning();
+
+  return ok(
+    c,
+    {
+      onboarded: true,
+      companyId: company.id,
+      storeId: store.id,
+      membershipId: membership.id,
+    },
+    201,
+  );
 });
 
 authRoutes.post("/invite", requireAuth, requireTenant, requireRole("admin"), validateJson(inviteSchema), async (c) => {
@@ -123,21 +470,7 @@ authRoutes.post("/accept-invite", requireAuth, validateJson(acceptInviteSchema),
     throw AppError.forbidden("Invite email does not match authenticated user");
   }
 
-  if (user.email) {
-    await db
-      .insert(profiles)
-      .values({
-        id: user.id,
-        email: user.email,
-      })
-      .onConflictDoUpdate({
-        target: profiles.id,
-        set: {
-          email: user.email,
-          updatedAt: new Date(),
-        },
-      });
-  }
+  await upsertProfile(user.id, user.email);
 
   await db
     .insert(companyMemberships)

@@ -267,6 +267,28 @@ export const tasks = pgTable(
   }),
 );
 
+export const authRefreshTokens = pgTable(
+  "auth_refresh_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").notNull(),
+    tokenHash: varchar("token_hash", { length: 128 }).notNull(),
+    jti: uuid("jti").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    replacedByTokenId: uuid("replaced_by_token_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    tokenHashUnique: uniqueIndex("auth_refresh_tokens_token_hash_unique").on(table.tokenHash),
+    jtiUnique: uniqueIndex("auth_refresh_tokens_jti_unique").on(table.jti),
+    userSessionIdx: index("auth_refresh_tokens_user_session_idx").on(table.userId, table.sessionId),
+  }),
+);
+
 export const companyRelations = relations(companies, ({ many }) => ({
   stores: many(stores),
   memberships: many(companyMemberships),
