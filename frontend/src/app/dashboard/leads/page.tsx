@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,10 +19,12 @@ import {
   Field,
   FieldContent,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { CrudPanel, EmptyState, FilterBar, LoadingState, PageSection } from "@/components/ui/page-patterns";
 import {
   Select,
   SelectContent,
@@ -32,7 +35,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { buildApiUrl, ApiError, apiRequest } from "@/lib/api";
+import { useAsyncForm } from "@/hooks/use-async-form";
 import { getCompanyCookie } from "@/lib/cookies";
+import { optionalSelectValue, readOptionalSelectValue, SELECT_ALL, SELECT_EMPTY } from "@/lib/select";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -146,7 +151,6 @@ export default function LeadsPage() {
   const [newLeadEmail, setNewLeadEmail] = useState("");
   const [newLeadSource, setNewLeadSource] = useState("");
   const [newLeadPartnerId, setNewLeadPartnerId] = useState("");
-  const [creating, setCreating] = useState(false);
   const [convertingLeadId, setConvertingLeadId] = useState<string | null>(null);
   const [leadSourceSettings, setLeadSourceSettings] = useState<LeadSourceSettings | null>(null);
   const [partners, setPartners] = useState<PartnerListResponse["items"]>([]);
@@ -157,7 +161,6 @@ export default function LeadsPage() {
   const [bulkSource, setBulkSource] = useState<string>("");
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [importCsv, setImportCsv] = useState(importExample);
-  const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<CsvImportResponse | null>(null);
 
   const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null);
@@ -167,6 +170,8 @@ export default function LeadsPage() {
   const [documentsByLead, setDocumentsByLead] = useState<Record<string, DocumentItem[]>>({});
   const [uploadingLeadId, setUploadingLeadId] = useState<string | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const createLeadForm = useAsyncForm();
+  const importLeadForm = useAsyncForm();
 
   const companyId = getCompanyCookie();
 
@@ -255,20 +260,23 @@ export default function LeadsPage() {
 
   const handleCreateLead = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setCreating(true);
     setError(null);
 
     try {
-      await apiRequest<Lead>("/leads", {
-        method: "POST",
-        body: JSON.stringify({
-            title: newLeadTitle,
-            fullName: newLeadName || undefined,
-            email: newLeadEmail || undefined,
-            source: newLeadSource || undefined,
-            partnerCompanyId: newLeadPartnerId || undefined,
+      await createLeadForm.runSubmit(
+        () =>
+          apiRequest<Lead>("/leads", {
+            method: "POST",
+            body: JSON.stringify({
+              title: newLeadTitle,
+              fullName: newLeadName || undefined,
+              email: newLeadEmail || undefined,
+              source: newLeadSource || undefined,
+              partnerCompanyId: newLeadPartnerId || undefined,
+            }),
           }),
-        });
+        "Unable to create lead",
+      );
 
       setNewLeadTitle("");
       setNewLeadName("");
@@ -277,33 +285,28 @@ export default function LeadsPage() {
       setNewLeadPartnerId("");
       await loadLeads();
       await loadBoard();
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to create lead");
-    } finally {
-      setCreating(false);
-    }
+    } catch {}
   };
 
   const handleImportCsv = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setImporting(true);
     setError(null);
     setImportResult(null);
 
     try {
-      const result = await apiRequest<CsvImportResponse>("/leads/import-csv", {
-        method: "POST",
-        body: JSON.stringify({ csv: importCsv }),
-      });
+      const result = await importLeadForm.runSubmit(
+        () =>
+          apiRequest<CsvImportResponse>("/leads/import-csv", {
+            method: "POST",
+            body: JSON.stringify({ csv: importCsv }),
+          }),
+        "Unable to import CSV",
+      );
 
       setImportResult(result);
       await loadLeads();
       await loadBoard();
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to import CSV");
-    } finally {
-      setImporting(false);
-    }
+    } catch {}
   };
 
   const handleStatusChange = async (leadId: string, status: Lead["status"]) => {
@@ -464,12 +467,7 @@ export default function LeadsPage() {
       description="Import, triage, and convert tenant-scoped leads from one workspace."
     >
       <div className="grid gap-6">
-        {error ? (
-          <Alert variant="destructive">
-            <AlertTitle>Request failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
+        <FormErrorSummary title="Request failed" error={error ?? createLeadForm.formError ?? importLeadForm.formError} />
 
         {importResult ? (
           <Alert>
@@ -481,54 +479,59 @@ export default function LeadsPage() {
           </Alert>
         ) : null}
 
+        <PageSection>
         <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Create lead</CardTitle>
-              <CardDescription>Add one lead manually with the configured source list.</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <CrudPanel title="Create lead" description="Add one lead manually with the configured source list.">
               <form className="grid gap-4" onSubmit={handleCreateLead}>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="lead-title">Lead title</FieldLabel>
-                    <Input
-                      id="lead-title"
-                      value={newLeadTitle}
-                      onChange={(event) => setNewLeadTitle(event.target.value)}
-                      placeholder="Acme office expansion"
-                      required
-                    />
-                  </Field>
-                  <div className="grid gap-4 md:grid-cols-2">
+                <FormSection title="Lead details" description="Capture the minimum lead profile used by the tenant-scoped CRM APIs.">
+                  <FieldGroup>
                     <Field>
-                      <FieldLabel htmlFor="lead-name">Contact name</FieldLabel>
+                      <FieldLabel htmlFor="lead-title">Lead title</FieldLabel>
                       <Input
-                        id="lead-name"
-                        value={newLeadName}
-                        onChange={(event) => setNewLeadName(event.target.value)}
-                        placeholder="Riya Mehta"
+                        id="lead-title"
+                        value={newLeadTitle}
+                        onChange={(event) => {
+                          createLeadForm.clearFieldError("title");
+                          setNewLeadTitle(event.target.value);
+                        }}
+                        placeholder="Acme office expansion"
+                        required
                       />
+                      <FieldError errors={createLeadForm.fieldErrors.title?.map((message) => ({ message }))} />
                     </Field>
-                    <Field>
-                      <FieldLabel htmlFor="lead-email">Contact email</FieldLabel>
-                      <Input
-                        id="lead-email"
-                        type="email"
-                        value={newLeadEmail}
-                        onChange={(event) => setNewLeadEmail(event.target.value)}
-                        placeholder="riya@acme.com"
-                      />
-                    </Field>
-                  </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field>
+                        <FieldLabel htmlFor="lead-name">Contact name</FieldLabel>
+                        <Input
+                          id="lead-name"
+                          value={newLeadName}
+                          onChange={(event) => setNewLeadName(event.target.value)}
+                          placeholder="Riya Mehta"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="lead-email">Contact email</FieldLabel>
+                        <Input
+                          id="lead-email"
+                          type="email"
+                          value={newLeadEmail}
+                          onChange={(event) => {
+                            createLeadForm.clearFieldError("email");
+                            setNewLeadEmail(event.target.value);
+                          }}
+                          placeholder="riya@acme.com"
+                        />
+                        <FieldError errors={createLeadForm.fieldErrors.email?.map((message) => ({ message }))} />
+                      </Field>
+                    </div>
                     <Field>
                       <FieldLabel>Lead source</FieldLabel>
-                      <Select value={newLeadSource || "__none"} onValueChange={(value) => setNewLeadSource(!value || value === "__none" ? "" : value)}>
+                      <Select value={optionalSelectValue(newLeadSource)} onValueChange={(value) => setNewLeadSource(readOptionalSelectValue(value))}>
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="Select a source" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none">No source</SelectItem>
+                        <SelectItem value={SELECT_EMPTY}>No source</SelectItem>
                         {(leadSourceSettings?.leadSources ?? []).map((source) => (
                           <SelectItem key={source.key} value={source.key}>
                             {source.label}
@@ -539,12 +542,12 @@ export default function LeadsPage() {
                     </Field>
                     <Field>
                       <FieldLabel>Partner assignment</FieldLabel>
-                      <Select value={newLeadPartnerId || "__none"} onValueChange={(value) => setNewLeadPartnerId(!value || value === "__none" ? "" : value)}>
+                      <Select value={optionalSelectValue(newLeadPartnerId)} onValueChange={(value) => setNewLeadPartnerId(readOptionalSelectValue(value))}>
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="Select partner" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none">No partner</SelectItem>
+                          <SelectItem value={SELECT_EMPTY}>No partner</SelectItem>
                           {partners.map((partner) => (
                             <SelectItem key={partner.id} value={partner.id}>
                               {partner.name}
@@ -554,19 +557,14 @@ export default function LeadsPage() {
                       </Select>
                     </Field>
                   </FieldGroup>
-                <Button disabled={creating} type="submit" className="w-fit">
-                  {creating ? "Creating..." : "Create lead"}
+                </FormSection>
+                <Button disabled={createLeadForm.submitting} type="submit" className="w-fit">
+                  {createLeadForm.submitting ? "Creating..." : "Create lead"}
                 </Button>
               </form>
-            </CardContent>
-          </Card>
+          </CrudPanel>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Import CSV</CardTitle>
-              <CardDescription>Paste up to 200 rows. Supported headers include `title`, `full_name`, `email`, `source`, `status`, `score`, `notes`, and `tags`.</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <CrudPanel title="Import CSV" description="Paste up to 200 rows. Supported headers include `title`, `full_name`, `email`, `source`, `status`, `score`, `notes`, and `tags`.">
               <form className="grid gap-4" onSubmit={handleImportCsv}>
                 <Field>
                   <FieldLabel htmlFor="lead-import">CSV payload</FieldLabel>
@@ -583,8 +581,8 @@ export default function LeadsPage() {
                   </FieldContent>
                 </Field>
                 <div className="flex flex-wrap gap-3">
-                  <Button disabled={importing} type="submit">
-                    {importing ? "Importing..." : "Import leads"}
+                  <Button disabled={importLeadForm.submitting} type="submit">
+                    {importLeadForm.submitting ? "Importing..." : "Import leads"}
                   </Button>
                   <Button type="button" variant="outline" onClick={() => setImportCsv(importExample)}>
                     Reset sample
@@ -606,16 +604,11 @@ export default function LeadsPage() {
                   </div>
                 ) : null}
               </form>
-            </CardContent>
-          </Card>
+          </CrudPanel>
         </div>
+        </PageSection>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Lead workspace</CardTitle>
-            <CardDescription>Use list mode for bulk actions and board mode for status distribution.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <CrudPanel title="Lead workspace" description="Use list mode for bulk actions and board mode for status distribution.">
             <Tabs defaultValue="list" className="grid gap-4">
               <TabsList className="w-fit">
                 <TabsTrigger value="list">List</TabsTrigger>
@@ -623,7 +616,7 @@ export default function LeadsPage() {
               </TabsList>
 
               <TabsContent value="list" className="grid gap-4">
-                <div className="grid gap-4 rounded-xl border bg-muted/30 p-4 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+                <FilterBar className="lg:grid-cols-[minmax(0,1fr)_220px_auto]">
                   <Field>
                     <FieldLabel htmlFor="lead-search">Search</FieldLabel>
                     <Input
@@ -635,12 +628,12 @@ export default function LeadsPage() {
                   </Field>
                   <Field>
                     <FieldLabel>Status</FieldLabel>
-                    <Select value={statusFilter || "__all"} onValueChange={(value) => setStatusFilter(!value || value === "__all" ? "" : value)}>
+                    <Select value={optionalSelectValue(statusFilter, SELECT_ALL)} onValueChange={(value) => setStatusFilter(readOptionalSelectValue(value))}>
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="All statuses" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__all">All statuses</SelectItem>
+                        <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                         {leadStatuses.map((status) => (
                           <SelectItem key={status} value={status}>
                             {status}
@@ -654,7 +647,7 @@ export default function LeadsPage() {
                       Apply filters
                     </Button>
                   </div>
-                </div>
+                </FilterBar>
 
                 <div className="grid gap-4 rounded-xl border bg-card p-4">
                   <div className="flex flex-wrap items-center gap-3">
@@ -701,7 +694,7 @@ export default function LeadsPage() {
                     </Button>
                   </div>
 
-                  {loading ? <div className="text-sm text-muted-foreground">Loading leads...</div> : null}
+                  {loading ? <LoadingState label="Loading leads..." /> : null}
 
                   {!loading ? (
                     <div className="grid gap-3">
@@ -843,9 +836,7 @@ export default function LeadsPage() {
                         </article>
                       ))}
                       {leads.length === 0 ? (
-                        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
-                          No leads found for this workspace.
-                        </div>
+                        <EmptyState title="No leads found" description="Adjust the filters or create/import a lead." />
                       ) : null}
                     </div>
                   ) : null}
@@ -856,12 +847,12 @@ export default function LeadsPage() {
                 <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-muted/30 p-4">
                   <Field className="min-w-52 flex-1">
                     <FieldLabel>Source filter</FieldLabel>
-                    <Select value={sourceFilter || "__all"} onValueChange={(value) => setSourceFilter(!value || value === "__all" ? "" : value)}>
+                    <Select value={optionalSelectValue(sourceFilter, SELECT_ALL)} onValueChange={(value) => setSourceFilter(readOptionalSelectValue(value))}>
                       <SelectTrigger className="w-full">
                         <SelectValue placeholder="All sources" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__all">All sources</SelectItem>
+                        <SelectItem value={SELECT_ALL}>All sources</SelectItem>
                         {(leadSourceSettings?.leadSources ?? []).map((source) => (
                           <SelectItem key={source.key} value={source.key}>
                             {source.label}
@@ -893,9 +884,7 @@ export default function LeadsPage() {
                           </div>
                         ))}
                         {column.items.length === 0 ? (
-                          <div className="rounded-xl border border-dashed bg-background p-4 text-sm text-muted-foreground">
-                            No leads in this status.
-                          </div>
+                          <EmptyState title="No leads in this status" description="Move or create leads to populate this board column." className="bg-background" />
                         ) : null}
                       </CardContent>
                     </Card>
@@ -903,8 +892,7 @@ export default function LeadsPage() {
                 </div>
               </TabsContent>
             </Tabs>
-          </CardContent>
-        </Card>
+        </CrudPanel>
       </div>
     </AppShell>
   );

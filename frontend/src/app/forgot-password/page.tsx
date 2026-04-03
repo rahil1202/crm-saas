@@ -6,46 +6,41 @@ import { AlertCircle, ArrowLeft, MailCheck, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
+import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { readApiError } from "@/lib/auth-client";
-import { getFrontendEnv } from "@/lib/env";
+import { apiRequest } from "@/lib/api";
+import { useAsyncForm } from "@/hooks/use-async-form";
 
 export default function ForgotPasswordPage() {
-  const env = getFrontendEnv();
   const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { submitting, formError, fieldErrors, clearFieldError, runSubmit } = useAsyncForm();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setLoading(true);
-    setError(null);
     setSuccess(null);
 
-    const response = await fetch(`${env.apiUrl}/api/v1/auth/forgot-password`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email }),
-    });
-
-    if (!response.ok) {
-      setError(await readApiError(response, "Unable to send password reset email"));
-      setLoading(false);
+    try {
+      await runSubmit(
+        () =>
+          apiRequest("/auth/forgot-password", {
+            method: "POST",
+            body: JSON.stringify({ email }),
+          }),
+        "Unable to send password reset email",
+      );
+    } catch {
       return;
     }
 
     const message = `Password reset instructions were sent to ${email}.`;
     setSuccess(message);
     toast.success(message);
-    setLoading(false);
   };
 
   return (
@@ -60,13 +55,7 @@ export default function ForgotPasswordPage() {
         </Link>
       }
     >
-      {error ? (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertTitle>Reset request failed</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
+      <FormErrorSummary title="Reset request failed" error={formError} />
 
       {success ? (
         <Alert>
@@ -77,13 +66,16 @@ export default function ForgotPasswordPage() {
       ) : null}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="email">Account email</FieldLabel>
-            <Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-            <FieldDescription>The recovery email is only usable if this address belongs to an account.</FieldDescription>
-          </Field>
-        </FieldGroup>
+        <FormSection title="Recovery email" description="Use the same verified operator email used for sign-in.">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="email">Account email</FieldLabel>
+              <Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => { clearFieldError("email"); setEmail(event.target.value); }} required />
+              <FieldDescription>The recovery email is only usable if this address belongs to an account.</FieldDescription>
+              <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
+            </Field>
+          </FieldGroup>
+        </FormSection>
 
         <Card className="border-border/60 bg-muted/20">
           <CardHeader>
@@ -106,9 +98,9 @@ export default function ForgotPasswordPage() {
           </CardContent>
         </Card>
 
-        <Button type="submit" size="lg" disabled={loading}>
+        <Button type="submit" size="lg" disabled={submitting}>
           <Send data-icon="inline-start" />
-          {loading ? "Sending reset link..." : "Send reset link"}
+          {submitting ? "Sending reset link..." : "Send reset link"}
         </Button>
       </form>
     </AuthShell>

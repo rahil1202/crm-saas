@@ -6,29 +6,28 @@ import { AlertCircle, ArrowRight, CheckCircle2, MailCheck, UserPlus } from "luci
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
+import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Progress, ProgressLabel } from "@/components/ui/progress";
-import { readApiError } from "@/lib/auth-client";
+import { apiRequest } from "@/lib/api";
+import { useAsyncForm } from "@/hooks/use-async-form";
 import { evaluatePasswordStrength } from "@/lib/auth-ui";
-import { getFrontendEnv } from "@/lib/env";
 
 export default function RegisterPage() {
-  const env = getFrontendEnv();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
+  const { submitting, formError, fieldErrors, clearFieldError, runSubmit } = useAsyncForm();
 
   const passwordStrength = useMemo(
     () =>
@@ -44,64 +43,47 @@ export default function RegisterPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!acknowledged) {
-      setError("Confirm the setup acknowledgement before creating the account.");
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setSuccessEmail(null);
-
-    const response = await fetch(`${env.apiUrl}/api/v1/auth/register`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fullName,
-        email,
-        password,
-        confirmPassword,
-      }),
-    });
-
-    if (!response.ok) {
-      setError(await readApiError(response, "Registration failed"));
-      setLoading(false);
+    try {
+      await runSubmit(
+        () =>
+          apiRequest("/auth/register", {
+            method: "POST",
+            body: JSON.stringify({
+              fullName,
+              email,
+              password,
+              confirmPassword,
+            }),
+          }),
+        "Registration failed",
+      );
+      setSuccessEmail(email);
+      toast.success("Account created. Verify the inbox to continue.");
+    } catch {
       return;
     }
-
-    setSuccessEmail(email);
-    toast.success("Account created. Verify the inbox to continue.");
-    setLoading(false);
   };
 
   const handleResendVerification = async () => {
     if (!email) {
-      setError("Enter the email you used for registration first.");
       return;
     }
 
     setResendingVerification(true);
-    setError(null);
-
-    const response = await fetch(`${env.apiUrl}/api/v1/auth/resend-verification`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email }),
-    });
-
-    if (!response.ok) {
-      setError(await readApiError(response, "Unable to resend verification email"));
+    try {
+      await apiRequest("/auth/resend-verification", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      setSuccessEmail(email);
+      toast.success("Verification email sent again.");
+    } catch {
       setResendingVerification(false);
       return;
     }
-
-    setSuccessEmail(email);
-    toast.success("Verification email sent again.");
     setResendingVerification(false);
   };
 
@@ -119,13 +101,7 @@ export default function RegisterPage() {
         </div>
       }
     >
-      {error ? (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertTitle>Registration failed</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
+      <FormErrorSummary title="Registration failed" error={formError ?? (!acknowledged && successEmail == null ? null : formError)} />
 
       {successEmail ? (
         <div className="flex flex-col gap-5">
@@ -169,36 +145,42 @@ export default function RegisterPage() {
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="fullName">Full name</FieldLabel>
-              <Input id="fullName" value={fullName} onChange={(event) => setFullName(event.target.value)} required />
-              <FieldDescription>This becomes the owner profile name used during onboarding.</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="email">Email</FieldLabel>
-              <Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="password">Password</FieldLabel>
-              <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-              <FieldDescription>The backend enforces the same strength rules shown below.</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="confirmPassword">Confirm password</FieldLabel>
-              <Input id="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
-              <FieldDescription>
-                {confirmPassword.length === 0 ? "Re-enter the password to avoid setup mistakes." : passwordsMatch ? "Passwords match." : "Passwords do not match yet."}
-              </FieldDescription>
-            </Field>
-            <Field orientation="horizontal" data-invalid={!acknowledged && error?.includes("acknowledgement") ? true : undefined}>
-              <Checkbox checked={acknowledged} onCheckedChange={(checked) => setAcknowledged(checked === true)} aria-label="Acknowledge onboarding requirements" />
-              <FieldContent>
-                <FieldLabel>I understand this owner account creates the first CRM workspace.</FieldLabel>
-                <FieldDescription>The next step after verification is workspace onboarding, not the dashboard.</FieldDescription>
-              </FieldContent>
-            </Field>
-          </FieldGroup>
+          <FormSection title="Owner account" description="This account becomes the first workspace owner after onboarding.">
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="fullName">Full name</FieldLabel>
+                <Input id="fullName" value={fullName} onChange={(event) => { clearFieldError("fullName"); setFullName(event.target.value); }} required />
+                <FieldDescription>This becomes the owner profile name used during onboarding.</FieldDescription>
+                <FieldError errors={fieldErrors.fullName?.map((message) => ({ message }))} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="email">Email</FieldLabel>
+                <Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => { clearFieldError("email"); setEmail(event.target.value); }} required />
+                <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="password">Password</FieldLabel>
+                <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => { clearFieldError("password"); setPassword(event.target.value); }} required />
+                <FieldDescription>The backend enforces the same strength rules shown below.</FieldDescription>
+                <FieldError errors={fieldErrors.password?.map((message) => ({ message }))} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="confirmPassword">Confirm password</FieldLabel>
+                <Input id="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => { clearFieldError("confirmPassword"); setConfirmPassword(event.target.value); }} required />
+                <FieldDescription>
+                  {confirmPassword.length === 0 ? "Re-enter the password to avoid setup mistakes." : passwordsMatch ? "Passwords match." : "Passwords do not match yet."}
+                </FieldDescription>
+                <FieldError errors={fieldErrors.confirmPassword?.map((message) => ({ message }))} />
+              </Field>
+              <Field orientation="horizontal">
+                <Checkbox checked={acknowledged} onCheckedChange={(checked) => setAcknowledged(checked === true)} aria-label="Acknowledge onboarding requirements" />
+                <FieldContent>
+                  <FieldLabel>I understand this owner account creates the first CRM workspace.</FieldLabel>
+                  <FieldDescription>The next step after verification is workspace onboarding, not the dashboard.</FieldDescription>
+                </FieldContent>
+              </Field>
+            </FieldGroup>
+          </FormSection>
 
           <Card className="border-border/60 bg-muted/20">
             <CardHeader>
@@ -223,9 +205,9 @@ export default function RegisterPage() {
             </CardContent>
           </Card>
 
-          <Button type="submit" size="lg" disabled={loading}>
+          <Button type="submit" size="lg" disabled={submitting}>
             <UserPlus data-icon="inline-start" />
-            {loading ? "Creating account..." : "Create account"}
+            {submitting ? "Creating account..." : "Create account"}
           </Button>
         </form>
       )}

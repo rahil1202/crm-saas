@@ -2,10 +2,12 @@ import { getFrontendEnv } from "@/lib/env";
 
 export interface AuthMePayload {
   needsOnboarding: boolean;
+  isSuperAdmin: boolean;
   user: {
     id: string;
     email: string | null;
     fullName: string | null;
+    isSuperAdmin?: boolean;
   };
   memberships?: Array<{
     membershipId: string;
@@ -47,5 +49,5 @@ export async function resolveAuthenticatedRoute() {
     return "/dashboard";
   }
 
-  return me.needsOnboarding ? "/onboarding" : "/dashboard";
+  return me.needsOnboarding && !me.isSuperAdmin ? "/onboarding" : "/dashboard";
 }

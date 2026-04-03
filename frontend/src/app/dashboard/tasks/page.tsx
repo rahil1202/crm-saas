@@ -3,15 +3,19 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { CrudPanel, EmptyState, FilterBar, LoadingState, PageSection, StatCard } from "@/components/ui/page-patterns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest } from "@/lib/api";
+import { useAsyncForm } from "@/hooks/use-async-form";
 
 type TaskStatus = "todo" | "in_progress" | "done" | "overdue";
 type TaskPriority = "low" | "medium" | "high";
@@ -69,6 +73,22 @@ interface TaskReminderResponse {
   };
 }
 
+type FollowUpStatus = "pending" | "completed" | "missed" | "canceled";
+
+interface FollowUp {
+  id: string;
+  subject: string;
+  channel: string;
+  status: FollowUpStatus;
+  scheduledAt: string;
+  notes: string | null;
+  outcome: string | null;
+}
+
+interface FollowUpListResponse {
+  items: FollowUp[];
+}
+
 const statuses: TaskStatus[] = ["todo", "in_progress", "done", "overdue"];
 const priorities: TaskPriority[] = ["low", "medium", "high"];
 
@@ -95,6 +115,7 @@ function formatDateLabel(value: string) {
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [summary, setSummary] = useState<TaskSummaryResponse | null>(null);
   const [calendar, setCalendar] = useState<TaskCalendarResponse | null>(null);
   const [title, setTitle] = useState("");
@@ -103,15 +124,21 @@ export default function TasksPage() {
   const [dueAt, setDueAt] = useState("");
   const [reminderMinutesBefore, setReminderMinutesBefore] = useState("1440");
   const [recurrenceRule, setRecurrenceRule] = useState("");
+  const [followUpSubject, setFollowUpSubject] = useState("");
+  const [followUpChannel, setFollowUpChannel] = useState("call");
+  const [followUpScheduledAt, setFollowUpScheduledAt] = useState("");
+  const [followUpNotes, setFollowUpNotes] = useState("");
+  const [savingFollowUpId, setSavingFollowUpId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [reminders, setReminders] = useState<TaskReminderResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
   const [sendingReminderTaskId, setSendingReminderTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const taskForm = useAsyncForm();
+  const followUpForm = useAsyncForm();
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -162,9 +189,18 @@ export default function TasksPage() {
     }
   }, []);
 
+  const loadFollowUps = useCallback(async () => {
+    try {
+      const data = await apiRequest<FollowUpListResponse>("/tasks/follow-ups?limit=20");
+      setFollowUps(data.items);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load follow-ups");
+    }
+  }, []);
+
   const reloadAll = useCallback(async () => {
-    await Promise.all([loadTasks(), loadSummary(), loadCalendar(), loadReminders()]);
-  }, [loadCalendar, loadReminders, loadSummary, loadTasks]);
+    await Promise.all([loadTasks(), loadSummary(), loadCalendar(), loadReminders(), loadFollowUps()]);
+  }, [loadCalendar, loadFollowUps, loadReminders, loadSummary, loadTasks]);
 
   useEffect(() => {
     void loadTasks();
@@ -182,24 +218,31 @@ export default function TasksPage() {
     void loadReminders();
   }, [loadReminders]);
 
+  useEffect(() => {
+    void loadFollowUps();
+  }, [loadFollowUps]);
+
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSubmitting(true);
     setError(null);
 
     try {
-      await apiRequest("/tasks", {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          description: description || undefined,
-          priority,
-          dueAt: dueAt ? new Date(`${dueAt}T09:00:00.000Z`).toISOString() : undefined,
-          reminderMinutesBefore: Number(reminderMinutesBefore) || 0,
-          isRecurring: recurrenceRule.trim().length > 0,
-          recurrenceRule: recurrenceRule || undefined,
-        }),
-      });
+      await taskForm.runSubmit(
+        () =>
+          apiRequest("/tasks", {
+            method: "POST",
+            body: JSON.stringify({
+              title,
+              description: description || undefined,
+              priority,
+              dueAt: dueAt ? new Date(`${dueAt}T09:00:00.000Z`).toISOString() : undefined,
+              reminderMinutesBefore: Number(reminderMinutesBefore) || 0,
+              isRecurring: recurrenceRule.trim().length > 0,
+              recurrenceRule: recurrenceRule || undefined,
+            }),
+          }),
+        "Unable to create task",
+      );
       setTitle("");
       setDescription("");
       setPriority("medium");
@@ -207,11 +250,7 @@ export default function TasksPage() {
       setReminderMinutesBefore("1440");
       setRecurrenceRule("");
       await reloadAll();
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to create task");
-    } finally {
-      setSubmitting(false);
-    }
+    } catch {}
   };
 
   const updateTask = async (taskId: string, payload: Partial<Pick<Task, "status">> & { dueAt?: string | null }) => {
@@ -255,20 +294,59 @@ export default function TasksPage() {
     }
   };
 
+  const handleCreateFollowUp = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+
+    try {
+      await followUpForm.runSubmit(
+        () =>
+          apiRequest("/tasks/follow-ups", {
+            method: "POST",
+            body: JSON.stringify({
+              subject: followUpSubject,
+              channel: followUpChannel,
+              scheduledAt: new Date(followUpScheduledAt).toISOString(),
+              notes: followUpNotes || undefined,
+            }),
+          }),
+        "Unable to create follow-up",
+      );
+      setFollowUpSubject("");
+      setFollowUpChannel("call");
+      setFollowUpScheduledAt("");
+      setFollowUpNotes("");
+      await reloadAll();
+    } catch {}
+  };
+
+  const updateFollowUp = async (followUpId: string, status: FollowUpStatus) => {
+    setSavingFollowUpId(followUpId);
+    setError(null);
+
+    try {
+      await apiRequest(`/tasks/follow-ups/${followUpId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      await reloadAll();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to update follow-up");
+    } finally {
+      setSavingFollowUpId(null);
+    }
+  };
+
   return (
     <AppShell
       title="Tasks & Follow-ups"
       description="Task execution workspace with overdue visibility, due-date planning, and month calendar coverage."
     >
       <div className="grid gap-6">
-        {error ? (
-          <Alert variant="destructive">
-            <AlertTitle>Task request failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
+        <FormErrorSummary title="Task request failed" error={error ?? taskForm.formError ?? followUpForm.formError} />
 
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
+        <PageSection>
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           {[
             { label: "Total", value: summary?.total ?? 0 },
             { label: "Open", value: summary?.open ?? 0 },
@@ -278,14 +356,10 @@ export default function TasksPage() {
             { label: "High priority", value: summary?.highPriorityOpen ?? 0 },
             { label: "Completed", value: summary?.completed ?? 0 },
           ].map((item) => (
-            <Card key={item.label} size="sm">
-              <CardHeader>
-                <CardDescription>{item.label}</CardDescription>
-                <CardTitle className="text-2xl">{item.value}</CardTitle>
-              </CardHeader>
-            </Card>
+            <StatCard key={item.label} label={item.label} value={item.value} />
           ))}
-        </div>
+          </div>
+        </PageSection>
 
         {(summary?.overdue ?? 0) > 0 || (summary?.dueToday ?? 0) > 0 ? (
           <Alert variant={(summary?.overdue ?? 0) > 0 ? "destructive" : "default"}>
@@ -299,76 +373,59 @@ export default function TasksPage() {
         ) : null}
 
         <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Create task</CardTitle>
-              <CardDescription>Capture due work with a due date and optional recurrence rule.</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <CrudPanel title="Create task" description="Capture due work with a due date and optional recurrence rule.">
               <form className="grid gap-4" onSubmit={handleCreate}>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="task-title">Task title</FieldLabel>
-                    <Input id="task-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Call customer for proposal review" required />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="task-priority">Priority</FieldLabel>
-                    <select
-                      id="task-priority"
-                      value={priority}
-                      onChange={(event) => setPriority(event.target.value as TaskPriority)}
-                      className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                    >
-                      {priorities.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="task-dueAt">Due date</FieldLabel>
-                    <Input id="task-dueAt" type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
-                    <FieldDescription>Tasks without a due date stay off the calendar.</FieldDescription>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="task-reminder">Reminder timing</FieldLabel>
-                    <select
-                      id="task-reminder"
-                      value={reminderMinutesBefore}
-                      onChange={(event) => setReminderMinutesBefore(event.target.value)}
-                      className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                    >
-                      <option value="0">No reminder</option>
-                      <option value="60">1 hour before</option>
-                      <option value="180">3 hours before</option>
-                      <option value="720">12 hours before</option>
-                      <option value="1440">24 hours before</option>
-                      <option value="2880">48 hours before</option>
-                    </select>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="task-recurrence">Recurrence rule</FieldLabel>
-                    <Input id="task-recurrence" value={recurrenceRule} onChange={(event) => setRecurrenceRule(event.target.value)} placeholder="weekly-follow-up" />
-                  </Field>
-                </FieldGroup>
+                <FormSection title="Task details" description="Create a reusable, schedulable work item with reminder timing.">
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="task-title">Task title</FieldLabel>
+                      <Input id="task-title" value={title} onChange={(event) => { taskForm.clearFieldError("title"); setTitle(event.target.value); }} placeholder="Call customer for proposal review" required />
+                      <FieldError errors={taskForm.fieldErrors.title?.map((message) => ({ message }))} />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="task-priority">Priority</FieldLabel>
+                      <NativeSelect id="task-priority" value={priority} onChange={(event) => setPriority(event.target.value as TaskPriority)}>
+                        {priorities.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="task-dueAt">Due date</FieldLabel>
+                      <Input id="task-dueAt" type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
+                      <FieldDescription>Tasks without a due date stay off the calendar.</FieldDescription>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="task-reminder">Reminder timing</FieldLabel>
+                      <NativeSelect id="task-reminder" value={reminderMinutesBefore} onChange={(event) => setReminderMinutesBefore(event.target.value)}>
+                        <option value="0">No reminder</option>
+                        <option value="60">1 hour before</option>
+                        <option value="180">3 hours before</option>
+                        <option value="720">12 hours before</option>
+                        <option value="1440">24 hours before</option>
+                        <option value="2880">48 hours before</option>
+                      </NativeSelect>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="task-recurrence">Recurrence rule</FieldLabel>
+                      <Input id="task-recurrence" value={recurrenceRule} onChange={(event) => setRecurrenceRule(event.target.value)} placeholder="weekly-follow-up" />
+                    </Field>
+                  </FieldGroup>
+                </FormSection>
                 <Field>
                   <FieldLabel htmlFor="task-description">Description</FieldLabel>
                   <Textarea id="task-description" value={description} onChange={(event) => setDescription(event.target.value)} className="min-h-28" placeholder="Context, next steps, owner notes..." />
                 </Field>
-                <Button type="submit" disabled={submitting} className="w-fit">
-                  {submitting ? "Creating..." : "Create task"}
+                <Button type="submit" disabled={taskForm.submitting} className="w-fit">
+                  {taskForm.submitting ? "Creating..." : "Create task"}
                 </Button>
               </form>
-            </CardContent>
-          </Card>
+          </CrudPanel>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Task planning</CardTitle>
-              <CardDescription>Switch between operational list view and calendar-based due-date planning.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4">
+          <CrudPanel title="Task planning" description="Switch between operational list view and calendar-based due-date planning.">
+            <div className="grid gap-4">
               <Tabs defaultValue="list" className="grid gap-4">
                 <TabsList className="w-fit">
                   <TabsTrigger value="list">List</TabsTrigger>
@@ -377,22 +434,17 @@ export default function TasksPage() {
                 </TabsList>
 
                 <TabsContent value="list" className="grid gap-4">
-                  <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                  <FilterBar className="md:grid-cols-[minmax(0,1fr)_auto_auto]">
                     <Field>
                       <FieldLabel htmlFor="task-status-filter">Status</FieldLabel>
-                      <select
-                        id="task-status-filter"
-                        value={statusFilter}
-                        onChange={(event) => setStatusFilter(event.target.value)}
-                        className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
-                      >
+                      <NativeSelect id="task-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
                         <option value="">All statuses</option>
                         {statuses.map((status) => (
                           <option key={status} value={status}>
                             {status}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </Field>
                     <label className="flex items-end gap-2 text-sm text-muted-foreground">
                       <input type="checkbox" checked={overdueOnly} onChange={(event) => setOverdueOnly(event.target.checked)} />
@@ -403,9 +455,9 @@ export default function TasksPage() {
                         Apply
                       </Button>
                     </div>
-                  </div>
+                  </FilterBar>
 
-                  {loading ? <div className="text-sm text-muted-foreground">Loading tasks...</div> : null}
+                  {loading ? <LoadingState label="Loading tasks..." /> : null}
 
                   {!loading ? (
                     <div className="grid gap-3">
@@ -436,10 +488,9 @@ export default function TasksPage() {
                               </Field>
                               <Field>
                                 <FieldLabel>Status</FieldLabel>
-                                <select
+                                <NativeSelect
                                   value={task.status}
                                   onChange={(event) => void updateTask(task.id, { status: event.target.value as TaskStatus })}
-                                  className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
                                   disabled={savingTaskId === task.id}
                                 >
                                   {statuses.map((status) => (
@@ -447,7 +498,7 @@ export default function TasksPage() {
                                       {status}
                                     </option>
                                   ))}
-                                </select>
+                                </NativeSelect>
                               </Field>
                               <div className="flex items-end text-sm text-muted-foreground">
                                 {savingTaskId === task.id ? "Saving..." : task.status === "done" ? "Completed task" : "Active task"}
@@ -457,9 +508,7 @@ export default function TasksPage() {
                         </Card>
                       ))}
                       {tasks.length === 0 ? (
-                        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
-                          No tasks found for the active filter.
-                        </div>
+                        <EmptyState title="No tasks found" description="Adjust the active filter or create a new task." />
                       ) : null}
                     </div>
                   ) : null}
@@ -518,15 +567,13 @@ export default function TasksPage() {
                     ))}
 
                     {(reminders?.items.length ?? 0) === 0 ? (
-                      <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
-                        No reminder candidates in the next 72 hours.
-                      </div>
+                      <EmptyState title="No reminder candidates" description="No reminders are due within the next 72 hours." />
                     ) : null}
                   </div>
                 </TabsContent>
 
                 <TabsContent value="calendar" className="grid gap-4">
-                  <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-muted/20 p-4">
+                  <FilterBar className="flex flex-wrap items-end gap-3">
                     <Field>
                       <FieldLabel htmlFor="task-calendar-month">Month</FieldLabel>
                       <Input id="task-calendar-month" type="month" value={calendarMonth} onChange={(event) => setCalendarMonth(event.target.value)} />
@@ -534,7 +581,7 @@ export default function TasksPage() {
                     <Button type="button" variant="outline" onClick={() => void loadCalendar()}>
                       Load month
                     </Button>
-                  </div>
+                  </FilterBar>
 
                   <div className="grid gap-3">
                     {(calendar?.days ?? []).map((day) => (
@@ -564,15 +611,120 @@ export default function TasksPage() {
                     ))}
 
                     {(calendar?.days.length ?? 0) === 0 ? (
-                      <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
-                        No tasks with due dates in {calendarMonth}.
-                      </div>
+                      <EmptyState title="No calendar entries" description={`No tasks with due dates in ${calendarMonth}.`} />
                     ) : null}
                   </div>
                 </TabsContent>
               </Tabs>
-            </CardContent>
-          </Card>
+            </div>
+          </CrudPanel>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <CrudPanel title="Schedule follow-up" description="Create a dedicated follow-up item separate from the task queue.">
+              <form className="grid gap-4" onSubmit={handleCreateFollowUp}>
+                <FormSection title="Follow-up details" description="Use this for dedicated customer touchpoints that should stay separate from the general task queue.">
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel htmlFor="follow-up-subject">Subject</FieldLabel>
+                      <Input
+                        id="follow-up-subject"
+                        value={followUpSubject}
+                        onChange={(event) => {
+                          followUpForm.clearFieldError("subject");
+                          setFollowUpSubject(event.target.value);
+                        }}
+                        placeholder="Check proposal status with customer"
+                        required
+                      />
+                      <FieldError errors={followUpForm.fieldErrors.subject?.map((message) => ({ message }))} />
+                    </Field>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Field>
+                        <FieldLabel htmlFor="follow-up-channel">Channel</FieldLabel>
+                        <Input
+                          id="follow-up-channel"
+                          value={followUpChannel}
+                          onChange={(event) => setFollowUpChannel(event.target.value)}
+                          placeholder="call"
+                          required
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="follow-up-at">Scheduled at</FieldLabel>
+                        <Input
+                          id="follow-up-at"
+                          type="datetime-local"
+                          value={followUpScheduledAt}
+                          onChange={(event) => setFollowUpScheduledAt(event.target.value)}
+                          required
+                        />
+                      </Field>
+                    </div>
+                  </FieldGroup>
+                </FormSection>
+                <Field>
+                  <FieldLabel htmlFor="follow-up-notes">Notes</FieldLabel>
+                  <Textarea
+                    id="follow-up-notes"
+                    value={followUpNotes}
+                    onChange={(event) => setFollowUpNotes(event.target.value)}
+                    className="min-h-24"
+                    placeholder="Outcome target, talking points, customer context..."
+                  />
+                </Field>
+                <Button type="submit" disabled={followUpForm.submitting} className="w-fit">
+                  {followUpForm.submitting ? "Scheduling..." : "Schedule follow-up"}
+                </Button>
+              </form>
+          </CrudPanel>
+
+          <CrudPanel title="Follow-up queue" description="Track scheduled customer touchpoints and mark outcomes as they happen.">
+            <div className="grid gap-3">
+              {followUps.map((followUp) => (
+                <Card key={followUp.id} size="sm">
+                  <CardHeader>
+                    <CardTitle className="flex flex-wrap items-center gap-2">
+                      <span>{followUp.subject}</span>
+                      <Badge
+                        variant={
+                          followUp.status === "completed"
+                            ? "default"
+                            : followUp.status === "pending"
+                              ? "outline"
+                              : "destructive"
+                        }
+                      >
+                        {followUp.status}
+                      </Badge>
+                      <Badge variant="secondary">{followUp.channel}</Badge>
+                    </CardTitle>
+                    <CardDescription>{new Date(followUp.scheduledAt).toLocaleString()}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-3">
+                    {followUp.notes ? <div className="text-sm text-muted-foreground">{followUp.notes}</div> : null}
+                    {followUp.outcome ? <div className="text-sm text-muted-foreground">Outcome: {followUp.outcome}</div> : null}
+                    <div className="flex flex-wrap gap-2">
+                      {(["pending", "completed", "missed", "canceled"] as FollowUpStatus[]).map((status) => (
+                        <Button
+                          key={status}
+                          type="button"
+                          variant={followUp.status === status ? "default" : "outline"}
+                          disabled={savingFollowUpId === followUp.id}
+                          onClick={() => void updateFollowUp(followUp.id, status)}
+                        >
+                          {status}
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {followUps.length === 0 ? (
+                <EmptyState title="No follow-ups scheduled yet" description="Create a follow-up to start tracking dedicated customer touchpoints." />
+              ) : null}
+            </div>
+          </CrudPanel>
         </div>
       </div>
     </AppShell>

@@ -3,11 +3,11 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { companies, companyInvites, companyMemberships, profiles, stores } from "@/db/schema";
+import { companies, companyInvites, companyMemberships, companyPlans, profiles, stores } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
-import { storeParamSchema } from "@/modules/companies/schema";
-import type { CreateStoreInput, UpdateCompanyInput, UpdateStoreInput } from "@/modules/companies/schema";
+import { companyParamSchema, storeParamSchema } from "@/modules/companies/schema";
+import type { CreateStoreInput, UpdateCompanyInput, UpdateCompanyPlanInput, UpdateStoreInput } from "@/modules/companies/schema";
 
 async function loadCompanySnapshot(companyId: string) {
   const [company] = await db
@@ -60,6 +60,8 @@ async function loadCompanySnapshot(companyId: string) {
     .where(and(eq(companyInvites.companyId, companyId), gt(companyInvites.expiresAt, new Date())))
     .orderBy(asc(companyInvites.createdAt));
 
+  const [plan] = await db.select().from(companyPlans).where(eq(companyPlans.companyId, companyId)).limit(1);
+
   return {
     company: {
       id: company.id,
@@ -70,6 +72,7 @@ async function loadCompanySnapshot(companyId: string) {
       createdAt: company.createdAt,
       updatedAt: company.updatedAt,
     },
+    plan: plan ?? null,
     stores: storeRows,
     members: memberRows,
     invites: inviteRows,
@@ -193,5 +196,56 @@ export async function updateStore(c: Context<AppEnv>) {
 
   return ok(c, {
     store: updatedStore,
+  });
+}
+
+export async function getCurrentCompanyPlan(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const [plan] = await db.select().from(companyPlans).where(eq(companyPlans.companyId, tenant.companyId)).limit(1);
+
+  return ok(c, {
+    plan: plan ?? null,
+  });
+}
+
+export async function updateCompanyPlan(c: Context<AppEnv>) {
+  const params = companyParamSchema.parse(c.req.param());
+  const body = c.get("validatedBody") as UpdateCompanyPlanInput;
+
+  const [updated] = await db
+    .insert(companyPlans)
+    .values({
+      companyId: params.companyId,
+      planCode: body.planCode,
+      planName: body.planName,
+      status: body.status,
+      billingInterval: body.billingInterval,
+      seatLimit: body.seatLimit,
+      monthlyPrice: body.monthlyPrice,
+      currency: body.currency.toUpperCase(),
+      trialEndsAt: body.trialEndsAt ? new Date(body.trialEndsAt) : null,
+      renewalDate: body.renewalDate ? new Date(body.renewalDate) : null,
+      notes: body.notes ?? null,
+    })
+    .onConflictDoUpdate({
+      target: companyPlans.companyId,
+      set: {
+        planCode: body.planCode,
+        planName: body.planName,
+        status: body.status,
+        billingInterval: body.billingInterval,
+        seatLimit: body.seatLimit,
+        monthlyPrice: body.monthlyPrice,
+        currency: body.currency.toUpperCase(),
+        trialEndsAt: body.trialEndsAt ? new Date(body.trialEndsAt) : null,
+        renewalDate: body.renewalDate ? new Date(body.renewalDate) : null,
+        notes: body.notes ?? null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  return ok(c, {
+    plan: updated,
   });
 }

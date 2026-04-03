@@ -6,6 +6,7 @@ import { ok } from "@/lib/api";
 import { errorMiddleware, requestIdMiddleware } from "@/middleware/common";
 import type { AppVariables } from "@/types/app";
 import { authRoutes } from "@/modules/auth/route";
+import { adminRoutes } from "@/modules/admin/route";
 import { automationRoutes } from "@/modules/automation/route";
 import { campaignRoutes } from "@/modules/campaigns/route";
 import { companyRoutes } from "@/modules/companies/route";
@@ -54,6 +55,7 @@ app.get("/health", (c) => ok(c, { ok: true }));
 const api = new Hono<AppEnv>().basePath("/api/v1");
 
 api.route("/", authRoutes);
+api.route("/", adminRoutes);
 api.route("/", companyRoutes);
 api.route("/", userRoutes);
 api.route("/", customerRoutes);

@@ -25,6 +25,28 @@ export const createTaskSchema = z.object({
   storeId: z.string().uuid().nullable().optional(),
 });
 
+export const listFollowUpsSchema = z.object({
+  q: z.string().trim().optional(),
+  status: z.enum(["pending", "completed", "missed", "canceled"]).optional(),
+  assignedToUserId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export const createFollowUpSchema = z.object({
+  subject: z.string().trim().min(1).max(180),
+  channel: z.string().trim().min(2).max(40).default("call"),
+  status: z.enum(["pending", "completed", "missed", "canceled"]).default("pending"),
+  scheduledAt: z.string().datetime(),
+  notes: z.string().trim().max(4000).optional(),
+  outcome: z.string().trim().max(240).optional(),
+  assignedToUserId: z.string().uuid().nullable().optional(),
+  leadId: z.string().uuid().nullable().optional(),
+  customerId: z.string().uuid().nullable().optional(),
+  dealId: z.string().uuid().nullable().optional(),
+  storeId: z.string().uuid().nullable().optional(),
+});
+
 export const taskCalendarQuerySchema = z.object({
   month: z
     .string()
@@ -38,10 +60,15 @@ export const taskReminderQuerySchema = z.object({
 });
 
 export const updateTaskSchema = createTaskSchema.partial();
+export const updateFollowUpSchema = createFollowUpSchema.partial();
 export const taskParamSchema = z.object({ taskId: z.string().uuid() });
+export const followUpParamSchema = z.object({ followUpId: z.string().uuid() });
 
 export type ListTasksQuery = z.infer<typeof listTasksSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
+export type ListFollowUpsQuery = z.infer<typeof listFollowUpsSchema>;
+export type CreateFollowUpInput = z.infer<typeof createFollowUpSchema>;
 export type TaskCalendarQuery = z.infer<typeof taskCalendarQuerySchema>;
 export type TaskReminderQuery = z.infer<typeof taskReminderQuerySchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
+export type UpdateFollowUpInput = z.infer<typeof updateFollowUpSchema>;

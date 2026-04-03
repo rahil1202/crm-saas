@@ -39,6 +39,15 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).default(900),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(3600).default(60 * 60 * 24 * 30),
   FILE_STORAGE_DIR: z.string().default("storage/uploads"),
+  SUPER_ADMIN_EMAILS: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean),
+    ),
   COOKIE_SECURE: z
     .enum(["0", "1", "true", "false"])
     .default("0")

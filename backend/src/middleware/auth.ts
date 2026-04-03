@@ -3,7 +3,7 @@ import { getCookie } from "hono/cookie";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { companyMemberships, profiles } from "@/db/schema";
+import { companyMemberships, profiles, superAdmins } from "@/db/schema";
 import { verifyAccessToken } from "@/lib/auth";
 import { AppError } from "@/lib/errors";
 import { hasMinimumRole } from "@/middleware/roles";
@@ -43,7 +43,23 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
     id: verified.userId,
     email: verified.email,
     sessionId: verified.sessionId,
+    isSuperAdmin: false,
   });
+
+  const [admin] = await db
+    .select({ id: superAdmins.id })
+    .from(superAdmins)
+    .where(and(eq(superAdmins.userId, verified.userId), eq(superAdmins.isActive, true)))
+    .limit(1);
+
+  if (admin) {
+    c.set("user", {
+      id: verified.userId,
+      email: verified.email,
+      sessionId: verified.sessionId,
+      isSuperAdmin: true,
+    });
+  }
 
   await next();
 };
@@ -98,4 +114,13 @@ export const requireRole = (minimumRole: CompanyRole): MiddlewareHandler => {
 
     await next();
   };
+};
+
+export const requireSuperAdmin: MiddlewareHandler = async (c, next) => {
+  const user = c.get("user");
+  if (!user?.isSuperAdmin) {
+    throw AppError.forbidden("This route requires super-admin access");
+  }
+
+  await next();
 };

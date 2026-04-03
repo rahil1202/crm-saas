@@ -20,7 +20,9 @@ export const leadStatusEnum = pgEnum("lead_status", ["new", "qualified", "propos
 export const dealStatusEnum = pgEnum("deal_status", ["open", "won", "lost"]);
 export const taskStatusEnum = pgEnum("task_status", ["todo", "in_progress", "done", "overdue"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high"]);
+export const followUpStatusEnum = pgEnum("follow_up_status", ["pending", "completed", "missed", "canceled"]);
 export const partnerStatusEnum = pgEnum("partner_status", ["active", "inactive"]);
+export const partnerAccessLevelEnum = pgEnum("partner_access_level", ["restricted", "standard", "manager"]);
 export const campaignStatusEnum = pgEnum("campaign_status", ["draft", "scheduled", "active", "completed", "paused"]);
 export const templateTypeEnum = pgEnum("template_type", ["email", "whatsapp", "sms", "task", "pipeline"]);
 export const automationStatusEnum = pgEnum("automation_status", ["active", "paused"]);
@@ -31,6 +33,8 @@ export const socialPlatformEnum = pgEnum("social_platform", ["instagram", "faceb
 export const socialAccountStatusEnum = pgEnum("social_account_status", ["connected", "disconnected"]);
 export const socialConversationStatusEnum = pgEnum("social_conversation_status", ["open", "assigned", "closed"]);
 export const socialMessageDirectionEnum = pgEnum("social_message_direction", ["inbound", "outbound"]);
+export const companyPlanStatusEnum = pgEnum("company_plan_status", ["trial", "active", "past_due", "canceled"]);
+export const companyPlanIntervalEnum = pgEnum("company_plan_interval", ["monthly", "yearly", "custom"]);
 
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
@@ -50,6 +54,52 @@ export const companies = pgTable("companies", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
+
+export const companyPlans = pgTable(
+  "company_plans",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    planCode: varchar("plan_code", { length: 80 }).notNull().default("starter"),
+    planName: varchar("plan_name", { length: 120 }).notNull().default("Starter"),
+    status: companyPlanStatusEnum("status").notNull().default("trial"),
+    billingInterval: companyPlanIntervalEnum("billing_interval").notNull().default("monthly"),
+    seatLimit: integer("seat_limit").notNull().default(5),
+    monthlyPrice: integer("monthly_price").notNull().default(0),
+    currency: varchar("currency", { length: 8 }).notNull().default("USD"),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    renewalDate: timestamp("renewal_date", { withTimezone: true }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    companyUnique: uniqueIndex("company_plans_company_unique").on(table.companyId),
+    byStatusIdx: index("company_plans_status_idx").on(table.status),
+  }),
+);
+
+export const superAdmins = pgTable(
+  "super_admins",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    userUnique: uniqueIndex("super_admins_user_unique").on(table.userId),
+    emailUnique: uniqueIndex("super_admins_email_unique").on(table.email),
+    activeIdx: index("super_admins_active_idx").on(table.isActive),
+  }),
+);
 
 export const companySettings = pgTable(
   "company_settings",
@@ -419,6 +469,39 @@ export const tasks = pgTable(
   }),
 );
 
+export const followUps = pgTable(
+  "follow_ups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    storeId: uuid("store_id").references(() => stores.id, { onDelete: "set null" }),
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    dealId: uuid("deal_id").references(() => deals.id, { onDelete: "set null" }),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => profiles.id, { onDelete: "set null" }),
+    subject: varchar("subject", { length: 180 }).notNull(),
+    channel: varchar("channel", { length: 40 }).notNull().default("call"),
+    status: followUpStatusEnum("status").notNull().default("pending"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    notes: text("notes"),
+    outcome: varchar("outcome", { length: 240 }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("follow_ups_company_idx").on(table.companyId, table.scheduledAt),
+    byStatusIdx: index("follow_ups_status_idx").on(table.companyId, table.status),
+    byAssignedIdx: index("follow_ups_assigned_idx").on(table.companyId, table.assignedToUserId),
+  }),
+);
+
 export const campaigns = pgTable(
   "campaigns",
   {
@@ -449,6 +532,52 @@ export const campaigns = pgTable(
     byCompanyIdx: index("campaigns_company_idx").on(table.companyId),
     byStatusIdx: index("campaigns_status_idx").on(table.companyId, table.status),
     byScheduledIdx: index("campaigns_scheduled_idx").on(table.scheduledAt),
+  }),
+);
+
+export const partnerUsers = pgTable(
+  "partner_users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    partnerCompanyId: uuid("partner_company_id")
+      .notNull()
+      .references(() => partnerCompanies.id, { onDelete: "cascade" }),
+    fullName: varchar("full_name", { length: 180 }).notNull(),
+    email: varchar("email", { length: 320 }).notNull(),
+    phone: varchar("phone", { length: 40 }),
+    title: varchar("title", { length: 120 }),
+    status: partnerStatusEnum("status").notNull().default("active"),
+    accessLevel: partnerAccessLevelEnum("access_level").notNull().default("restricted"),
+    permissions: jsonb("permissions")
+      .$type<{
+        leads: boolean;
+        deals: boolean;
+        reports: boolean;
+        documents: boolean;
+      }>()
+      .notNull()
+      .default({
+        leads: true,
+        deals: true,
+        reports: false,
+        documents: false,
+      }),
+    lastAccessAt: timestamp("last_access_at", { withTimezone: true }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    partnerEmailUnique: uniqueIndex("partner_users_partner_email_unique").on(table.partnerCompanyId, table.email),
+    byCompanyIdx: index("partner_users_company_idx").on(table.companyId, table.createdAt),
+    byPartnerIdx: index("partner_users_partner_idx").on(table.partnerCompanyId, table.createdAt),
+    byStatusIdx: index("partner_users_status_idx").on(table.companyId, table.status),
   }),
 );
 
@@ -705,10 +834,12 @@ export const authRefreshTokens = pgTable(
 );
 
 export const companyRelations = relations(companies, ({ many }) => ({
+  plans: many(companyPlans),
   stores: many(stores),
   memberships: many(companyMemberships),
   invites: many(companyInvites),
   partners: many(partnerCompanies),
+  partnerUsers: many(partnerUsers),
   campaigns: many(campaigns),
   templates: many(templates),
   automations: many(automations),
@@ -720,4 +851,5 @@ export const companyRelations = relations(companies, ({ many }) => ({
   customers: many(customers),
   deals: many(deals),
   tasks: many(tasks),
+  followUps: many(followUps),
 }));

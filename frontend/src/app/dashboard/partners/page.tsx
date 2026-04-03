@@ -35,8 +35,30 @@ interface PartnerListResponse {
   total: number;
 }
 
+interface PartnerUser {
+  id: string;
+  partnerCompanyId: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  title: string | null;
+  status: "active" | "inactive";
+  accessLevel: "restricted" | "standard" | "manager";
+  permissions: {
+    leads: boolean;
+    deals: boolean;
+    reports: boolean;
+    documents: boolean;
+  };
+}
+
+interface PartnerUserListResponse {
+  items: PartnerUser[];
+}
+
 export default function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
+  const [partnerUsers, setPartnerUsers] = useState<PartnerUser[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -49,6 +71,11 @@ export default function PartnersPage() {
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<"active" | "inactive">("active");
+  const [partnerCompanyId, setPartnerCompanyId] = useState("");
+  const [partnerUserName, setPartnerUserName] = useState("");
+  const [partnerUserEmail, setPartnerUserEmail] = useState("");
+  const [partnerUserTitle, setPartnerUserTitle] = useState("");
+  const [partnerUserAccessLevel, setPartnerUserAccessLevel] = useState<"restricted" | "standard" | "manager">("restricted");
 
   const loadPartners = useCallback(async () => {
     setLoading(true);
@@ -65,6 +92,7 @@ export default function PartnersPage() {
     try {
       const data = await apiRequest<PartnerListResponse>(`/partners?${params.toString()}`);
       setPartners(data.items);
+      setPartnerCompanyId((currentValue) => currentValue || data.items[0]?.id || "");
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load partners");
     } finally {
@@ -72,9 +100,22 @@ export default function PartnersPage() {
     }
   }, [query, statusFilter]);
 
+  const loadPartnerUsers = useCallback(async () => {
+    try {
+      const data = await apiRequest<PartnerUserListResponse>("/partners/users");
+      setPartnerUsers(data.items);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load partner users");
+    }
+  }, []);
+
   useEffect(() => {
     void loadPartners();
   }, [loadPartners]);
+
+  useEffect(() => {
+    void loadPartnerUsers();
+  }, [loadPartnerUsers]);
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -103,6 +144,41 @@ export default function PartnersPage() {
       await loadPartners();
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to create partner");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCreatePartnerUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await apiRequest<PartnerUser>("/partners/users", {
+        method: "POST",
+        body: JSON.stringify({
+          partnerCompanyId,
+          fullName: partnerUserName,
+          email: partnerUserEmail,
+          title: partnerUserTitle || undefined,
+          accessLevel: partnerUserAccessLevel,
+          permissions: {
+            leads: true,
+            deals: true,
+            reports: partnerUserAccessLevel !== "restricted",
+            documents: partnerUserAccessLevel === "manager",
+          },
+        }),
+      });
+
+      setPartnerUserName("");
+      setPartnerUserEmail("");
+      setPartnerUserTitle("");
+      setPartnerUserAccessLevel("restricted");
+      await loadPartnerUsers();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to create partner user");
     } finally {
       setSubmitting(false);
     }
@@ -225,6 +301,103 @@ export default function PartnersPage() {
                 ) : null}
               </div>
             ) : null}
+          </CardContent>
+        </Card>
+
+        <Card className="xl:col-span-2">
+          <CardHeader>
+            <CardTitle>Partner access users</CardTitle>
+            <CardDescription>Create named partner contacts with explicit CRM access levels and module permissions.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <form className="grid gap-4 rounded-xl border bg-muted/20 p-4" onSubmit={handleCreatePartnerUser}>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>Partner company</FieldLabel>
+                  <Select
+                    value={partnerCompanyId || "__none"}
+                    onValueChange={(value) => setPartnerCompanyId(!value || value === "__none" ? "" : value)}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select partner" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">Select partner</SelectItem>
+                      {partners.map((partner) => (
+                        <SelectItem key={partner.id} value={partner.id}>
+                          {partner.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field>
+                    <FieldLabel htmlFor="partner-user-name">Full name</FieldLabel>
+                    <Input id="partner-user-name" value={partnerUserName} onChange={(event) => setPartnerUserName(event.target.value)} required />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="partner-user-email">Email</FieldLabel>
+                    <Input id="partner-user-email" type="email" value={partnerUserEmail} onChange={(event) => setPartnerUserEmail(event.target.value)} required />
+                  </Field>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field>
+                    <FieldLabel htmlFor="partner-user-title">Title</FieldLabel>
+                    <Input id="partner-user-title" value={partnerUserTitle} onChange={(event) => setPartnerUserTitle(event.target.value)} placeholder="Channel manager" />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Access level</FieldLabel>
+                    <Select value={partnerUserAccessLevel} onValueChange={(value) => setPartnerUserAccessLevel((value as "restricted" | "standard" | "manager") ?? "restricted")}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="restricted">restricted</SelectItem>
+                        <SelectItem value="standard">standard</SelectItem>
+                        <SelectItem value="manager">manager</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+              </FieldGroup>
+              <Button disabled={submitting || !partnerCompanyId} type="submit" className="w-fit">
+                {submitting ? "Creating..." : "Create partner user"}
+              </Button>
+            </form>
+
+            <div className="grid gap-3">
+              {partnerUsers.map((partnerUser) => {
+                const partnerName = partners.find((partner) => partner.id === partnerUser.partnerCompanyId)?.name ?? "Unknown partner";
+                return (
+                  <div key={partnerUser.id} className="grid gap-2 rounded-xl border bg-background p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-medium">{partnerUser.fullName}</div>
+                      <Badge variant={partnerUser.status === "active" ? "secondary" : "outline"}>{partnerUser.status}</Badge>
+                      <Badge variant="outline">{partnerUser.accessLevel}</Badge>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {partnerName} • {partnerUser.email}
+                      {partnerUser.title ? ` • ${partnerUser.title}` : ""}
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {Object.entries(partnerUser.permissions)
+                        .filter(([, enabled]) => enabled)
+                        .map(([permission]) => (
+                          <Badge key={permission} variant="outline">
+                            {permission}
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {partnerUsers.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                  No partner access users created yet.
+                </div>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
       </div>

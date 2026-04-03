@@ -4,6 +4,7 @@ export interface AuthUser {
   id: string;
   email: string | null;
   sessionId: string;
+  isSuperAdmin?: boolean;
 }
 
 export interface TenantContext {

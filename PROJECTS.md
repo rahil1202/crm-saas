@@ -4,283 +4,415 @@ This file tracks what has been implemented and what is still pending for the sta
 
 Rules:
 
-- This tracker applies only to `crm-saas/frontend` and `crm-saas/backend`.
-- The TalkTime project remains untouched and is not part of delivery status.
-- Update this file as implementation progresses.
+* This tracker applies only to `crm-saas/frontend` and `crm-saas/backend`.
+* The TalkTime project remains untouched and is not part of delivery status.
+* Update this file as implementation progresses.
 
 Status legend:
 
-- `[x]` Implemented
-- `[-]` In progress / partial scaffold
-- `[ ]` Not implemented
+* `\[x]` Implemented
+* `\[-]` In progress / partial scaffold
+* `\[ ]` Not implemented
 
 ## Phase 0: Workspace Boundary and Project Foundation
 
 ### Workspace setup
 
-- [x] `crm-saas/` root workspace created
-- [x] `crm-saas/frontend` created
-- [x] `crm-saas/backend` created
-- [x] Root workspace README added
-- [x] Root workspace `.gitignore` added
-- [x] Frontend package manifest added
-- [x] Backend package manifest added
-- [x] Frontend env example added
-- [x] Backend env example added
-- [x] Backend Drizzle config added
+* \[x] `crm-saas/` root workspace created
+* \[x] `crm-saas/frontend` created
+* \[x] `crm-saas/backend` created
+* \[x] Root workspace README added
+* \[x] Root workspace `.gitignore` added
+* \[x] Frontend package manifest added
+* \[x] Backend package manifest added
+* \[x] Frontend env example added
+* \[x] Backend env example added
+* \[x] Backend Drizzle config added
 
 ### Independent development setup
 
-- [x] Frontend dependencies installed
-- [x] Backend dependencies installed
-- [x] Frontend builds independently
-- [x] Backend type-checks independently
-- [x] No implementation added to TalkTime folders
+* \[x] Frontend dependencies installed
+* \[x] Backend dependencies installed
+* \[x] Frontend builds independently
+* \[x] Backend type-checks independently
+* \[x] No implementation added to TalkTime folders
 
 ## Phase 1: Application Skeleton
 
 ### Frontend shell
 
-- [x] Global app layout added
-- [x] Landing page updated for workspace messaging
-- [x] Login route scaffold added
-- [x] Dashboard route scaffold added
-- [x] Shared app shell component added
-- [x] Shared module card component added
-- [x] CRM module definitions file added
+* \[x] Global app layout added
+* \[x] Landing page updated for workspace messaging
+* \[x] Login route scaffold added
+* \[x] Dashboard route scaffold added
+* \[x] Shared app shell component added
+* \[x] Shared module card component added
+* \[x] CRM module definitions file added
 
 ### Frontend module route scaffolds
 
-- [x] Leads page scaffold
-- [x] Deals page scaffold
-- [x] Customers page scaffold
-- [x] Tasks page scaffold
-- [x] Partners page scaffold
-- [x] Campaigns page scaffold
-- [x] Settings page scaffold
-- [-] Company admin pages
-- [ ] Super-admin pages
-- [x] Authenticated route guards
-- [ ] Shared design system
-- [x] Data fetching layer
-- [ ] Form system
+* \[x] Leads page scaffold
+* \[x] Deals page scaffold
+* \[x] Customers page scaffold
+* \[x] Tasks page scaffold
+* \[x] Partners page scaffold
+* \[x] Campaigns page scaffold
+* \[x] Settings page scaffold
+* \[x] Company admin pages
+* \[x] Super-admin pages
+* \[x] Authenticated route guards
+* \[x] Shared design system
+* \[x] Data fetching layer
+* \[x] Form system
 
 ### Backend API skeleton
 
-- [x] Hono app bootstrap added
-- [x] Health route added
-- [x] API response helper added
-- [x] Versioned `/api/v1` routing added
-- [x] Auth module route scaffold
-- [x] Companies module route scaffold
-- [x] Users module route scaffold
-- [x] Customers module route scaffold
-- [x] Leads module route scaffold
-- [x] Deals module route scaffold
-- [x] Tasks module route scaffold
-- [x] Partners module route scaffold
-- [x] Campaigns module route scaffold
-- [x] Templates module route scaffold
-- [x] Automation module route scaffold
-- [x] Reports module route scaffold
-- [x] Notifications module route scaffold
-- [x] Settings module route scaffold
-- [x] Social module route scaffold
-- [ ] Request validation layer
-- [x] Request validation layer
-- [x] Error handling middleware
-- [x] Auth middleware
-- [x] Tenant resolution middleware
-- [x] Role/permission middleware
+* \[x] Hono app bootstrap added
+* \[x] Health route added
+* \[x] API response helper added
+* \[x] Versioned `/api/v1` routing added
+* \[x] Auth module route scaffold
+* \[x] Companies module route scaffold
+* \[x] Users module route scaffold
+* \[x] Customers module route scaffold
+* \[x] Leads module route scaffold
+* \[x] Deals module route scaffold
+* \[x] Tasks module route scaffold
+* \[x] Partners module route scaffold
+* \[x] Campaigns module route scaffold
+* \[x] Templates module route scaffold
+* \[x] Automation module route scaffold
+* \[x] Reports module route scaffold
+* \[x] Notifications module route scaffold
+* \[x] Settings module route scaffold
+* \[x] Social module route scaffold
+* \[x] Request validation layer
+* \[x] Error handling middleware
+* \[x] Auth middleware
+* \[x] Tenant resolution middleware
+* \[x] Role/permission middleware
 
 ## Phase 2: Core SaaS Platform
 
 ### Identity and tenancy
 
-- [x] Supabase auth integration
-- [x] Signup flow
-- [x] Login flow
-- [x] Password reset flow
-- [x] Invite acceptance flow
-- [x] Profile model
-- [x] Company model
-- [x] Company memberships model
-- [x] Company invites model
-- [ ] Company plans model
-- [x] Store/branch model
-- [ ] Super-admin model
-- [x] Company isolation enforcement
-- [x] Active workspace resolution
+* \[x] Supabase auth integration
+* \[x] Signup flow
+* \[x] Login flow
+* \[x] Password reset flow
+* \[x] Invite acceptance flow
+* \[x] Profile model
+* \[x] Company model
+* \[x] Company memberships model
+* \[x] Company invites model
+* \[x] Company plans model
+* \[x] Store/branch model
+* \[x] Super-admin model
+* \[x] Company isolation enforcement
+* \[x] Active workspace resolution
 
 ### Company administration
 
-- [x] Company profile management
-- [x] Branch management
-- [x] Lead source configuration
-- [x] Default pipeline configuration
-- [x] Business hours setup
-- [x] Timezone and currency setup
-- [x] Custom branding
-- [x] Team invite and onboarding
-- [x] Roles and permissions management
-- [x] User deactivation flow
+* \[x] Company profile management
+* \[x] Branch management
+* \[x] Lead source configuration
+* \[x] Default pipeline configuration
+* \[x] Business hours setup
+* \[x] Timezone and currency setup
+* \[x] Custom branding
+* \[x] Team invite and onboarding
+* \[x] Roles and permissions management
+* \[x] User deactivation flow
 
 ## Phase 3: Core CRM Operations
 
 ### Leads
 
-- [x] Lead schema
-- [x] Lead create/update/delete
-- [x] Lead list view data
-- [x] Lead kanban data
-- [x] Lead assignment
-- [x] Partner assignment
-- [x] Lead scoring
-- [x] Lead notes
-- [x] Lead timeline
-- [x] CSV import
-- [x] Bulk update
-- [x] Lead filters
-- [x] Convert lead to deal
+* \[x] Lead schema
+* \[x] Lead create/update/delete
+* \[x] Lead list view data
+* \[x] Lead kanban data
+* \[x] Lead assignment
+* \[x] Partner assignment
+* \[x] Lead scoring
+* \[x] Lead notes
+* \[x] Lead timeline
+* \[x] CSV import
+* \[x] Bulk update
+* \[x] Lead filters
+* \[x] Convert lead to deal
 
 ### Deals
 
-- [x] Deal schema
-- [x] Multiple pipelines support
-- [x] Deal stages support
-- [x] Deal board data
-- [x] Deal create/update/delete
-- [x] Deal notes
-- [x] Deal value and forecast
-- [x] Won/lost tracking
-- [x] Lost reason tracking
-- [x] Deal activities
+* \[x] Deal schema
+* \[x] Multiple pipelines support
+* \[x] Deal stages support
+* \[x] Deal board data
+* \[x] Deal create/update/delete
+* \[x] Deal notes
+* \[x] Deal value and forecast
+* \[x] Won/lost tracking
+* \[x] Lost reason tracking
+* \[x] Deal activities
 
 ### Customers
 
-- [x] Customer schema
-- [x] Customer profile
-- [x] Lead history on customer
-- [x] Deal history on customer
-- [x] Task history on customer
-- [x] Campaign history on customer
-- [x] Notes and attachments
-- [x] Tags
-- [x] Custom fields
+* \[x] Customer schema
+* \[x] Customer profile
+* \[x] Lead history on customer
+* \[x] Deal history on customer
+* \[x] Task history on customer
+* \[x] Campaign history on customer
+* \[x] Notes and attachments
+* \[x] Tags
+* \[x] Custom fields
 
 ### Tasks and follow-ups
 
-- [x] Task schema
-- [ ] Follow-up schema
-- [x] Task creation
-- [x] Task assignment
-- [x] Recurring tasks
-- [x] Follow-up reminders
-- [x] Overdue alerts
-- [x] Calendar view
+* \[x] Task schema
+* \[x] Follow-up schema
+* \[x] Task creation
+* \[x] Task assignment
+* \[x] Recurring tasks
+* \[x] Follow-up reminders
+* \[x] Overdue alerts
+* \[x] Calendar view
 
 ### Partners
 
-- [x] Partner company schema
-- [ ] Partner user schema
-- [ ] Partner access control
-- [x] Partner lead assignment
-- [x] Partner deal assignment
-- [x] Partner performance reporting
+* \[x] Partner company schema
+* \[x] Partner user schema
+* \[x] Partner access control
+* \[x] Partner lead assignment
+* \[x] Partner deal assignment
+* \[x] Partner performance reporting
 
 ## Phase 4: Engagement, Automation, and Assets
 
 ### Campaigns
 
-- [x] Campaign schema
-- [x] Audience selection
-- [x] Email campaigns
-- [x] Campaign scheduling
-- [x] Campaign analytics
-- [x] Campaign-to-customer history linkage
+* \[x] Campaign schema
+* \[x] Audience selection
+* \[x] Email campaigns
+* \[x] Campaign scheduling
+* \[x] Campaign analytics
+* \[x] Campaign-to-customer history linkage
 
 ### Templates
 
-- [x] Email templates
-- [x] WhatsApp template model
-- [x] SMS template model
-- [x] Task templates
-- [x] Pipeline templates
+* \[x] Email templates
+* \[x] WhatsApp template model
+* \[x] SMS template model
+* \[x] Task templates
+* \[x] Pipeline templates
 
 ### Automation
 
-- [x] Automation schema
-- [x] Automation builder backend
-- [x] Trigger conditions
-- [x] Action execution
-- [x] Multi-step workflows
-- [x] Automation logs
+* \[x] Automation schema
+* \[x] Automation builder backend
+* \[x] Trigger conditions
+* \[x] Action execution
+* \[x] Multi-step workflows
+* \[x] Automation logs
 
 ### Files and documents
 
-- [x] File upload support
-- [x] Attach files to leads
-- [x] Attach files to deals
-- [x] Folder structure
-- [x] File search
+* \[x] File upload support
+* \[x] Attach files to leads
+* \[x] Attach files to deals
+* \[x] Folder structure
+* \[x] File search
 
 ### Notifications
 
-- [x] Notification schema
-- [x] Lead alerts
-- [x] Task alerts
-- [x] Deal alerts
-- [x] Campaign alerts
-- [x] Read/unread state
+* \[x] Notification schema
+* \[x] Lead alerts
+* \[x] Task alerts
+* \[x] Deal alerts
+* \[x] Campaign alerts
+* \[x] Read/unread state
 
 ## Phase 5: Reporting, Social, and Settings Expansion
 
 ### Reports
 
-- [x] Lead reports
-- [x] Deal reports
-- [x] Revenue forecast
-- [x] Partner performance report
-- [x] Campaign performance report
-- [x] Dashboard metrics wiring
+* \[x] Lead reports
+* \[x] Deal reports
+* \[x] Revenue forecast
+* \[x] Partner performance report
+* \[x] Campaign performance report
+* \[x] Dashboard metrics wiring
 
 ### Social media
 
-- [x] Social account connections
-- [x] Social lead capture
-- [x] Social inbox
-- [x] Social lead assignment
+* \[x] Social account connections
+* \[x] Social lead capture
+* \[x] Social inbox
+* \[x] Social lead assignment
 
 ### Settings
 
-- [x] Pipeline settings UI
-- [x] Custom fields UI
-- [x] Tags UI
-- [x] Notification rules
-- [x] Integrations settings
+* \[x] Pipeline settings UI
+* \[x] Custom fields UI
+* \[x] Tags UI
+* \[x] Notification rules
+* \[x] Integrations settings
 
 ## Current Implementation Summary
 
 Implemented now:
 
-- isolated `crm-saas` workspace
-- installable frontend and backend foundations
-- Supabase-backed auth + tenant-scoped middleware foundation
-- real database schema for tenancy + leads + customers + deals + tasks
-- real tenant-scoped APIs for auth, leads, customers, deals, and tasks
-- dashboard pages wired to live CRUD/filter flows plus report-driven overview metrics
-- reporting, campaigns, templates, automation, and notifications implemented
-- independent type/build/test validation for both apps
+* isolated `crm-saas` workspace
+* installable frontend and backend foundations
+* Supabase-backed auth + tenant-scoped middleware foundation
+* real database schema for tenancy + leads + customers + deals + tasks
+* real tenant-scoped APIs for auth, leads, customers, deals, and tasks
+* dashboard pages wired to live CRUD/filter flows plus report-driven overview metrics
+* reporting, campaigns, templates, automation, and notifications implemented
+* independent type/build/test validation for both apps
 
 Not implemented yet:
 
-- advanced CRM workflows (partner access control and partner users)
-- follow-up schema
+* none currently tracked in the Phase 0-5 delivery scope
 
 ## Immediate Next Todo
 
-- [x] Build tenancy and auth models in backend
-- [x] Add backend middleware for auth, tenant scope, and roles
-- [x] Add frontend authenticated layout and route protection
-- [x] Implement company, membership, and store schema
-- [x] Implement first real CRM entities: customers, leads, deals, tasks
+* \[x] Build tenancy and auth models in backend
+* \[x] Add backend middleware for auth, tenant scope, and roles
+* \[x] Add frontend authenticated layout and route protection
+* \[x] Implement company, membership, and store schema
+* \[x] Implement first real CRM entities: customers, leads, deals, tasks
+
+# CRM SaaS – Phase Extension & Roadmap
+
+This document defines remaining work after Phase 5 and introduces **V1 Extension**, **Phase V2**, and **Phase V3**.
+
+Status legend:
+
+* `[x]` Implemented
+* `[-]` Partial / scaffold
+* `[ ]` Not implemented
+
+---
+
+# Phase V1 Extension — Runtime Completion (Critical Fixes)
+
+Goal: Complete execution layers for already implemented features.
+
+## Automation Runtime
+
+* [ ] Automation async worker
+* [ ] Automation queue
+* [ ] Delayed step scheduler
+* [ ] Retry handling
+* [ ] Execution state persistence
+* [ ] Automation cancellation
+* [ ] Parallel step execution
+* [ ] Automation execution logs
+
+Feature:
+
+> Enables real automation execution instead of configuration-only workflows.
+
+---
+
+## Multi-Channel Action Executors
+
+* [ ] Email executor
+* [ ] WhatsApp executor
+* [ ] Task executor
+* [ ] Lead update executor
+* [ ] Tag executor
+* [ ] Deal stage executor
+
+Feature:
+
+> Allows automation to perform CRM actions.
+
+---
+
+## Email Delivery Runtime
+
+* [ ] Email provider abstraction
+* [ ] User email account connection
+* [ ] Email send service
+* [ ] Template rendering engine
+* [ ] Email dispatch queue
+
+Feature:
+
+> Sends real emails from automation and campaigns.
+
+---
+
+## Email Tracking
+
+* [ ] Open tracking pixel
+* [ ] Click tracking redirect
+* [ ] Reply webhook
+* [ ] Tracking event storage
+* [ ] Tracking analytics aggregation
+* [ ] Automation trigger from tracking
+
+Feature:
+
+> Tracks engagement and drives automation.
+
+---
+
+## WhatsApp Messaging Runtime
+
+* [ ] WhatsApp webhook receiver
+* [ ] WhatsApp send service
+* [ ] Template execution
+* [ ] Conversation mapping
+* [ ] Reply detection
+* [ ] Message persistence
+
+Feature:
+
+> Enables WhatsApp automation.
+
+---
+
+## Conversation State Manager
+
+* [ ] Conversation state table
+* [ ] Current node tracking
+* [ ] Session timeout handling
+* [ ] Multi-session handling
+* [ ] Conversation resume logic
+
+Feature:
+
+> Required for chatbot and WhatsApp automation.
+
+---
+
+## Template Variable Engine
+
+* [ ] Variable parser
+* [ ] Lead variables
+* [ ] Deal variables
+* [ ] Customer variables
+* [ ] Custom field variables
+* [ ] Default fallback values
+
+Feature:
+
+> Dynamic personalization across channels.
+
+---
+
+## Behavior-Based Automation Triggers
+
+* [ ] email.opened
+* [ ] email.clicked
+* [ ] email.replied
+* [ ] whatsapp.replied
+* [ ] lead.inactive
+* [ ] lead.score_changed
+
+Feature:
+
+> Automation based on user behavior.

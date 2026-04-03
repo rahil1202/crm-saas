@@ -3,13 +3,22 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { tasks } from "@/db/schema";
+import { followUps, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
 import { createNotification } from "@/lib/notifications";
-import { taskParamSchema } from "@/modules/tasks/schema";
-import type { CreateTaskInput, ListTasksQuery, TaskCalendarQuery, TaskReminderQuery, UpdateTaskInput } from "@/modules/tasks/schema";
+import { followUpParamSchema, taskParamSchema } from "@/modules/tasks/schema";
+import type {
+  CreateFollowUpInput,
+  CreateTaskInput,
+  ListFollowUpsQuery,
+  ListTasksQuery,
+  TaskCalendarQuery,
+  TaskReminderQuery,
+  UpdateFollowUpInput,
+  UpdateTaskInput,
+} from "@/modules/tasks/schema";
 
 export async function listTasks(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
@@ -192,6 +201,41 @@ export async function getTaskCalendar(c: Context<AppEnv>) {
   });
 }
 
+export async function listFollowUps(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as ListFollowUpsQuery;
+
+  const conditions = [eq(followUps.companyId, tenant.companyId), isNull(followUps.deletedAt)];
+  if (query.q) {
+    conditions.push(ilike(followUps.subject, `%${query.q}%`));
+  }
+  if (query.status) {
+    conditions.push(eq(followUps.status, query.status));
+  }
+  if (query.assignedToUserId) {
+    conditions.push(eq(followUps.assignedToUserId, query.assignedToUserId));
+  }
+
+  const where = and(...conditions);
+  const [items, totalRows] = await Promise.all([
+    db
+      .select()
+      .from(followUps)
+      .where(where)
+      .orderBy(asc(followUps.scheduledAt), desc(followUps.createdAt))
+      .limit(query.limit)
+      .offset(query.offset),
+    db.select({ count: count() }).from(followUps).where(where),
+  ]);
+
+  return ok(c, {
+    items,
+    total: totalRows[0]?.count ?? 0,
+    limit: query.limit,
+    offset: query.offset,
+  });
+}
+
 export async function createTask(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const user = c.get("user");
@@ -231,6 +275,47 @@ export async function createTask(c: Context<AppEnv>) {
     payload: {
       status: created.status,
       priority: created.priority,
+    },
+  });
+
+  return ok(c, created, 201);
+}
+
+export async function createFollowUp(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const body = c.get("validatedBody") as CreateFollowUpInput;
+
+  const [created] = await db
+    .insert(followUps)
+    .values({
+      companyId: tenant.companyId,
+      storeId: body.storeId ?? tenant.storeId ?? null,
+      leadId: body.leadId ?? null,
+      customerId: body.customerId ?? null,
+      dealId: body.dealId ?? null,
+      assignedToUserId: body.assignedToUserId ?? null,
+      subject: body.subject,
+      channel: body.channel,
+      status: body.status,
+      scheduledAt: new Date(body.scheduledAt),
+      completedAt: body.status === "completed" ? new Date() : null,
+      notes: body.notes ?? null,
+      outcome: body.outcome ?? null,
+      createdBy: user.id,
+    })
+    .returning();
+
+  await createNotification({
+    companyId: tenant.companyId,
+    type: "task",
+    title: "Follow-up scheduled",
+    message: `${created.subject} is scheduled for ${new Date(created.scheduledAt).toLocaleString("en-US", { timeZone: "UTC" })}`,
+    entityId: created.id,
+    entityPath: "/dashboard/tasks",
+    payload: {
+      channel: created.channel,
+      status: created.status,
     },
   });
 
@@ -286,6 +371,49 @@ export async function updateTask(c: Context<AppEnv>) {
   return ok(c, updated);
 }
 
+export async function updateFollowUp(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = followUpParamSchema.parse(c.req.param());
+  const body = c.get("validatedBody") as UpdateFollowUpInput;
+
+  if (Object.keys(body).length === 0) {
+    throw AppError.badRequest("At least one field is required for update");
+  }
+
+  let completedAt: Date | null | undefined = undefined;
+  if (body.status === "completed") {
+    completedAt = new Date();
+  } else if (body.status !== undefined) {
+    completedAt = null;
+  }
+
+  const [updated] = await db
+    .update(followUps)
+    .set({
+      ...(body.subject !== undefined ? { subject: body.subject } : {}),
+      ...(body.channel !== undefined ? { channel: body.channel } : {}),
+      ...(body.status !== undefined ? { status: body.status } : {}),
+      ...(body.scheduledAt !== undefined ? { scheduledAt: new Date(body.scheduledAt) } : {}),
+      ...(completedAt !== undefined ? { completedAt } : {}),
+      ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
+      ...(body.outcome !== undefined ? { outcome: body.outcome ?? null } : {}),
+      ...(body.assignedToUserId !== undefined ? { assignedToUserId: body.assignedToUserId ?? null } : {}),
+      ...(body.leadId !== undefined ? { leadId: body.leadId ?? null } : {}),
+      ...(body.customerId !== undefined ? { customerId: body.customerId ?? null } : {}),
+      ...(body.dealId !== undefined ? { dealId: body.dealId ?? null } : {}),
+      ...(body.storeId !== undefined ? { storeId: body.storeId ?? null } : {}),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(followUps.id, params.followUpId), eq(followUps.companyId, tenant.companyId), isNull(followUps.deletedAt)))
+    .returning();
+
+  if (!updated) {
+    throw AppError.notFound("Follow-up not found");
+  }
+
+  return ok(c, updated);
+}
+
 export async function deleteTask(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const params = taskParamSchema.parse(c.req.param());
@@ -298,6 +426,23 @@ export async function deleteTask(c: Context<AppEnv>) {
 
   if (!deleted) {
     throw AppError.notFound("Task not found");
+  }
+
+  return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function deleteFollowUp(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = followUpParamSchema.parse(c.req.param());
+
+  const [deleted] = await db
+    .update(followUps)
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(followUps.id, params.followUpId), eq(followUps.companyId, tenant.companyId), isNull(followUps.deletedAt)))
+    .returning({ id: followUps.id });
+
+  if (!deleted) {
+    throw AppError.notFound("Follow-up not found");
   }
 
   return ok(c, { deleted: true, id: deleted.id });

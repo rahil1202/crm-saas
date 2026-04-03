@@ -7,15 +7,18 @@ import { AlertCircle, ArrowRight, Globe, KeyRound, MailCheck, ShieldCheck } from
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
+import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchAuthMe, readApiError, resolveAuthenticatedRoute } from "@/lib/auth-client";
+import { fetchAuthMe, resolveAuthenticatedRoute } from "@/lib/auth-client";
+import { useAsyncForm } from "@/hooks/use-async-form";
+import { apiRequest } from "@/lib/api";
 import { getFrontendEnv } from "@/lib/env";
 import { supabase } from "@/lib/supabase";
 
@@ -32,12 +35,11 @@ function LoginPageContent() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const { submitting, formError, fieldErrors, clearFieldError, runSubmit } = useAsyncForm();
 
   const statusMessage = useMemo(() => {
     if (searchParams.get("reset") === "success") {
@@ -99,32 +101,26 @@ function LoginPageContent() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setLoading(true);
-    setError(null);
     setInfo(null);
 
-    const response = await fetch(`${env.apiUrl}/api/v1/auth/login`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (!response.ok) {
-      setError(await readApiError(response, "Login failed"));
-      setLoading(false);
+    try {
+      await runSubmit(
+        () =>
+          apiRequest("/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ email, password }),
+          }),
+        "Login failed",
+      );
+      toast.success("Signed in successfully.");
+      router.replace(await resolveAuthenticatedRoute());
+    } catch {
       return;
     }
-
-    toast.success("Signed in successfully.");
-    router.replace(await resolveAuthenticatedRoute());
   };
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
-    setError(null);
     setInfo(null);
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
@@ -135,31 +131,26 @@ function LoginPageContent() {
     });
 
     if (oauthError) {
-      setError(oauthError.message);
+      setInfo(null);
       setGoogleLoading(false);
     }
   };
 
   const handleResendVerification = async () => {
     if (!email) {
-      setError("Enter your email first so the verification link goes to the correct address.");
+      setInfo("Enter your email first so the verification link goes to the correct address.");
       return;
     }
 
     setResendingVerification(true);
-    setError(null);
     setInfo(null);
 
-    const response = await fetch(`${env.apiUrl}/api/v1/auth/resend-verification`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email }),
-    });
-
-    if (!response.ok) {
-      setError(await readApiError(response, "Unable to resend verification email"));
+    try {
+      await apiRequest("/auth/resend-verification", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+    } catch {
       setResendingVerification(false);
       return;
     }
@@ -193,13 +184,7 @@ function LoginPageContent() {
           </Alert>
         ) : null}
 
-        {error ? (
-          <Alert variant="destructive">
-            <AlertCircle />
-            <AlertTitle>Authentication failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
+        <FormErrorSummary title="Authentication failed" error={formError} />
 
         {info ? (
           <Alert>
@@ -237,28 +222,52 @@ function LoginPageContent() {
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="email">Work email</FieldLabel>
-                <Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
-                <FieldDescription>Use the email address you verified with Supabase.</FieldDescription>
-              </Field>
-              <Field>
-                <div className="flex items-center justify-between gap-3">
-                  <FieldLabel htmlFor="password">Password</FieldLabel>
-                  <Link href="/forgot-password" className="text-sm font-medium text-foreground underline underline-offset-4">
-                    Forgot password?
-                  </Link>
-                </div>
-                <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-                <FieldDescription>Your local CRM session is issued after the backend validates this password.</FieldDescription>
-              </Field>
-            </FieldGroup>
+            <FormSection title="Email login" description="Use the verified operator identity for this workspace.">
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="email">Work email</FieldLabel>
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(event) => {
+                      clearFieldError("email");
+                      setEmail(event.target.value);
+                    }}
+                    required
+                  />
+                  <FieldDescription>Use the email address you verified with Supabase.</FieldDescription>
+                  <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
+                </Field>
+                <Field>
+                  <div className="flex items-center justify-between gap-3">
+                    <FieldLabel htmlFor="password">Password</FieldLabel>
+                    <Link href="/forgot-password" className="text-sm font-medium text-foreground underline underline-offset-4">
+                      Forgot password?
+                    </Link>
+                  </div>
+                  <Input
+                    id="password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => {
+                      clearFieldError("password");
+                      setPassword(event.target.value);
+                    }}
+                    required
+                  />
+                  <FieldDescription>Your local CRM session is issued after the backend validates this password.</FieldDescription>
+                  <FieldError errors={fieldErrors.password?.map((message) => ({ message }))} />
+                </Field>
+              </FieldGroup>
+            </FormSection>
 
             <div className="flex flex-col gap-3">
-              <Button type="submit" size="lg" disabled={loading}>
+              <Button type="submit" size="lg" disabled={submitting}>
                 <KeyRound data-icon="inline-start" />
-                {loading ? "Signing in..." : "Sign in"}
+                {submitting ? "Signing in..." : "Sign in"}
               </Button>
               <Button type="button" variant="ghost" disabled={resendingVerification} onClick={() => void handleResendVerification()}>
                 <MailCheck data-icon="inline-start" />

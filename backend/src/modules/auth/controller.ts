@@ -4,7 +4,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { authRefreshTokens, companies, companyInvites, companyMemberships, profiles, stores } from "@/db/schema";
+import { authRefreshTokens, companies, companyInvites, companyMemberships, companyPlans, profiles, stores, superAdmins } from "@/db/schema";
 import {
   assertPasswordPolicy,
   hashToken,
@@ -91,8 +91,40 @@ async function upsertProfile(userId: string, email: string | null) {
     });
 }
 
+async function syncSuperAdmin(userId: string, email: string | null) {
+  if (!email) {
+    return false;
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  const shouldBeSuperAdmin = env.SUPER_ADMIN_EMAILS.includes(normalizedEmail);
+
+  if (!shouldBeSuperAdmin) {
+    return false;
+  }
+
+  await db
+    .insert(superAdmins)
+    .values({
+      userId,
+      email: normalizedEmail,
+      isActive: true,
+    })
+    .onConflictDoUpdate({
+      target: superAdmins.userId,
+      set: {
+        email: normalizedEmail,
+        isActive: true,
+        updatedAt: new Date(),
+      },
+    });
+
+  return true;
+}
+
 async function createSession(c: Parameters<typeof setCookie>[0], identity: { userId: string; email: string | null }, sessionId?: string) {
   await upsertProfile(identity.userId, identity.email);
+  await syncSuperAdmin(identity.userId, identity.email);
 
   const effectiveSessionId = sessionId ?? crypto.randomUUID();
   const tokens = await issueSessionTokens({
@@ -369,9 +401,11 @@ export async function getCurrentUser(c: Context<AppEnv>) {
     user: {
       ...user,
       fullName: profile?.fullName ?? null,
+      isSuperAdmin: user.isSuperAdmin ?? false,
     },
     memberships,
-    needsOnboarding: memberships.length === 0,
+    needsOnboarding: memberships.length === 0 && !user.isSuperAdmin,
+    isSuperAdmin: user.isSuperAdmin ?? false,
   });
 }
 
@@ -407,6 +441,18 @@ export async function onboarding(c: Context<AppEnv>) {
       createdBy: user.id,
     })
     .returning();
+
+  await db.insert(companyPlans).values({
+    companyId: company.id,
+    planCode: "starter",
+    planName: "Starter",
+    status: "trial",
+    billingInterval: "monthly",
+    seatLimit: 5,
+    monthlyPrice: 0,
+    currency: body.currency.toUpperCase(),
+    trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+  });
 
   const storeCode = (
     body.storeName

@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { apiRequest, ApiError } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
+import { ApiError, apiRequest } from "@/lib/api";
 import {
   clearCompanyCookie,
   clearStoreCookie,
@@ -27,10 +29,12 @@ interface Membership {
 }
 
 interface MeResponse {
+  isSuperAdmin: boolean;
   user: {
     id: string;
     email: string | null;
     fullName: string | null;
+    isSuperAdmin?: boolean;
   };
   memberships: Membership[];
   needsOnboarding: boolean;
@@ -50,6 +54,8 @@ const navItems = [
   { href: "/dashboard/social", label: "Social", minRole: "admin" as CompanyRole },
   { href: "/dashboard/notifications", label: "Notifications", minRole: "admin" as CompanyRole },
   { href: "/dashboard/settings", label: "Settings", minRole: "admin" as CompanyRole },
+  { href: "/dashboard/company-admin", label: "Company Admin", minRole: "admin" as CompanyRole },
+  { href: "/dashboard/super-admin", label: "Super Admin", minRole: "member" as CompanyRole, superAdminOnly: true },
 ];
 
 export function AppShell({
@@ -75,8 +81,14 @@ export function AppShell({
   const visibleNavItems = useMemo(() => {
     const roleRank: Record<CompanyRole, number> = { owner: 3, admin: 2, member: 1 };
     const activeRole = activeMembership?.role ?? "member";
-    return navItems.filter((item) => roleRank[activeRole] >= roleRank[item.minRole]);
-  }, [activeMembership?.role]);
+    return navItems.filter((item) => {
+      if ("superAdminOnly" in item && item.superAdminOnly && !me?.isSuperAdmin) {
+        return false;
+      }
+
+      return roleRank[activeRole] >= roleRank[item.minRole];
+    });
+  }, [activeMembership?.role, me?.isSuperAdmin]);
 
   useEffect(() => {
     let disposed = false;
@@ -88,7 +100,7 @@ export function AppShell({
           return;
         }
 
-        if (response.needsOnboarding) {
+        if (response.needsOnboarding && !response.isSuperAdmin) {
           router.replace("/onboarding");
           return;
         }
@@ -138,6 +150,7 @@ export function AppShell({
     if (!me) {
       return;
     }
+
     const selected = me.memberships.find((membership) => membership.membershipId === membershipId);
     if (!selected) {
       return;
@@ -168,92 +181,57 @@ export function AppShell({
   };
 
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        gridTemplateColumns: "260px 1fr",
-      }}
-    >
-      <aside
-        style={{
-          background: "#102031",
-          color: "#f5f7fa",
-          padding: 24,
-          display: "flex",
-          flexDirection: "column",
-          gap: 20,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 12, letterSpacing: 1.5, opacity: 0.7 }}>CRM SAAS</div>
-          <h2 style={{ margin: "8px 0 0" }}>Workspace</h2>
+    <main className="min-h-screen bg-background lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="flex flex-col gap-5 border-b border-border/70 bg-slate-950 px-6 py-6 text-slate-100 lg:min-h-screen lg:border-b-0 lg:border-r lg:px-5">
+        <div className="grid gap-1">
+          <div className="text-xs tracking-[0.18em] text-slate-300">CRM SAAS</div>
+          <h2 className="text-xl font-semibold tracking-tight">Workspace</h2>
         </div>
+
         {me?.memberships && me.memberships.length > 0 ? (
-          <div style={{ display: "grid", gap: 8 }}>
-            <label htmlFor="workspace-picker" style={{ fontSize: 12, opacity: 0.8 }}>
+          <div className="grid gap-2">
+            <label htmlFor="workspace-picker" className="text-xs text-slate-300">
               Active company
             </label>
-            <select
+            <NativeSelect
               id="workspace-picker"
               value={activeMembershipId ?? ""}
               onChange={(event) => handleWorkspaceChange(event.target.value)}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.15)",
-                background: "rgba(255,255,255,0.08)",
-                color: "white",
-              }}
+              className="border-white/15 bg-white/10 text-slate-100"
             >
               {me.memberships.map((membership) => (
-                <option key={membership.membershipId} value={membership.membershipId} style={{ color: "black" }}>
+                <option key={membership.membershipId} value={membership.membershipId} className="text-foreground">
                   {membership.companyName} ({membership.role})
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </div>
         ) : null}
-        <nav style={{ display: "grid", gap: 8 }}>
+
+        <nav className="grid gap-2">
           {visibleNavItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
-              style={{
-                color: "inherit",
-                textDecoration: "none",
-                background: "rgba(255,255,255,0.06)",
-                borderRadius: 10,
-                padding: "10px 12px",
-              }}
+              className="rounded-lg border border-white/8 bg-white/5 px-3 py-2 text-sm font-medium text-inherit transition-colors hover:bg-white/10"
             >
               {item.label}
             </Link>
           ))}
         </nav>
-        <button
-          type="button"
-          onClick={handleLogout}
-          style={{
-            marginTop: "auto",
-            border: "1px solid rgba(255,255,255,0.2)",
-            background: "transparent",
-            color: "white",
-            padding: "10px 12px",
-            borderRadius: 10,
-            cursor: "pointer",
-          }}
-        >
+
+        <Button type="button" variant="outline" className="mt-auto border-white/20 bg-transparent text-slate-100 hover:bg-white/10 hover:text-slate-100" onClick={handleLogout}>
           Logout
-        </button>
+        </Button>
       </aside>
-      <section style={{ padding: 28 }}>
-        <header style={{ marginBottom: 24 }}>
-          <h1 style={{ margin: 0 }}>{title}</h1>
-          <p style={{ margin: "8px 0 0", color: "#556371" }}>{description}</p>
+
+      <section className="px-6 py-7 lg:px-8">
+        <header className="mb-6 grid gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+          <p className="text-sm text-muted-foreground">{description}</p>
         </header>
-        {loading ? <p>Loading workspace...</p> : null}
-        {loadError ? <p style={{ color: "#b02020" }}>{loadError}</p> : null}
+        {loading ? <p className="text-sm text-muted-foreground">Loading workspace...</p> : null}
+        {loadError ? <p className="text-sm text-destructive">{loadError}</p> : null}
         {!loading && !loadError ? children : null}
       </section>
     </main>

@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
 export function ModuleCard({
   title,
   summary,
@@ -10,17 +12,12 @@ export function ModuleCard({
   children?: ReactNode;
 }) {
   return (
-    <article
-      style={{
-        background: "#fff",
-        borderRadius: 16,
-        padding: 20,
-        boxShadow: "0 10px 24px rgba(16, 32, 49, 0.08)",
-      }}
-    >
-      <h3 style={{ marginTop: 0 }}>{title}</h3>
-      <p style={{ marginBottom: children ? 16 : 0, color: "#556371" }}>{summary}</p>
-      {children}
-    </article>
+    <Card className="border-border/70 bg-card/95 shadow-sm">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{summary}</CardDescription>
+      </CardHeader>
+      {children ? <CardContent>{children}</CardContent> : null}
+    </Card>
   );
 }

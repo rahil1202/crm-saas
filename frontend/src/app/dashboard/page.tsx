@@ -7,6 +7,7 @@ import { ModuleCard } from "@/components/module-card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingState, PageSection, StatCard } from "@/components/ui/page-patterns";
 import { crmModules } from "@/features/crm/modules";
 import { ApiError, apiRequest } from "@/lib/api";
 
@@ -90,7 +91,8 @@ export default function DashboardPage() {
           </Alert>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <PageSection>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {[
             { label: "Leads (30d)", value: report?.dashboard.leadsInPeriod ?? 0 },
             { label: "Open deals", value: report?.dashboard.openDeals ?? 0 },
@@ -98,16 +100,12 @@ export default function DashboardPage() {
             { label: "Overdue tasks", value: report?.dashboard.overdueTasks ?? 0 },
             { label: "Active campaigns", value: report?.dashboard.activeCampaigns ?? 0 },
           ].map((item) => (
-            <Card key={item.label} size="sm">
-              <CardHeader>
-                <CardDescription>{item.label}</CardDescription>
-                <CardTitle className="text-2xl">{item.value}</CardTitle>
-              </CardHeader>
-            </Card>
+            <StatCard key={item.label} label={item.label} value={item.value} />
           ))}
-        </div>
+          </div>
+        </PageSection>
 
-        {loading ? <div className="text-sm text-muted-foreground">Loading dashboard metrics...</div> : null}
+        {loading ? <LoadingState label="Loading dashboard metrics..." /> : null}
 
         {!loading && report ? (
           <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -186,17 +184,19 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <PageSection title="Modules" description="Workspace modules exposed through the shared CRM shell.">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {crmModules.map((module) => (
             <ModuleCard key={module.slug} title={module.title} summary={module.summary}>
-              <ul style={{ margin: 0, paddingLeft: 18 }}>
+              <ul className="m-0 list-disc pl-5">
                 {module.capabilities.map((capability) => (
                   <li key={capability}>{capability}</li>
                 ))}
               </ul>
             </ModuleCard>
           ))}
-        </div>
+          </div>
+        </PageSection>
       </div>
     </AppShell>
   );
