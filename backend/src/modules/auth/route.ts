@@ -32,18 +32,20 @@ import {
 } from "@/modules/auth/schema";
 import { requireAuth, requireRole, requireTenant } from "@/middleware/auth";
 import { validateJson } from "@/middleware/common";
+import { enforceBodyLimit, rateLimit } from "@/middleware/security";
+import { bodyLimits, routePolicies } from "@/lib/security";
 
 export const authRoutes = new Hono<AppEnv>().basePath("/auth");
 
 authRoutes.get("/google/url", createGoogleAuthUrl);
-authRoutes.post("/register", validateJson(registerSchema), register);
-authRoutes.post("/login", validateJson(loginSchema), login);
-authRoutes.post("/exchange-supabase", validateJson(exchangeSupabaseSchema), exchangeSupabaseSession);
-authRoutes.post("/forgot-password", validateJson(forgotPasswordSchema), forgotPassword);
+authRoutes.post("/register", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(registerSchema), register);
+authRoutes.post("/login", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(loginSchema), login);
+authRoutes.post("/exchange-supabase", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(exchangeSupabaseSchema), exchangeSupabaseSession);
+authRoutes.post("/forgot-password", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(forgotPasswordSchema), forgotPassword);
 authRoutes.post("/resend-verification", validateJson(resendVerificationSchema), resendVerification);
-authRoutes.post("/reset-password", validateJson(resetPasswordSchema), resetPassword);
-authRoutes.post("/change-password", requireAuth, validateJson(changePasswordSchema), changePassword);
-authRoutes.post("/refresh", validateJson(refreshSchema), refreshSession);
+authRoutes.post("/reset-password", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(resetPasswordSchema), resetPassword);
+authRoutes.post("/change-password", requireAuth, enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(changePasswordSchema), changePassword);
+authRoutes.post("/refresh", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(refreshSchema), refreshSession);
 authRoutes.post("/logout", logout);
 authRoutes.get("/me", requireAuth, getCurrentUser);
 authRoutes.post("/onboarding", requireAuth, validateJson(onboardingSchema), onboarding);

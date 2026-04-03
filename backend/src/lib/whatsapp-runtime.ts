@@ -12,6 +12,7 @@ import {
 } from "@/db/schema";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import { guardWebhookReplay } from "@/lib/security";
 import { renderTemplateContent } from "@/lib/template-renderer";
 import { getWhatsappWorkspaceByPhoneNumberId, normalizePhoneToE164, resolvePhoneMapping } from "@/lib/whatsapp-workspace";
 import crypto from "node:crypto";
@@ -276,6 +277,7 @@ export async function sendWhatsappMessage(input: {
   leadId?: string | null;
   customerId?: string | null;
   variables?: Record<string, unknown>;
+  skipConversationStateSync?: boolean;
 }) {
   const conversation = await findOrCreateWhatsappConversation({
     companyId: input.companyId,
@@ -352,18 +354,20 @@ export async function sendWhatsappMessage(input: {
     },
   });
 
-  await syncConversationState({
-    companyId: input.companyId,
-    socialConversationId: conversation.id,
-    automationId: input.automationId ?? null,
-    automationRunId: input.automationRunId ?? null,
-    currentNode: "awaiting_reply",
+  if (!input.skipConversationStateSync) {
+    await syncConversationState({
+      companyId: input.companyId,
+      socialConversationId: conversation.id,
+      automationId: input.automationId ?? null,
+      automationRunId: input.automationRunId ?? null,
+      currentNode: "awaiting_reply",
       state: {
-      contactHandle: phoneE164,
-      outboundMessageId: message.id,
-    },
-    expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
-  });
+        contactHandle: phoneE164,
+        outboundMessageId: message.id,
+      },
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
+    });
+  }
 
   return {
     conversation,
@@ -535,7 +539,7 @@ export async function ingestMetaWhatsappWebhook(rawBody: string, signatureHeader
     }>;
   };
 
-  const ingested: Array<{ companyId: string; conversationId: string; messageId: string; leadId: string | null }> = [];
+  const ingested: Array<{ companyId: string; conversationId: string; messageId: string; leadId: string | null; body: string }> = [];
 
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
@@ -595,6 +599,14 @@ export async function ingestMetaWhatsappWebhook(rawBody: string, signatureHeader
             continue;
           }
 
+          await guardWebhookReplay({
+            provider: "whatsapp",
+            replayKey: `meta:${phoneNumberId}:${message.id ?? eventKey}`,
+            metadata: {
+              phoneNumberId,
+            },
+          });
+
           const received = await ingestWhatsappReply({
             companyId: workspace.companyId,
             accountId: fallbackAccount.id,
@@ -610,6 +622,7 @@ export async function ingestMetaWhatsappWebhook(rawBody: string, signatureHeader
             conversationId: received.conversation.id,
             messageId: received.message.id,
             leadId: received.conversation.leadId ?? null,
+            body,
           });
           continue;
         }
@@ -631,6 +644,15 @@ export async function ingestMetaWhatsappWebhook(rawBody: string, signatureHeader
           continue;
         }
 
+        await guardWebhookReplay({
+          provider: "whatsapp",
+          replayKey: `meta:${phoneNumberId}:${message.id ?? eventKey}`,
+          metadata: {
+            companyId: account.companyId,
+            phoneNumberId,
+          },
+        });
+
         const received = await ingestWhatsappReply({
           companyId: account.companyId,
           accountId: account.id,
@@ -646,6 +668,7 @@ export async function ingestMetaWhatsappWebhook(rawBody: string, signatureHeader
           conversationId: received.conversation.id,
           messageId: received.message.id,
           leadId: received.conversation.leadId ?? null,
+          body,
         });
       }
     }

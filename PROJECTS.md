@@ -416,3 +416,54 @@ Feature:
 Feature:
 
 > Automation based on user behavior.
+
+---
+
+# Phase V3 — WhatsApp Canvas & Advanced Automation
+
+Goal: Visual chatbot + advanced intelligence.
+
+## WhatsApp Flow Backend (First Slice)
+
+* [x] Flow schema
+* [x] Node schema
+* [x] Edge schema
+* [x] Publish system
+* [x] Versioning
+* [x] Flow validation
+
+Feature:
+
+> Tenant-scoped chatbot flow persistence with draft/publish lifecycle.
+
+---
+
+## Conversation Flow Engine (First Slice)
+
+* [x] Node resolver
+* [x] Condition evaluator
+* [x] Next node logic
+* [x] Response renderer
+* [x] Flow execution logs
+
+Feature:
+
+> Executes generic conversational flows for WhatsApp with pause/resume on input nodes.
+
+---
+
+## Canvas Builder UI (First Slice)
+
+* [-] Minimal admin screen
+* [-] Draft definition editor
+* [-] Validation panel
+* [-] Publish flow
+* [-] Test mode
+* [ ] Drag-drop editor
+* [ ] Node connections
+* [ ] Node config panel
+* [ ] Flow duplication
+
+Feature:
+
+> Form-and-JSON management UI for chatbot flows, ready for later canvas expansion.

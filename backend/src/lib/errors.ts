@@ -30,6 +30,14 @@ export class AppError extends Error {
     return new AppError(409, "CONFLICT", message, details);
   }
 
+  static tooManyRequests(message = "Too many requests", details?: unknown) {
+    return new AppError(429, "RATE_LIMITED", message, details);
+  }
+
+  static payloadTooLarge(message = "Payload too large", details?: unknown) {
+    return new AppError(413, "PAYLOAD_TOO_LARGE", message, details);
+  }
+
   static internal(message = "Internal server error", details?: unknown) {
     return new AppError(500, "INTERNAL_ERROR", message, details);
   }

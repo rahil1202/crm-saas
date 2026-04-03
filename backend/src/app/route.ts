@@ -4,10 +4,12 @@ import { cors } from "hono/cors";
 import { env } from "@/lib/config";
 import { ok } from "@/lib/api";
 import { errorMiddleware, requestIdMiddleware } from "@/middleware/common";
+import { applySecurityHeaders, resolveClientIp } from "@/middleware/security";
 import type { AppVariables } from "@/types/app";
 import { authRoutes } from "@/modules/auth/route";
 import { adminRoutes } from "@/modules/admin/route";
 import { automationRoutes } from "@/modules/automation/route";
+import { chatbotFlowRoutes } from "@/modules/chatbot-flows/route";
 import { campaignRoutes } from "@/modules/campaigns/route";
 import { companyRoutes } from "@/modules/companies/route";
 import { customerRoutes } from "@/modules/customers/route";
@@ -33,10 +35,17 @@ export type AppEnv = { Variables: AppVariables };
 export const app = new Hono<AppEnv>();
 
 app.use("*", requestIdMiddleware);
+app.use("*", resolveClientIp);
+app.use("*", applySecurityHeaders);
 app.use(
   "/api/*",
   cors({
-    origin: env.FRONTEND_URL,
+    origin: (origin) => {
+      if (!origin) {
+        return env.FRONTEND_URL;
+      }
+      return origin === env.FRONTEND_URL ? origin : null;
+    },
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization", "x-company-id", "x-store-id", "x-request-id"],
     exposeHeaders: ["x-request-id"],
@@ -72,6 +81,7 @@ api.route("/", publicRuntimeRoutes);
 api.route("/", campaignRoutes);
 api.route("/", templateRoutes);
 api.route("/", automationRoutes);
+api.route("/", chatbotFlowRoutes);
 api.route("/", reportRoutes);
 api.route("/", notificationRoutes);
 api.route("/", settingRoutes);

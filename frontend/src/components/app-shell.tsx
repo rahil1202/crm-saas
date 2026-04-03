@@ -50,6 +50,7 @@ const navItems = [
   { href: "/dashboard/partners", label: "Partners", minRole: "admin" as CompanyRole },
   { href: "/dashboard/campaigns", label: "Campaigns", minRole: "admin" as CompanyRole },
   { href: "/dashboard/automation", label: "Automation", minRole: "admin" as CompanyRole },
+  { href: "/dashboard/chatbot-flows", label: "Chatbot Flows", minRole: "admin" as CompanyRole },
   { href: "/dashboard/reports", label: "Reports", minRole: "admin" as CompanyRole },
   { href: "/dashboard/social", label: "Social", minRole: "admin" as CompanyRole },
   { href: "/dashboard/notifications", label: "Notifications", minRole: "admin" as CompanyRole },

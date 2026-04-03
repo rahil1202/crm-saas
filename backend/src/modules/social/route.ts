@@ -37,6 +37,8 @@ import {
 } from "@/modules/social/schema";
 import { requireAuth, requireRole, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
+import { enforceBodyLimit, rateLimit } from "@/middleware/security";
+import { bodyLimits, routePolicies } from "@/lib/security";
 
 export const socialRoutes = new Hono<AppEnv>().basePath("/social");
 socialRoutes.use("*", requireAuth, requireTenant);
@@ -48,13 +50,13 @@ socialRoutes.post("/accounts", requireRole("admin"), validateJson(socialAccountS
 socialRoutes.patch("/accounts/:accountId", requireRole("admin"), validateJson(updateSocialAccountSchema), updateSocialAccount);
 socialRoutes.delete("/accounts/:accountId", requireRole("admin"), deleteSocialAccount);
 socialRoutes.get("/inbox", validateQuery(listSocialInboxSchema), listSocialInbox);
-socialRoutes.post("/capture", requireRole("admin"), validateJson(captureSocialConversationSchema), captureSocialConversation);
+socialRoutes.post("/capture", requireRole("admin"), rateLimit(routePolicies.adminSensitive), enforceBodyLimit(bodyLimits.tenantDefault), validateJson(captureSocialConversationSchema), captureSocialConversation);
 socialRoutes.get("/inbox/:conversationId/messages", getSocialMessages);
   socialRoutes.post("/inbox/:conversationId/messages", requireRole("admin"), validateJson(createSocialMessageSchema), createSocialMessage);
 socialRoutes.patch("/inbox/:conversationId", requireRole("admin"), validateJson(updateSocialConversationSchema), updateSocialConversation);
 socialRoutes.post("/inbox/:conversationId/convert-to-lead", requireRole("admin"), validateJson(convertSocialConversationSchema), convertSocialConversationToLead);
-socialRoutes.post("/whatsapp/send", requireRole("admin"), validateJson(sendWhatsappMessageSchema), sendWhatsappConversationMessage);
-socialRoutes.post("/whatsapp/test-send", requireRole("admin"), validateJson(sendWhatsappMessageSchema), sendWhatsappConversationMessage);
+socialRoutes.post("/whatsapp/send", requireRole("admin"), rateLimit(routePolicies.sendMessage), enforceBodyLimit(bodyLimits.tenantDefault), validateJson(sendWhatsappMessageSchema), sendWhatsappConversationMessage);
+socialRoutes.post("/whatsapp/test-send", requireRole("admin"), rateLimit(routePolicies.sendMessage), enforceBodyLimit(bodyLimits.tenantDefault), validateJson(sendWhatsappMessageSchema), sendWhatsappConversationMessage);
 socialRoutes.post("/whatsapp-inbox-actions/:conversationId/assign", requireRole("admin"), validateJson(assignConversationSchema), assignWhatsappConversation);
 socialRoutes.post("/whatsapp-inbox-actions/:conversationId/takeover", requireRole("admin"), validateJson(toggleTakeoverSchema), toggleWhatsappTakeover);
 socialRoutes.post("/whatsapp-inbox-actions/:conversationId/resolve", requireRole("admin"), validateJson(resolveConversationSchema), resolveWhatsappConversation);

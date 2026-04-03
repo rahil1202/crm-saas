@@ -21,6 +21,7 @@ import {
 import { ok } from "@/lib/api";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import { ensureAuthSession, recordSecurityAuditLog, requireActiveAuthSession, revokeAuthSession } from "@/lib/security";
 import type {
   AcceptInviteInput,
   ChangePasswordInput,
@@ -41,7 +42,7 @@ const SESSION_COOKIE = "crm_session";
 
 const authCookieBase = {
   path: "/",
-  sameSite: "Lax" as const,
+  sameSite: env.COOKIE_SAME_SITE as "lax" | "strict" | "none" | "Lax" | "Strict" | "None",
   secure: env.COOKIE_SECURE,
 };
 
@@ -122,7 +123,11 @@ async function syncSuperAdmin(userId: string, email: string | null) {
   return true;
 }
 
-async function createSession(c: Parameters<typeof setCookie>[0], identity: { userId: string; email: string | null }, sessionId?: string) {
+async function createSession(
+  c: Parameters<typeof setCookie>[0],
+  identity: { userId: string; email: string | null },
+  sessionId?: string,
+) {
   await upsertProfile(identity.userId, identity.email);
   await syncSuperAdmin(identity.userId, identity.email);
 
@@ -138,6 +143,14 @@ async function createSession(c: Parameters<typeof setCookie>[0], identity: { use
     sessionId: effectiveSessionId,
     tokenHash: hashToken(tokens.refreshToken),
     jti: tokens.refreshTokenJti,
+    expiresAt: tokens.refreshTokenExpiresAt,
+  });
+
+  await ensureAuthSession({
+    sessionId: effectiveSessionId,
+    userId: identity.userId,
+    ipAddress: c.get("clientIp") ?? null,
+    userAgent: c.get("userAgent") ?? null,
     expiresAt: tokens.refreshTokenExpiresAt,
   });
 
@@ -194,17 +207,44 @@ export async function register(c: Context<AppEnv>) {
 
 export async function login(c: Context<AppEnv>) {
   const body = c.get("validatedBody") as LoginInput;
-  const identity = await loginWithSupabasePassword(body.email, body.password);
+  try {
+    const identity = await loginWithSupabasePassword(body.email, body.password);
 
-  await createSession(c, identity);
+    await createSession(c, identity);
+    await recordSecurityAuditLog({
+      requestId: c.get("requestId"),
+      userId: identity.userId,
+      route: c.req.path,
+      action: "auth.login",
+      result: "success",
+      ipAddress: c.get("clientIp") ?? null,
+      userAgent: c.get("userAgent") ?? null,
+      metadata: {
+        email: body.email.toLowerCase(),
+      },
+    });
 
-  return ok(c, {
-    user: {
-      id: identity.userId,
-      email: identity.email,
-    },
-    authenticated: true,
-  });
+    return ok(c, {
+      user: {
+        id: identity.userId,
+        email: identity.email,
+      },
+      authenticated: true,
+    });
+  } catch (error) {
+    await recordSecurityAuditLog({
+      requestId: c.get("requestId"),
+      route: c.req.path,
+      action: "auth.login",
+      result: "failed",
+      ipAddress: c.get("clientIp") ?? null,
+      userAgent: c.get("userAgent") ?? null,
+      metadata: {
+        email: body.email.toLowerCase(),
+      },
+    });
+    throw error;
+  }
 }
 
 export async function exchangeSupabaseSession(c: Context<AppEnv>) {
@@ -225,6 +265,17 @@ export async function exchangeSupabaseSession(c: Context<AppEnv>) {
 export async function forgotPassword(c: Context<AppEnv>) {
   const body = c.get("validatedBody") as ForgotPasswordInput;
   await sendPasswordRecoveryEmail(body.email);
+  await recordSecurityAuditLog({
+    requestId: c.get("requestId"),
+    route: c.req.path,
+    action: "auth.forgot_password",
+    result: "success",
+    ipAddress: c.get("clientIp") ?? null,
+    userAgent: c.get("userAgent") ?? null,
+    metadata: {
+      email: body.email.toLowerCase(),
+    },
+  });
 
   return ok(c, {
     sent: true,
@@ -255,6 +306,16 @@ export async function resetPassword(c: Context<AppEnv>) {
   await updateSupabasePassword({
     accessToken: body.supabaseAccessToken,
     password: body.password,
+  });
+
+  await recordSecurityAuditLog({
+    requestId: c.get("requestId"),
+    userId: identity.userId,
+    route: c.req.path,
+    action: "auth.reset_password",
+    result: "success",
+    ipAddress: c.get("clientIp") ?? null,
+    userAgent: c.get("userAgent") ?? null,
   });
 
   return ok(c, {
@@ -292,6 +353,17 @@ export async function changePassword(c: Context<AppEnv>) {
     password: body.password,
   });
 
+  await recordSecurityAuditLog({
+    requestId: c.get("requestId"),
+    userId: user.id,
+    sessionId: user.sessionId,
+    route: c.req.path,
+    action: "auth.change_password",
+    result: "success",
+    ipAddress: c.get("clientIp") ?? null,
+    userAgent: c.get("userAgent") ?? null,
+  });
+
   return ok(c, {
     changed: true,
   });
@@ -326,6 +398,11 @@ export async function refreshSession(c: Context<AppEnv>) {
     throw AppError.unauthorized("Refresh token is invalid or revoked");
   }
 
+  await requireActiveAuthSession({
+    sessionId: verified.sessionId,
+    userId: verified.userId,
+  });
+
   const [profile] = await db.select().from(profiles).where(eq(profiles.id, verified.userId)).limit(1);
 
   await createSession(
@@ -352,13 +429,34 @@ export async function refreshSession(c: Context<AppEnv>) {
     })
     .where(eq(authRefreshTokens.id, storedToken.id));
 
+  await recordSecurityAuditLog({
+    requestId: c.get("requestId"),
+    userId: verified.userId,
+    sessionId: verified.sessionId,
+    route: c.req.path,
+    action: "auth.refresh",
+    result: "success",
+    ipAddress: c.get("clientIp") ?? null,
+    userAgent: c.get("userAgent") ?? null,
+  });
+
   return ok(c, { refreshed: true });
 }
 
 export async function logout(c: Context<AppEnv>) {
   const refreshToken = getCookie(c, REFRESH_COOKIE);
+  const user = c.get("user");
+  let sessionId: string | null = user?.sessionId ?? null;
   if (refreshToken) {
     const tokenHash = hashToken(refreshToken);
+    if (!sessionId) {
+      try {
+        const verified = await verifyRefreshToken(refreshToken);
+        sessionId = verified.sessionId;
+      } catch {
+        sessionId = null;
+      }
+    }
     await db
       .update(authRefreshTokens)
       .set({
@@ -367,7 +465,24 @@ export async function logout(c: Context<AppEnv>) {
       .where(and(eq(authRefreshTokens.tokenHash, tokenHash), isNull(authRefreshTokens.revokedAt)));
   }
 
+  if (sessionId) {
+    await revokeAuthSession({
+      sessionId,
+      reason: "logout",
+    });
+  }
+
   clearAuthCookies(c);
+  await recordSecurityAuditLog({
+    requestId: c.get("requestId"),
+    userId: user?.id ?? null,
+    sessionId,
+    route: c.req.path,
+    action: "auth.logout",
+    result: "success",
+    ipAddress: c.get("clientIp") ?? null,
+    userAgent: c.get("userAgent") ?? null,
+  });
   return ok(c, { loggedOut: true });
 }
 
@@ -594,6 +709,21 @@ export async function acceptInvite(c: Context<AppEnv>) {
       updatedAt: new Date(),
     })
     .where(eq(companyInvites.id, invite.id));
+
+  await recordSecurityAuditLog({
+    requestId: c.get("requestId"),
+    companyId: invite.companyId,
+    userId: user.id,
+    sessionId: user.sessionId,
+    route: c.req.path,
+    action: "auth.accept_invite",
+    result: "success",
+    ipAddress: c.get("clientIp") ?? null,
+    userAgent: c.get("userAgent") ?? null,
+    metadata: {
+      role: invite.role,
+    },
+  });
 
   return ok(c, {
     accepted: true,

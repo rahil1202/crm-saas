@@ -4,12 +4,14 @@ import type { Context } from "hono";
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { recordTriggerEvent } from "@/lib/automation-runtime";
+import { resumeActiveChatbotFlowForConversation } from "@/lib/chatbot-flow-engine";
 import { recordLeadScoringEvent, routeLead } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { ingestMetaWhatsappWebhook, sendWhatsappMessage, verifyWhatsappWebhookChallenge } from "@/lib/whatsapp-runtime";
 import { getConversationStatusTimeline, resolvePhoneMapping } from "@/lib/whatsapp-workspace";
+import { recordSecurityAuditLog } from "@/lib/security";
 import { companyMemberships, leads, profiles, socialAccounts, socialConversations, socialMessages } from "@/db/schema";
 import {
   socialAccountParamSchema,
@@ -523,6 +525,22 @@ export async function sendWhatsappConversationMessage(c: Context<AppEnv>) {
     variables: body.variables,
   });
 
+  await recordSecurityAuditLog({
+    requestId: c.get("requestId"),
+    companyId: tenant.companyId,
+    userId: user.id,
+    sessionId: user.sessionId,
+    route: c.req.path,
+    action: "social.whatsapp_send",
+    result: "success",
+    ipAddress: c.get("clientIp") ?? null,
+    userAgent: c.get("userAgent") ?? null,
+    metadata: {
+      accountId: body.accountId ?? null,
+      contactHandle: body.contactHandle,
+    },
+  });
+
   return ok(c, sent, 201);
 }
 
@@ -607,10 +625,17 @@ export async function verifyWhatsappWebhook(c: Context) {
 }
 
 export async function ingestWhatsappProviderWebhook(c: Context) {
-  const rawBody = await c.req.text();
+  const rawBody = (c.get("rawBody") as string | undefined) ?? (await c.req.text());
   const ingested = await ingestMetaWhatsappWebhook(rawBody, c.req.header("x-hub-signature-256") ?? null);
 
   for (const item of ingested.ingested) {
+    await resumeActiveChatbotFlowForConversation({
+      companyId: item.companyId,
+      socialConversationId: item.conversationId,
+      inboundMessageBody: item.body,
+      lastInboundMessageId: item.messageId,
+    });
+
     await recordTriggerEvent({
       companyId: item.companyId,
       triggerType: "whatsapp.replied",

@@ -28,6 +28,10 @@ export const templateTypeEnum = pgEnum("template_type", ["email", "whatsapp", "s
 export const automationStatusEnum = pgEnum("automation_status", ["active", "paused"]);
 export const automationRunStatusEnum = pgEnum("automation_run_status", ["queued", "running", "completed", "failed", "canceled"]);
 export const automationStepStatusEnum = pgEnum("automation_step_status", ["pending", "running", "completed", "failed", "canceled", "scheduled"]);
+export const chatbotFlowStatusEnum = pgEnum("chatbot_flow_status", ["draft", "published", "archived"]);
+export const chatbotFlowEntryChannelEnum = pgEnum("chatbot_flow_entry_channel", ["whatsapp"]);
+export const chatbotFlowVersionStateEnum = pgEnum("chatbot_flow_version_state", ["draft", "published"]);
+export const chatbotFlowExecutionStatusEnum = pgEnum("chatbot_flow_execution_status", ["running", "paused", "completed", "failed", "canceled"]);
 export const notificationTypeEnum = pgEnum("notification_type", ["lead", "deal", "task", "campaign"]);
 export const documentEntityTypeEnum = pgEnum("document_entity_type", ["general", "lead", "deal", "customer"]);
 export const socialPlatformEnum = pgEnum("social_platform", ["instagram", "facebook", "whatsapp", "linkedin"]);
@@ -44,6 +48,7 @@ export const whatsappTemplateStatusEnum = pgEnum("whatsapp_template_status", ["d
 export const sequenceStatusEnum = pgEnum("sequence_status", ["draft", "active", "paused", "archived"]);
 export const sequenceStepChannelEnum = pgEnum("sequence_step_channel", ["email", "whatsapp"]);
 export const sequenceRunStatusEnum = pgEnum("sequence_run_status", ["queued", "running", "completed", "failed", "skipped", "canceled"]);
+export const authSessionStatusEnum = pgEnum("auth_session_status", ["active", "revoked", "expired"]);
 
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
@@ -668,6 +673,112 @@ export const automations = pgTable(
   (table) => ({
     byCompanyIdx: index("automations_company_idx").on(table.companyId),
     byStatusIdx: index("automations_status_idx").on(table.companyId, table.status),
+  }),
+);
+
+export const chatbotFlows = pgTable(
+  "chatbot_flows",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 180 }).notNull(),
+    status: chatbotFlowStatusEnum("status").notNull().default("draft"),
+    entryChannel: chatbotFlowEntryChannelEnum("entry_channel").notNull().default("whatsapp"),
+    publishedVersionId: uuid("published_version_id"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("chatbot_flows_company_idx").on(table.companyId, table.updatedAt),
+    byStatusIdx: index("chatbot_flows_status_idx").on(table.companyId, table.status),
+  }),
+);
+
+export const chatbotFlowVersions = pgTable(
+  "chatbot_flow_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    flowId: uuid("flow_id")
+      .notNull()
+      .references(() => chatbotFlows.id, { onDelete: "cascade" }),
+    versionNumber: integer("version_number").notNull(),
+    state: chatbotFlowVersionStateEnum("state").notNull().default("draft"),
+    definition: jsonb("definition").$type<Record<string, unknown>>().notNull().default({}),
+    validationErrors: jsonb("validation_errors").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    flowVersionUnique: uniqueIndex("chatbot_flow_versions_flow_version_unique").on(table.flowId, table.versionNumber),
+    flowStateIdx: index("chatbot_flow_versions_flow_state_idx").on(table.flowId, table.state, table.createdAt),
+  }),
+);
+
+export const chatbotFlowExecutions = pgTable(
+  "chatbot_flow_executions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    flowId: uuid("flow_id")
+      .notNull()
+      .references(() => chatbotFlows.id, { onDelete: "cascade" }),
+    flowVersionId: uuid("flow_version_id")
+      .notNull()
+      .references(() => chatbotFlowVersions.id, { onDelete: "cascade" }),
+    conversationStateId: uuid("conversation_state_id").notNull(),
+    status: chatbotFlowExecutionStatusEnum("status").notNull().default("running"),
+    currentNodeId: varchar("current_node_id", { length: 120 }).notNull(),
+    triggerSource: varchar("trigger_source", { length: 80 }).notNull().default("manual_test"),
+    context: jsonb("context").$type<Record<string, unknown>>().notNull().default({}),
+    lastInboundMessageId: uuid("last_inbound_message_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byFlowIdx: index("chatbot_flow_executions_flow_idx").on(table.flowId, table.startedAt),
+    byConversationIdx: index("chatbot_flow_executions_conversation_idx").on(table.conversationStateId, table.updatedAt),
+    byStatusIdx: index("chatbot_flow_executions_status_idx").on(table.companyId, table.status, table.updatedAt),
+  }),
+);
+
+export const chatbotFlowExecutionLogs = pgTable(
+  "chatbot_flow_execution_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    executionId: uuid("execution_id")
+      .notNull()
+      .references(() => chatbotFlowExecutions.id, { onDelete: "cascade" }),
+    nodeId: varchar("node_id", { length: 120 }),
+    eventType: varchar("event_type", { length: 80 }).notNull(),
+    message: varchar("message", { length: 240 }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byExecutionIdx: index("chatbot_flow_execution_logs_execution_idx").on(table.executionId, table.createdAt),
+    byCompanyIdx: index("chatbot_flow_execution_logs_company_idx").on(table.companyId, table.createdAt),
   }),
 );
 
@@ -1395,6 +1506,86 @@ export const authRefreshTokens = pgTable(
     tokenHashUnique: uniqueIndex("auth_refresh_tokens_token_hash_unique").on(table.tokenHash),
     jtiUnique: uniqueIndex("auth_refresh_tokens_jti_unique").on(table.jti),
     userSessionIdx: index("auth_refresh_tokens_user_session_idx").on(table.userId, table.sessionId),
+  }),
+);
+
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    id: uuid("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    status: authSessionStatusEnum("status").notNull().default("active"),
+    ipAddress: varchar("ip_address", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 512 }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokeReason: varchar("revoke_reason", { length: 120 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    userStatusIdx: index("auth_sessions_user_status_idx").on(table.userId, table.status, table.createdAt),
+    expiresIdx: index("auth_sessions_expires_idx").on(table.expiresAt),
+  }),
+);
+
+export const requestRateLimits = pgTable(
+  "request_rate_limits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    scope: varchar("scope", { length: 80 }).notNull(),
+    bucketKey: varchar("bucket_key", { length: 255 }).notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    hitCount: integer("hit_count").notNull().default(1),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    bucketUnique: uniqueIndex("request_rate_limits_bucket_unique").on(table.scope, table.bucketKey, table.windowStart),
+    expiresIdx: index("request_rate_limits_expires_idx").on(table.expiresAt),
+  }),
+);
+
+export const webhookReplayGuards = pgTable(
+  "webhook_replay_guards",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    provider: varchar("provider", { length: 80 }).notNull(),
+    replayKey: varchar("replay_key", { length: 255 }).notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (table) => ({
+    providerReplayUnique: uniqueIndex("webhook_replay_guards_provider_key_unique").on(table.provider, table.replayKey),
+    expiresIdx: index("webhook_replay_guards_expires_idx").on(table.expiresAt),
+  }),
+);
+
+export const securityAuditLogs = pgTable(
+  "security_audit_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: varchar("request_id", { length: 120 }),
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "set null" }),
+    userId: uuid("user_id").references(() => profiles.id, { onDelete: "set null" }),
+    sessionId: uuid("session_id"),
+    route: varchar("route", { length: 255 }).notNull(),
+    action: varchar("action", { length: 120 }).notNull(),
+    result: varchar("result", { length: 60 }).notNull(),
+    ipAddress: varchar("ip_address", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 512 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    routeCreatedIdx: index("security_audit_logs_route_created_idx").on(table.route, table.createdAt),
+    companyCreatedIdx: index("security_audit_logs_company_created_idx").on(table.companyId, table.createdAt),
+    userCreatedIdx: index("security_audit_logs_user_created_idx").on(table.userId, table.createdAt),
   }),
 );
 

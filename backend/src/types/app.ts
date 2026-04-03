@@ -16,6 +16,8 @@ export interface TenantContext {
 
 export interface AppVariables {
   requestId: string;
+  clientIp: string;
+  userAgent: string | null;
   user: AuthUser;
   tenant: TenantContext;
   validatedBody: unknown;

@@ -53,6 +53,12 @@ const envSchema = z.object({
     .enum(["0", "1", "true", "false"])
     .default("0")
     .transform((value) => value === "1" || value === "true"),
+  COOKIE_SAME_SITE: z.enum(["lax", "strict", "none", "Lax", "Strict", "None"]).default("lax").transform((value) => {
+    const normalized = value.toLowerCase();
+    if (normalized === "strict") return "Strict";
+    if (normalized === "none") return "None";
+    return "Lax";
+  }),
   AUTH_CALLBACK_URL: z.string().url().default("http://localhost:3000/auth/callback"),
   RUNTIME_WORKER_ENABLED: z
     .enum(["0", "1", "true", "false"])

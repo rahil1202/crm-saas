@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import { companyMemberships, profiles, superAdmins } from "@/db/schema";
 import { verifyAccessToken } from "@/lib/auth";
 import { AppError } from "@/lib/errors";
+import { requireActiveAuthSession } from "@/lib/security";
 import { hasMinimumRole } from "@/middleware/roles";
 import type { CompanyRole } from "@/types/app";
 
@@ -22,6 +23,10 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
   }
 
   const verified = await verifyAccessToken(token);
+  await requireActiveAuthSession({
+    sessionId: verified.sessionId,
+    userId: verified.userId,
+  });
 
   if (verified.email) {
     await db

@@ -18,6 +18,7 @@ import {
 import { AppError } from "@/lib/errors";
 import { recordLeadScoringEvent } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
+import { guardWebhookReplay } from "@/lib/security";
 import { campaignParamSchema } from "@/modules/campaigns/schema";
 import type { CreateCampaignInput, CreateEmailAccountInput, EmailReplyWebhookInput, ListCampaignsQuery, ListDeliveryLogQuery, TestEmailInput, UpdateCampaignInput } from "@/modules/campaigns/schema";
 
@@ -490,7 +491,18 @@ export async function handleEmailReplyWebhook(c: Context) {
 }
 
 export async function handleResendWebhookRequest(c: Context) {
-  const rawBody = await c.req.text();
+  const rawBody = (c.get("rawBody") as string | undefined) ?? (await c.req.text());
+  const svixId = c.req.header("svix-id");
+  if (!svixId) {
+    throw AppError.unauthorized("Missing Resend webhook signature headers");
+  }
+  await guardWebhookReplay({
+    provider: "resend",
+    replayKey: svixId,
+    metadata: {
+      path: c.req.path,
+    },
+  });
   const tracked = await handleResendWebhook(rawBody, c.req.raw.headers);
 
   if ("ignored" in tracked) {
