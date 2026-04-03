@@ -99,6 +99,9 @@ export async function createAutomation(c: Context<AppEnv>) {
       status: body.status,
       triggerType: body.triggerType,
       triggerConfig: body.triggerConfig,
+      testModeEnabled: body.testModeEnabled,
+      branchMode: body.branchMode,
+      channelMetadata: body.channelMetadata,
       actions: body.actions,
       notes: body.notes ?? null,
       createdBy: user.id,
@@ -124,6 +127,9 @@ export async function updateAutomation(c: Context<AppEnv>) {
       ...(body.status !== undefined ? { status: body.status } : {}),
       ...(body.triggerType !== undefined ? { triggerType: body.triggerType } : {}),
       ...(body.triggerConfig !== undefined ? { triggerConfig: body.triggerConfig } : {}),
+      ...(body.testModeEnabled !== undefined ? { testModeEnabled: body.testModeEnabled } : {}),
+      ...(body.branchMode !== undefined ? { branchMode: body.branchMode } : {}),
+      ...(body.channelMetadata !== undefined ? { channelMetadata: body.channelMetadata } : {}),
       ...(body.actions !== undefined ? { actions: body.actions } : {}),
       ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
       updatedAt: new Date(),
@@ -156,12 +162,13 @@ export async function runAutomationTest(c: Context<AppEnv>) {
     companyId: tenant.companyId,
     automationId: automation.id,
     triggerType: automation.triggerType,
-    payload: {
-      triggerType: automation.triggerType,
-      actionCount: automation.actions.length,
-      source: "manual_test",
-    },
-  });
+      payload: {
+        triggerType: automation.triggerType,
+        actionCount: automation.actions.length,
+        source: "manual_test",
+        __testMode: true,
+      },
+    });
 
   return ok(c, run, 201);
 }

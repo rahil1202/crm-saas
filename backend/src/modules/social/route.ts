@@ -2,28 +2,35 @@ import { Hono } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import {
+  assignWhatsappConversation,
   captureSocialConversation,
   convertSocialConversationToLead,
   createSocialAccount,
   createSocialMessage,
   deleteSocialAccount,
+  getWhatsappStatusTimeline,
   getSocialMessages,
   getSocialOverview,
   listSocialAccounts,
   listSocialInbox,
   listWhatsappLog,
+  resolveWhatsappConversation,
   sendWhatsappConversationMessage,
+  toggleWhatsappTakeover,
   updateSocialAccount,
   updateSocialConversation,
 } from "@/modules/social/controller";
 import {
+  assignConversationSchema,
   captureSocialConversationSchema,
   createSocialMessageSchema,
   listSocialAccountsSchema,
   listSocialInboxSchema,
   listWhatsappLogSchema,
+  resolveConversationSchema,
   socialAccountSchema,
   sendWhatsappMessageSchema,
+  toggleTakeoverSchema,
   updateSocialAccountSchema,
   updateSocialConversationSchema,
   convertSocialConversationSchema,
@@ -48,3 +55,7 @@ socialRoutes.patch("/inbox/:conversationId", requireRole("admin"), validateJson(
 socialRoutes.post("/inbox/:conversationId/convert-to-lead", requireRole("admin"), validateJson(convertSocialConversationSchema), convertSocialConversationToLead);
 socialRoutes.post("/whatsapp/send", requireRole("admin"), validateJson(sendWhatsappMessageSchema), sendWhatsappConversationMessage);
 socialRoutes.post("/whatsapp/test-send", requireRole("admin"), validateJson(sendWhatsappMessageSchema), sendWhatsappConversationMessage);
+socialRoutes.post("/whatsapp-inbox-actions/:conversationId/assign", requireRole("admin"), validateJson(assignConversationSchema), assignWhatsappConversation);
+socialRoutes.post("/whatsapp-inbox-actions/:conversationId/takeover", requireRole("admin"), validateJson(toggleTakeoverSchema), toggleWhatsappTakeover);
+socialRoutes.post("/whatsapp-inbox-actions/:conversationId/resolve", requireRole("admin"), validateJson(resolveConversationSchema), resolveWhatsappConversation);
+socialRoutes.get("/whatsapp-inbox-actions/:conversationId/status-timeline", getWhatsappStatusTimeline);

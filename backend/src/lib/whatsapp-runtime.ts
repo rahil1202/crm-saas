@@ -1,10 +1,19 @@
 import { and, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { automations, conversationStates, socialAccounts, socialConversations, socialMessages } from "@/db/schema";
+import {
+  automations,
+  conversationStates,
+  socialAccounts,
+  socialConversations,
+  socialMessages,
+  whatsappWebhookEvents,
+  whatsappWorkspaces,
+} from "@/db/schema";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { renderTemplateContent } from "@/lib/template-renderer";
+import { getWhatsappWorkspaceByPhoneNumberId, normalizePhoneToE164, resolvePhoneMapping } from "@/lib/whatsapp-workspace";
 import crypto from "node:crypto";
 
 function getWhatsappPhoneNumberId(account: typeof socialAccounts.$inferSelect) {
@@ -12,10 +21,19 @@ function getWhatsappPhoneNumberId(account: typeof socialAccounts.$inferSelect) {
   return typeof phoneNumberId === "string" && phoneNumberId.length > 0 ? phoneNumberId : null;
 }
 
-function getWhatsappAccessToken(account: typeof socialAccounts.$inferSelect) {
+function getWhatsappWorkspaceId(account: typeof socialAccounts.$inferSelect) {
+  const workspaceId = account.metadata?.workspaceId;
+  return typeof workspaceId === "string" && workspaceId.length > 0 ? workspaceId : null;
+}
+
+function getWhatsappAccessToken(account: typeof socialAccounts.$inferSelect, workspace?: typeof whatsappWorkspaces.$inferSelect | null) {
   const metadataToken = account.metadata?.accessToken;
   if (typeof metadataToken === "string" && metadataToken.length > 0) {
     return metadataToken;
+  }
+
+  if (workspace?.accessToken) {
+    return workspace.accessToken;
   }
 
   return env.WHATSAPP_ACCESS_TOKEN || null;
@@ -27,14 +45,69 @@ function getWhatsappApiBaseUrl() {
 
 async function sendWhatsappViaMeta(input: {
   account: typeof socialAccounts.$inferSelect;
+  workspace?: typeof whatsappWorkspaces.$inferSelect | null;
   contactHandle: string;
-  body: string;
+  body?: string;
+  messageType?: "text" | "template" | "interactive" | "media";
+  template?: {
+    name: string;
+    language?: string;
+    components?: Array<Record<string, unknown>>;
+  };
+  interactive?: Record<string, unknown>;
+  media?: {
+    mediaType?: "image" | "document" | "video" | "audio";
+    link?: string;
+    caption?: string;
+  };
 }) {
-  const phoneNumberId = getWhatsappPhoneNumberId(input.account);
-  const accessToken = getWhatsappAccessToken(input.account);
+  const phoneNumberId = getWhatsappPhoneNumberId(input.account) ?? input.workspace?.phoneNumberId ?? null;
+  const accessToken = getWhatsappAccessToken(input.account, input.workspace);
 
   if (!phoneNumberId || !accessToken) {
     throw AppError.conflict("WhatsApp account is missing phoneNumberId or access token");
+  }
+
+  const outboundType = input.messageType ?? "text";
+  const payload: Record<string, unknown> = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: input.contactHandle,
+    type: outboundType,
+  };
+
+  if (outboundType === "template") {
+    if (!input.template?.name) {
+      throw AppError.badRequest("Template message requires template name");
+    }
+    payload.template = {
+      name: input.template.name,
+      language: {
+        code: input.template.language ?? "en",
+      },
+      components: input.template.components ?? [],
+    };
+  } else if (outboundType === "interactive") {
+    if (!input.interactive) {
+      throw AppError.badRequest("Interactive message requires interactive payload");
+    }
+    payload.interactive = input.interactive;
+  } else if (outboundType === "media") {
+    const mediaType = input.media?.mediaType ?? "image";
+    const mediaLink = input.media?.link;
+    if (!mediaLink) {
+      throw AppError.badRequest("Media message requires media link");
+    }
+    payload.type = mediaType;
+    payload[mediaType] = {
+      link: mediaLink,
+      caption: input.media?.caption,
+    };
+  } else {
+    payload.text = {
+      preview_url: false,
+      body: input.body ?? "",
+    };
   }
 
   const response = await fetch(`${getWhatsappApiBaseUrl()}/${phoneNumberId}/messages`, {
@@ -43,16 +116,7 @@ async function sendWhatsappViaMeta(input: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: input.contactHandle,
-      type: "text",
-      text: {
-        preview_url: false,
-        body: input.body,
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -78,6 +142,21 @@ async function getWhatsappAccount(companyId: string, accountId?: string | null) 
     .limit(1);
 
   return account ?? null;
+}
+
+async function getWhatsappWorkspaceForAccount(companyId: string, account: typeof socialAccounts.$inferSelect) {
+  const workspaceId = getWhatsappWorkspaceId(account);
+  if (!workspaceId) {
+    return null;
+  }
+
+  const [workspace] = await db
+    .select()
+    .from(whatsappWorkspaces)
+    .where(and(eq(whatsappWorkspaces.companyId, companyId), eq(whatsappWorkspaces.id, workspaceId), isNull(whatsappWorkspaces.deletedAt)))
+    .limit(1);
+
+  return workspace ?? null;
 }
 
 export async function findOrCreateWhatsappConversation(input: {
@@ -178,7 +257,19 @@ export async function sendWhatsappMessage(input: {
   accountId?: string | null;
   contactHandle: string;
   contactName?: string | null;
-  messageTemplate: string;
+  messageTemplate?: string;
+  messageType?: "text" | "template" | "interactive" | "media";
+  template?: {
+    name: string;
+    language?: string;
+    components?: Array<Record<string, unknown>>;
+  };
+  interactive?: Record<string, unknown>;
+  media?: {
+    mediaType?: "image" | "document" | "video" | "audio";
+    link?: string;
+    caption?: string;
+  };
   createdBy: string;
   automationId?: string | null;
   automationRunId?: string | null;
@@ -197,19 +288,27 @@ export async function sendWhatsappMessage(input: {
   if (!account) {
     throw AppError.conflict("No connected WhatsApp account is available");
   }
+  const workspace = await getWhatsappWorkspaceForAccount(input.companyId, account);
 
   const rendered = await renderTemplateContent({
     companyId: input.companyId,
-    content: input.messageTemplate,
+    content: input.messageTemplate ?? "",
     leadId: input.leadId,
     customerId: input.customerId,
     variables: input.variables,
   });
 
+  const phoneE164 = normalizePhoneToE164(input.contactHandle);
+
   const sendResponse = await sendWhatsappViaMeta({
     account,
-    contactHandle: input.contactHandle,
+    workspace,
+    contactHandle: phoneE164.replace("+", ""),
     body: rendered.content,
+    messageType: input.messageType,
+    template: input.template,
+    interactive: input.interactive,
+    media: input.media,
   });
   const providerMessageId = sendResponse.messages?.[0]?.id ?? null;
 
@@ -219,6 +318,9 @@ export async function sendWhatsappMessage(input: {
       companyId: input.companyId,
       conversationId: conversation.id,
       direction: "outbound",
+      messageType: input.messageType ?? "text",
+      deliveryStatus: providerMessageId ? "sent" : "failed",
+      providerMessageId,
       senderName: "WhatsApp Automation",
       body: rendered.content,
       metadata: providerMessageId ? { provider: "meta_whatsapp", providerMessageId } : {},
@@ -232,9 +334,23 @@ export async function sendWhatsappMessage(input: {
       latestMessage: rendered.content,
       unreadCount: 0,
       lastMessageAt: new Date(message.sentAt),
+      lastOutboundAt: new Date(message.sentAt),
+      messageStatusSummary: providerMessageId ? { lastProviderMessageId: providerMessageId, status: "sent" } : { status: "failed" },
       updatedAt: new Date(),
     })
     .where(eq(socialConversations.id, conversation.id));
+
+  await resolvePhoneMapping({
+    companyId: input.companyId,
+    phoneRaw: phoneE164,
+    leadId: input.leadId,
+    customerId: input.customerId,
+    socialConversationId: conversation.id,
+    metadata: {
+      direction: "outbound",
+      providerMessageId,
+    },
+  });
 
   await syncConversationState({
     companyId: input.companyId,
@@ -242,8 +358,8 @@ export async function sendWhatsappMessage(input: {
     automationId: input.automationId ?? null,
     automationRunId: input.automationRunId ?? null,
     currentNode: "awaiting_reply",
-    state: {
-      contactHandle: input.contactHandle,
+      state: {
+      contactHandle: phoneE164,
       outboundMessageId: message.id,
     },
     expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
@@ -261,17 +377,20 @@ export async function ingestWhatsappReply(input: {
   contactHandle: string;
   contactName?: string | null;
   body: string;
+  messageType?: string | null;
+  providerMessageId?: string | null;
   createdBy?: string | null;
 }) {
   const account = await getWhatsappAccount(input.companyId, input.accountId);
   if (!account) {
     throw AppError.conflict("No connected WhatsApp account is available");
   }
+  const phoneE164 = normalizePhoneToE164(input.contactHandle);
 
   const conversation = await findOrCreateWhatsappConversation({
     companyId: input.companyId,
     accountId: account.id,
-    contactHandle: input.contactHandle,
+    contactHandle: phoneE164,
     contactName: input.contactName,
     createdBy: input.createdBy ?? account.createdBy,
   });
@@ -282,7 +401,10 @@ export async function ingestWhatsappReply(input: {
       companyId: input.companyId,
       conversationId: conversation.id,
       direction: "inbound",
-      senderName: input.contactName ?? input.contactHandle,
+      messageType: input.messageType ?? "text",
+      deliveryStatus: "delivered",
+      providerMessageId: input.providerMessageId ?? null,
+      senderName: input.contactName ?? phoneE164,
       body: input.body,
       metadata: {
         provider: "meta_whatsapp",
@@ -298,9 +420,24 @@ export async function ingestWhatsappReply(input: {
       unreadCount: conversation.unreadCount + 1,
       lastMessageAt: new Date(message.sentAt),
       status: conversation.assignedToUserId ? "assigned" : "open",
+      messageStatusSummary: {
+        lastInboundMessageId: message.id,
+        lastInboundStatus: "delivered",
+      },
       updatedAt: new Date(),
     })
     .where(eq(socialConversations.id, conversation.id));
+
+  await resolvePhoneMapping({
+    companyId: input.companyId,
+    phoneRaw: phoneE164,
+    leadId: conversation.leadId,
+    socialConversationId: conversation.id,
+    metadata: {
+      direction: "inbound",
+      providerMessageId: input.providerMessageId ?? null,
+    },
+  });
 
   const [existingState] = await db
     .select()
@@ -382,7 +519,17 @@ export async function ingestMetaWhatsappWebhook(rawBody: string, signatureHeader
         value?: {
           metadata?: { phone_number_id?: string };
           contacts?: Array<{ profile?: { name?: string } }>;
-          messages?: Array<{ from?: string; text?: { body?: string } }>;
+          messages?: Array<{
+            id?: string;
+            from?: string;
+            type?: string;
+            text?: { body?: string };
+            interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } };
+            image?: { id?: string };
+            document?: { id?: string };
+            audio?: { id?: string };
+            video?: { id?: string };
+          }>;
         };
       }>;
     }>;
@@ -394,34 +541,113 @@ export async function ingestMetaWhatsappWebhook(rawBody: string, signatureHeader
     for (const change of entry.changes ?? []) {
       const value = change.value;
       const phoneNumberId = value?.metadata?.phone_number_id;
-      const message = value?.messages?.[0];
-      const contactName = value?.contacts?.[0]?.profile?.name;
-      const contactHandle = message?.from;
-      const body = message?.text?.body;
-
-      if (!phoneNumberId || !contactHandle || !body) {
+      if (!phoneNumberId) {
         continue;
       }
 
-      const account = await findWhatsappAccountByPhoneNumberId(phoneNumberId);
-      if (!account) {
-        continue;
+      for (const message of value?.messages ?? []) {
+        const contactName = value?.contacts?.[0]?.profile?.name;
+        const contactHandle = message?.from;
+        const messageType = message?.type ?? "text";
+        const body =
+          message?.text?.body ??
+          message?.interactive?.button_reply?.title ??
+          message?.interactive?.list_reply?.title ??
+          (messageType === "image"
+            ? "[media:image]"
+            : messageType === "video"
+              ? "[media:video]"
+              : messageType === "audio"
+                ? "[media:audio]"
+                : messageType === "document"
+                  ? "[media:document]"
+                  : null);
+
+        if (!contactHandle || !body) {
+          continue;
+        }
+
+        const account = await findWhatsappAccountByPhoneNumberId(phoneNumberId);
+        if (!account) {
+          const workspace = await getWhatsappWorkspaceByPhoneNumberId(phoneNumberId);
+          if (!workspace) {
+            continue;
+          }
+          const fallbackAccount = await getWhatsappAccount(workspace.companyId);
+          if (!fallbackAccount) {
+            continue;
+          }
+          const eventKey = `meta:${phoneNumberId}:${message.id ?? crypto.randomUUID()}`;
+          const [event] = await db
+            .insert(whatsappWebhookEvents)
+            .values({
+              companyId: workspace.companyId,
+              workspaceId: workspace.id,
+              eventKey,
+              payload: message as Record<string, unknown>,
+            })
+            .onConflictDoNothing({
+              target: [whatsappWebhookEvents.companyId, whatsappWebhookEvents.eventKey],
+            })
+            .returning();
+
+          if (!event) {
+            continue;
+          }
+
+          const received = await ingestWhatsappReply({
+            companyId: workspace.companyId,
+            accountId: fallbackAccount.id,
+            contactHandle,
+            contactName,
+            body,
+            messageType,
+            providerMessageId: message.id ?? null,
+          });
+
+          ingested.push({
+            companyId: workspace.companyId,
+            conversationId: received.conversation.id,
+            messageId: received.message.id,
+            leadId: received.conversation.leadId ?? null,
+          });
+          continue;
+        }
+
+        const eventKey = `meta:${phoneNumberId}:${message.id ?? crypto.randomUUID()}`;
+        const [event] = await db
+          .insert(whatsappWebhookEvents)
+          .values({
+            companyId: account.companyId,
+            eventKey,
+            payload: message as Record<string, unknown>,
+          })
+          .onConflictDoNothing({
+            target: [whatsappWebhookEvents.companyId, whatsappWebhookEvents.eventKey],
+          })
+          .returning();
+
+        if (!event) {
+          continue;
+        }
+
+        const received = await ingestWhatsappReply({
+          companyId: account.companyId,
+          accountId: account.id,
+          contactHandle,
+          contactName,
+          body,
+          messageType,
+          providerMessageId: message.id ?? null,
+        });
+
+        ingested.push({
+          companyId: account.companyId,
+          conversationId: received.conversation.id,
+          messageId: received.message.id,
+          leadId: received.conversation.leadId ?? null,
+        });
       }
-
-      const received = await ingestWhatsappReply({
-        companyId: account.companyId,
-        accountId: account.id,
-        contactHandle,
-        contactName,
-        body,
-      });
-
-      ingested.push({
-        companyId: account.companyId,
-        conversationId: received.conversation.id,
-        messageId: received.message.id,
-        leadId: received.conversation.leadId ?? null,
-      });
     }
   }
 

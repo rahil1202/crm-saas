@@ -16,6 +16,7 @@ import {
   recordEmailReply,
 } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
+import { recordLeadScoringEvent } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
 import { campaignParamSchema } from "@/modules/campaigns/schema";
 import type { CreateCampaignInput, CreateEmailAccountInput, EmailReplyWebhookInput, ListCampaignsQuery, ListDeliveryLogQuery, TestEmailInput, UpdateCampaignInput } from "@/modules/campaigns/schema";
@@ -399,6 +400,16 @@ export async function trackEmailOpen(c: Context) {
         leadId: tracked.message.leadId,
       },
     });
+    if (tracked.message.leadId) {
+      await recordLeadScoringEvent({
+        companyId: tracked.message.companyId,
+        leadId: tracked.message.leadId,
+        eventType: "email.opened",
+        channel: "email",
+        sourceId: tracked.message.id,
+        payload: { customerId: tracked.message.customerId },
+      });
+    }
   }
 
   const pixel = Uint8Array.from([
@@ -432,6 +443,16 @@ export async function trackEmailClick(c: Context) {
         url: rawUrl,
       },
     });
+    if (tracked.message.leadId) {
+      await recordLeadScoringEvent({
+        companyId: tracked.message.companyId,
+        leadId: tracked.message.leadId,
+        eventType: "email.clicked",
+        channel: "email",
+        sourceId: tracked.message.id,
+        payload: { customerId: tracked.message.customerId, url: rawUrl },
+      });
+    }
   }
 
   return c.redirect(rawUrl);
@@ -454,6 +475,16 @@ export async function handleEmailReplyWebhook(c: Context) {
       fromEmail: body.fromEmail,
     },
   });
+  if (tracked.message.leadId) {
+    await recordLeadScoringEvent({
+      companyId: tracked.message.companyId,
+      leadId: tracked.message.leadId,
+      eventType: "email.replied",
+      channel: "email",
+      sourceId: tracked.message.id,
+      payload: { fromEmail: body.fromEmail },
+    });
+  }
 
   return c.json({ success: true }, 200);
 }
@@ -479,6 +510,18 @@ export async function handleResendWebhookRequest(c: Context) {
         leadId: tracked.message.leadId,
       },
     });
+    if (tracked.message.leadId) {
+      await recordLeadScoringEvent({
+        companyId: tracked.message.companyId,
+        leadId: tracked.message.leadId,
+        eventType: `email.${tracked.eventType}`,
+        channel: "email",
+        sourceId: tracked.message.id,
+        payload: {
+          customerId: tracked.message.customerId,
+        },
+      });
+    }
   }
 
   return c.json({ success: true, eventType: tracked.eventType }, 200);

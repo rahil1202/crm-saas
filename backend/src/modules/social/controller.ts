@@ -4,10 +4,12 @@ import type { Context } from "hono";
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { recordTriggerEvent } from "@/lib/automation-runtime";
+import { recordLeadScoringEvent, routeLead } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { ingestMetaWhatsappWebhook, sendWhatsappMessage, verifyWhatsappWebhookChallenge } from "@/lib/whatsapp-runtime";
+import { getConversationStatusTimeline, resolvePhoneMapping } from "@/lib/whatsapp-workspace";
 import { companyMemberships, leads, profiles, socialAccounts, socialConversations, socialMessages } from "@/db/schema";
 import {
   socialAccountParamSchema,
@@ -21,9 +23,12 @@ import type {
   ListSocialAccountsQuery,
   ListSocialInboxQuery,
   ListWhatsappLogQuery,
+  AssignConversationInput,
   UpdateSocialAccountInput,
   UpdateSocialConversationInput,
+  ResolveConversationInput,
   SendWhatsappMessageInput,
+  ToggleTakeoverInput,
 } from "@/modules/social/schema";
 
 async function assertSocialAccount(companyId: string, accountId: string) {
@@ -111,6 +116,9 @@ export async function listWhatsappLog(c: Context<AppEnv>) {
       id: socialMessages.id,
       conversationId: socialMessages.conversationId,
       direction: socialMessages.direction,
+      messageType: socialMessages.messageType,
+      deliveryStatus: socialMessages.deliveryStatus,
+      providerMessageId: socialMessages.providerMessageId,
       senderName: socialMessages.senderName,
       body: socialMessages.body,
       metadata: socialMessages.metadata,
@@ -229,8 +237,13 @@ export async function listSocialInbox(c: Context<AppEnv>) {
         contactName: socialConversations.contactName,
         contactHandle: socialConversations.contactHandle,
         status: socialConversations.status,
+        humanTakeoverEnabled: socialConversations.humanTakeoverEnabled,
+        botState: socialConversations.botState,
         subject: socialConversations.subject,
         latestMessage: socialConversations.latestMessage,
+        resolvedAt: socialConversations.resolvedAt,
+        lastOutboundAt: socialConversations.lastOutboundAt,
+        messageStatusSummary: socialConversations.messageStatusSummary,
         unreadCount: socialConversations.unreadCount,
         lastMessageAt: socialConversations.lastMessageAt,
         accountName: socialAccounts.accountName,
@@ -273,8 +286,11 @@ export async function captureSocialConversation(c: Context<AppEnv>) {
       contactName: body.contactName ?? null,
       contactHandle: body.contactHandle,
       status: body.assignedToUserId ? "assigned" : "open",
+      humanTakeoverEnabled: false,
+      botState: "bot_active",
       subject: body.subject ?? null,
       latestMessage: body.message,
+      messageStatusSummary: { lastInboundStatus: "captured" },
       unreadCount: 1,
       lastMessageAt: new Date(),
       createdBy: user.id,
@@ -284,10 +300,12 @@ export async function captureSocialConversation(c: Context<AppEnv>) {
   await db.insert(socialMessages).values({
     companyId: tenant.companyId,
     conversationId: conversation.id,
-    direction: "inbound",
-    senderName: body.contactName ?? body.contactHandle,
-    body: body.message,
-    createdBy: user.id,
+      direction: "inbound",
+      messageType: "text",
+      deliveryStatus: "delivered",
+      senderName: body.contactName ?? body.contactHandle,
+      body: body.message,
+      createdBy: user.id,
   });
 
   await createNotification({
@@ -299,6 +317,15 @@ export async function captureSocialConversation(c: Context<AppEnv>) {
     payload: {
       conversationId: conversation.id,
       platform: account.platform,
+    },
+    });
+
+  await resolvePhoneMapping({
+    companyId: tenant.companyId,
+    phoneRaw: body.contactHandle,
+    socialConversationId: conversation.id,
+    metadata: {
+      source: "manual_capture",
     },
   });
 
@@ -332,6 +359,8 @@ export async function createSocialMessage(c: Context<AppEnv>) {
       companyId: tenant.companyId,
       conversationId: conversation.id,
       direction: body.direction,
+      messageType: "text",
+      deliveryStatus: body.direction === "outbound" ? "sent" : "delivered",
       senderName: body.senderName ?? (body.direction === "outbound" ? "Team" : conversation.contactName ?? conversation.contactHandle),
       body: body.body,
       createdBy: user.id,
@@ -345,6 +374,8 @@ export async function createSocialMessage(c: Context<AppEnv>) {
       latestMessage: body.body,
       unreadCount,
       lastMessageAt: new Date(created.sentAt),
+      lastOutboundAt: body.direction === "outbound" ? new Date(created.sentAt) : conversation.lastOutboundAt,
+      messageStatusSummary: body.direction === "outbound" ? { lastOutboundStatus: "sent" } : { lastInboundStatus: "delivered" },
       status: conversation.assignedToUserId ? "assigned" : conversation.status,
       updatedAt: new Date(),
     })
@@ -375,6 +406,14 @@ export async function updateSocialConversation(c: Context<AppEnv>) {
           }
         : {}),
       ...(body.unreadCount !== undefined ? { unreadCount: body.unreadCount } : {}),
+      ...(body.humanTakeoverEnabled !== undefined
+        ? {
+            humanTakeoverEnabled: body.humanTakeoverEnabled,
+            botState: body.humanTakeoverEnabled ? "human_takeover" : body.botState ?? "bot_active",
+          }
+        : {}),
+      ...(body.botState !== undefined ? { botState: body.botState } : {}),
+      ...(body.resolvedAt !== undefined ? { resolvedAt: body.resolvedAt ? new Date(body.resolvedAt) : null } : {}),
       updatedAt: new Date(),
     })
     .where(and(eq(socialConversations.id, params.conversationId), eq(socialConversations.companyId, tenant.companyId), isNull(socialConversations.deletedAt)))
@@ -422,10 +461,26 @@ export async function convertSocialConversationToLead(c: Context<AppEnv>) {
       leadId: createdLead.id,
       assignedToUserId,
       status: assignedToUserId ? "assigned" : "closed",
+      resolvedAt: assignedToUserId ? null : new Date(),
       unreadCount: 0,
       updatedAt: new Date(),
     })
     .where(eq(socialConversations.id, conversation.id));
+
+  await resolvePhoneMapping({
+    companyId: tenant.companyId,
+    phoneRaw: conversation.contactHandle,
+    leadId: createdLead.id,
+    socialConversationId: conversation.id,
+    metadata: { source: "conversation_conversion" },
+  });
+
+  await routeLead({
+    companyId: tenant.companyId,
+    leadId: createdLead.id,
+    reason: "social_conversion",
+    createdBy: user.id,
+  });
 
   await createNotification({
     companyId: tenant.companyId,
@@ -458,6 +513,10 @@ export async function sendWhatsappConversationMessage(c: Context<AppEnv>) {
     contactHandle: body.contactHandle,
     contactName: body.contactName,
     messageTemplate: body.message,
+    messageType: body.messageType,
+    template: body.template,
+    interactive: body.interactive,
+    media: body.media,
     createdBy: user.id,
     leadId: body.leadId,
     customerId: body.customerId,
@@ -465,6 +524,81 @@ export async function sendWhatsappConversationMessage(c: Context<AppEnv>) {
   });
 
   return ok(c, sent, 201);
+}
+
+export async function assignWhatsappConversation(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as AssignConversationInput;
+  const params = socialConversationParamSchema.parse(c.req.param());
+  await assertAssignableUser(tenant.companyId, body.assignedToUserId);
+
+  const [updated] = await db
+    .update(socialConversations)
+    .set({
+      assignedToUserId: body.assignedToUserId ?? null,
+      status: body.assignedToUserId ? "assigned" : "open",
+      updatedAt: new Date(),
+    })
+    .where(and(eq(socialConversations.companyId, tenant.companyId), eq(socialConversations.id, params.conversationId), isNull(socialConversations.deletedAt)))
+    .returning();
+
+  if (!updated) {
+    throw AppError.notFound("Social conversation not found");
+  }
+
+  return ok(c, updated);
+}
+
+export async function toggleWhatsappTakeover(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as ToggleTakeoverInput;
+  const params = socialConversationParamSchema.parse(c.req.param());
+
+  const [updated] = await db
+    .update(socialConversations)
+    .set({
+      humanTakeoverEnabled: body.enabled,
+      botState: body.enabled ? "human_takeover" : "bot_active",
+      updatedAt: new Date(),
+    })
+    .where(and(eq(socialConversations.companyId, tenant.companyId), eq(socialConversations.id, params.conversationId), isNull(socialConversations.deletedAt)))
+    .returning();
+
+  if (!updated) {
+    throw AppError.notFound("Social conversation not found");
+  }
+
+  return ok(c, updated);
+}
+
+export async function resolveWhatsappConversation(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as ResolveConversationInput;
+  const params = socialConversationParamSchema.parse(c.req.param());
+
+  const [updated] = await db
+    .update(socialConversations)
+    .set({
+      status: body.resolved ? "closed" : "open",
+      resolvedAt: body.resolved ? new Date() : null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(socialConversations.companyId, tenant.companyId), eq(socialConversations.id, params.conversationId), isNull(socialConversations.deletedAt)))
+    .returning();
+
+  if (!updated) {
+    throw AppError.notFound("Social conversation not found");
+  }
+
+  return ok(c, updated);
+}
+
+export async function getWhatsappStatusTimeline(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = socialConversationParamSchema.parse(c.req.param());
+
+  const timeline = await getConversationStatusTimeline(tenant.companyId, params.conversationId);
+  return ok(c, timeline);
 }
 
 export async function verifyWhatsappWebhook(c: Context) {
@@ -489,6 +623,18 @@ export async function ingestWhatsappProviderWebhook(c: Context) {
         leadId: item.leadId,
       },
     });
+    if (item.leadId) {
+      await recordLeadScoringEvent({
+        companyId: item.companyId,
+        leadId: item.leadId,
+        eventType: "whatsapp.replied",
+        channel: "whatsapp",
+        sourceId: item.messageId,
+        payload: {
+          conversationId: item.conversationId,
+        },
+      });
+    }
   }
 
   return c.json({ success: true, ingested: ingested.ingested.length }, 200);

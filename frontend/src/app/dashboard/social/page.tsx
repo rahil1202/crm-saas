@@ -32,11 +32,16 @@ interface SocialConversation {
   leadId: string | null;
   assignedToUserId: string | null;
   platform: SocialPlatform;
+  humanTakeoverEnabled: boolean;
+  botState: string;
   contactName: string | null;
   contactHandle: string;
   status: SocialConversationStatus;
   subject: string | null;
   latestMessage: string | null;
+  resolvedAt: string | null;
+  lastOutboundAt: string | null;
+  messageStatusSummary: Record<string, unknown>;
   unreadCount: number;
   lastMessageAt: string;
   accountName: string;
@@ -671,6 +676,9 @@ export default function SocialPage() {
                         {conversation.accountName} • {conversation.contactHandle} • {new Date(conversation.lastMessageAt).toLocaleString()}
                       </div>
                       <div className="text-sm text-muted-foreground">{conversation.latestMessage ?? "No latest message"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {conversation.humanTakeoverEnabled ? "Human takeover" : "Bot active"} • {conversation.botState}
+                      </div>
                     </button>
                   ))}
                   {!loading && conversations.length === 0 ? (
@@ -732,6 +740,37 @@ export default function SocialPage() {
                             <option value="closed">closed</option>
                           </select>
                         </Field>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={selectedConversation.humanTakeoverEnabled ? "secondary" : "outline"}
+                          onClick={() =>
+                            void apiRequest(`/social/whatsapp-inbox-actions/${selectedConversation.id}/takeover`, {
+                              method: "POST",
+                              body: JSON.stringify({ enabled: !selectedConversation.humanTakeoverEnabled }),
+                            }).then(() => loadData())
+                          }
+                        >
+                          {selectedConversation.humanTakeoverEnabled ? "Disable takeover" : "Enable takeover"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            void apiRequest(`/social/whatsapp-inbox-actions/${selectedConversation.id}/resolve`, {
+                              method: "POST",
+                              body: JSON.stringify({ resolved: selectedConversation.status !== "closed" }),
+                            }).then(() => loadData())
+                          }
+                        >
+                          {selectedConversation.status === "closed" ? "Reopen" : "Resolve"}
+                        </Button>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Status summary: {JSON.stringify(selectedConversation.messageStatusSummary ?? {})}
                       </div>
                     </div>
 

@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { Webhook } from "svix";
 
 import { db } from "@/db/client";
-import { automations, campaignCustomers, campaigns, customers, emailAccounts, emailMessages, emailTrackingEvents, leads } from "@/db/schema";
+import { automations, campaignCustomers, campaigns, customers, emailAccounts, emailAnalyticsDaily, emailMessages, emailTrackingEvents, leads } from "@/db/schema";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { renderTemplateContent } from "@/lib/template-renderer";
@@ -319,9 +319,12 @@ export async function recalculateCampaignAnalytics(companyId: string, campaignId
 
   const openedCount = new Set(events.filter((event) => event.eventType === "opened").map((event) => event.emailMessageId)).size;
   const clickedCount = new Set(events.filter((event) => event.eventType === "clicked").map((event) => event.emailMessageId)).size;
+  const repliedCount = new Set(events.filter((event) => event.eventType === "replied").map((event) => event.emailMessageId)).size;
+  const bouncedCount = new Set(events.filter((event) => event.eventType === "failed").map((event) => event.emailMessageId)).size;
   const deliveredCount = new Set(
     events.filter((event) => event.eventType === "delivered" || event.eventType === "sent").map((event) => event.emailMessageId),
   ).size;
+  const engagementScore = Math.max(0, Math.round(openedCount * 2 + clickedCount * 4 + repliedCount * 8 - bouncedCount * 3));
 
   await db
     .update(campaigns)
@@ -330,9 +333,42 @@ export async function recalculateCampaignAnalytics(companyId: string, campaignId
       deliveredCount,
       openedCount,
       clickedCount,
+      replyCount: repliedCount,
+      bounceCount: bouncedCount,
+      engagementScore,
       updatedAt: new Date(),
     })
     .where(eq(campaigns.id, campaignId));
+
+  const today = new Date();
+  const day = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  await db
+    .insert(emailAnalyticsDaily)
+    .values({
+      companyId,
+      campaignId,
+      day,
+      sentCount: messages.filter((message) => ["sent", "delivered"].includes(message.status)).length,
+      deliveredCount,
+      openedCount,
+      clickedCount,
+      repliedCount,
+      bouncedCount,
+      engagementScore,
+    })
+    .onConflictDoUpdate({
+      target: [emailAnalyticsDaily.companyId, emailAnalyticsDaily.campaignId, emailAnalyticsDaily.day],
+      set: {
+        sentCount: messages.filter((message) => ["sent", "delivered"].includes(message.status)).length,
+        deliveredCount,
+        openedCount,
+        clickedCount,
+        repliedCount,
+        bouncedCount,
+        engagementScore,
+        updatedAt: new Date(),
+      },
+    });
 }
 
 export async function processQueuedEmailMessages(limit = 20) {

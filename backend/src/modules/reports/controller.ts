@@ -3,7 +3,7 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { campaignCustomers, campaigns, deals, leads, partnerCompanies, tasks } from "@/db/schema";
+import { campaignCustomers, campaigns, deals, emailAnalyticsDaily, emailTrackingEvents, leads, partnerCompanies, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import type { ReportSummaryQuery } from "@/modules/reports/schema";
 
@@ -64,7 +64,7 @@ export async function getReportSummary(c: Context<AppEnv>) {
   const periodStart = new Date(Date.now() - query.periodDays * 24 * 60 * 60 * 1000);
   const now = new Date();
 
-  const [leadRows, dealRows, taskRows, partnerRows, campaignRows] = await Promise.all([
+  const [leadRows, dealRows, taskRows, partnerRows, campaignRows, emailAnalyticsRows, emailEventRows] = await Promise.all([
     db
       .select({
         id: leads.id,
@@ -114,6 +114,9 @@ export async function getReportSummary(c: Context<AppEnv>) {
         deliveredCount: campaigns.deliveredCount,
         openedCount: campaigns.openedCount,
         clickedCount: campaigns.clickedCount,
+        replyCount: campaigns.replyCount,
+        bounceCount: campaigns.bounceCount,
+        engagementScore: campaigns.engagementScore,
         scheduledAt: campaigns.scheduledAt,
         launchedAt: campaigns.launchedAt,
         createdAt: campaigns.createdAt,
@@ -121,6 +124,17 @@ export async function getReportSummary(c: Context<AppEnv>) {
       .from(campaigns)
       .where(and(eq(campaigns.companyId, tenant.companyId), isNull(campaigns.deletedAt)))
       .orderBy(desc(campaigns.createdAt)),
+    db
+      .select()
+      .from(emailAnalyticsDaily)
+      .where(and(eq(emailAnalyticsDaily.companyId, tenant.companyId))),
+    db
+      .select({
+        eventType: emailTrackingEvents.eventType,
+        occurredAt: emailTrackingEvents.occurredAt,
+      })
+      .from(emailTrackingEvents)
+      .where(and(eq(emailTrackingEvents.companyId, tenant.companyId))),
   ]);
 
   const campaignIds = campaignRows.map((campaign) => campaign.id);
@@ -234,6 +248,37 @@ export async function getReportSummary(c: Context<AppEnv>) {
   const forecastValue = forecastItems.reduce((total, item) => total + item.totalValue, 0);
   const averageDealValue = dealRows.length > 0 ? Math.round(dealRows.reduce((total, deal) => total + deal.value, 0) / dealRows.length) : 0;
 
+  const analyticsStart = new Date(periodStart.toISOString().slice(0, 10));
+  const filteredAnalytics = emailAnalyticsRows.filter((row) => new Date(row.day) >= analyticsStart);
+  const analyticsTotals = filteredAnalytics.reduce(
+    (accumulator, row) => ({
+      sent: accumulator.sent + row.sentCount,
+      delivered: accumulator.delivered + row.deliveredCount,
+      opened: accumulator.opened + row.openedCount,
+      clicked: accumulator.clicked + row.clickedCount,
+      replied: accumulator.replied + row.repliedCount,
+      bounced: accumulator.bounced + row.bouncedCount,
+      engagement: accumulator.engagement + row.engagementScore,
+    }),
+    { sent: 0, delivered: 0, opened: 0, clicked: 0, replied: 0, bounced: 0, engagement: 0 },
+  );
+  const eventTrend = new Map<string, { opened: number; clicked: number; replied: number; bounced: number }>();
+  for (const event of emailEventRows) {
+    const day = new Date(event.occurredAt).toISOString().slice(0, 10);
+    if (new Date(day) < analyticsStart) {
+      continue;
+    }
+    const bucket = eventTrend.get(day) ?? { opened: 0, clicked: 0, replied: 0, bounced: 0 };
+    if (event.eventType === "opened") bucket.opened += 1;
+    if (event.eventType === "clicked") bucket.clicked += 1;
+    if (event.eventType === "replied") bucket.replied += 1;
+    if (event.eventType === "failed") bucket.bounced += 1;
+    eventTrend.set(day, bucket);
+  }
+  const trend = Array.from(eventTrend.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([day, values]) => ({ day, ...values }));
+
   return ok(c, {
     generatedAt: now.toISOString(),
     periodDays: query.periodDays,
@@ -269,6 +314,37 @@ export async function getReportSummary(c: Context<AppEnv>) {
       totalValue: forecastValue,
       months: forecastItems,
     },
+    emailAnalytics: {
+      totals: {
+        sentCount: analyticsTotals.sent,
+        deliveredCount: analyticsTotals.delivered,
+        openedCount: analyticsTotals.opened,
+        clickedCount: analyticsTotals.clicked,
+        repliedCount: analyticsTotals.replied,
+        bouncedCount: analyticsTotals.bounced,
+      },
+      rates: {
+        openRate: getRate(analyticsTotals.opened, analyticsTotals.delivered),
+        clickRate: getRate(analyticsTotals.clicked, analyticsTotals.opened),
+        replyRate: getRate(analyticsTotals.replied, analyticsTotals.delivered),
+        bounceRate: getRate(analyticsTotals.bounced, analyticsTotals.sent),
+      },
+      engagementScore: analyticsTotals.engagement,
+      trend,
+      ranking: campaignRows
+        .slice()
+        .sort((left, right) => right.engagementScore - left.engagementScore || right.openedCount - left.openedCount)
+        .slice(0, 10)
+        .map((campaign) => ({
+          campaignId: campaign.id,
+          name: campaign.name,
+          engagementScore: campaign.engagementScore,
+          openRate: getRate(campaign.openedCount, campaign.deliveredCount),
+          clickRate: getRate(campaign.clickedCount, campaign.openedCount),
+          replyRate: getRate(campaign.replyCount, campaign.deliveredCount),
+          bounceRate: getRate(campaign.bounceCount, campaign.sentCount),
+        })),
+    },
     partnerPerformance: partnerRows
       .map((partner) => {
         const leadCount = partnerLeadCounts.get(partner.id) ?? 0;
@@ -300,9 +376,14 @@ export async function getReportSummary(c: Context<AppEnv>) {
         deliveredCount: campaign.deliveredCount,
         openedCount: campaign.openedCount,
         clickedCount: campaign.clickedCount,
+        replyCount: campaign.replyCount,
+        bounceCount: campaign.bounceCount,
+        engagementScore: campaign.engagementScore,
         deliveryRate: getRate(campaign.deliveredCount, campaign.sentCount),
         openRate: getRate(campaign.openedCount, campaign.deliveredCount),
         clickRate: getRate(campaign.clickedCount, campaign.openedCount),
+        replyRate: getRate(campaign.replyCount, campaign.deliveredCount),
+        bounceRate: getRate(campaign.bounceCount, campaign.sentCount),
         scheduledAt: campaign.scheduledAt,
         launchedAt: campaign.launchedAt,
         createdAt: campaign.createdAt,

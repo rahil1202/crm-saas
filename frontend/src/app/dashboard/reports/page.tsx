@@ -52,6 +52,39 @@ interface ReportSummaryResponse {
       dealCount: number;
     }>;
   };
+  emailAnalytics: {
+    totals: {
+      sentCount: number;
+      deliveredCount: number;
+      openedCount: number;
+      clickedCount: number;
+      repliedCount: number;
+      bouncedCount: number;
+    };
+    rates: {
+      openRate: number;
+      clickRate: number;
+      replyRate: number;
+      bounceRate: number;
+    };
+    engagementScore: number;
+    trend: Array<{
+      day: string;
+      opened: number;
+      clicked: number;
+      replied: number;
+      bounced: number;
+    }>;
+    ranking: Array<{
+      campaignId: string;
+      name: string;
+      engagementScore: number;
+      openRate: number;
+      clickRate: number;
+      replyRate: number;
+      bounceRate: number;
+    }>;
+  };
   partnerPerformance: Array<{
     partnerId: string;
     name: string;
@@ -71,9 +104,14 @@ interface ReportSummaryResponse {
     deliveredCount: number;
     openedCount: number;
     clickedCount: number;
+    replyCount: number;
+    bounceCount: number;
+    engagementScore: number;
     deliveryRate: number;
     openRate: number;
     clickRate: number;
+    replyRate: number;
+    bounceRate: number;
     scheduledAt: string | null;
     launchedAt: string | null;
     createdAt: string;
@@ -205,6 +243,7 @@ export default function ReportsPage() {
             <TabsTrigger value="leads">Leads</TabsTrigger>
             <TabsTrigger value="deals">Deals</TabsTrigger>
             <TabsTrigger value="forecast">Forecast</TabsTrigger>
+            <TabsTrigger value="email-analytics">Email Analytics</TabsTrigger>
             <TabsTrigger value="partners">Partners</TabsTrigger>
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
           </TabsList>
@@ -281,6 +320,72 @@ export default function ReportsPage() {
                     <div className="mt-1 text-sm text-muted-foreground">{bucket.dealCount} forecast deals</div>
                   </div>
                 ))}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="email-analytics" className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+            <Card>
+              <CardHeader>
+                <CardTitle>Email performance</CardTitle>
+                <CardDescription>Open, click, reply, bounce, and engagement summary for the selected period.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl border p-3 text-sm">
+                    <div className="text-muted-foreground">Open rate</div>
+                    <div className="text-xl font-semibold">{report?.emailAnalytics.rates.openRate ?? 0}%</div>
+                  </div>
+                  <div className="rounded-xl border p-3 text-sm">
+                    <div className="text-muted-foreground">Click rate</div>
+                    <div className="text-xl font-semibold">{report?.emailAnalytics.rates.clickRate ?? 0}%</div>
+                  </div>
+                  <div className="rounded-xl border p-3 text-sm">
+                    <div className="text-muted-foreground">Reply rate</div>
+                    <div className="text-xl font-semibold">{report?.emailAnalytics.rates.replyRate ?? 0}%</div>
+                  </div>
+                  <div className="rounded-xl border p-3 text-sm">
+                    <div className="text-muted-foreground">Bounce rate</div>
+                    <div className="text-xl font-semibold">{report?.emailAnalytics.rates.bounceRate ?? 0}%</div>
+                  </div>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <div className="text-sm text-muted-foreground">Engagement score</div>
+                  <div className="text-2xl font-semibold">{report?.emailAnalytics.engagementScore ?? 0}</div>
+                </div>
+                <div className="grid gap-2">
+                  {(report?.emailAnalytics.trend ?? []).slice(-10).map((item) => (
+                    <div key={item.day} className="grid grid-cols-[120px_repeat(4,minmax(0,1fr))] gap-2 rounded-lg border px-3 py-2 text-xs">
+                      <span className="font-medium">{item.day}</span>
+                      <span>Open {item.opened}</span>
+                      <span>Click {item.clicked}</span>
+                      <span>Reply {item.replied}</span>
+                      <span>Bounce {item.bounced}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Campaign ranking</CardTitle>
+                <CardDescription>Top campaigns ranked by engagement score.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                {(report?.emailAnalytics.ranking ?? []).map((item) => (
+                  <div key={item.campaignId} className="rounded-xl border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium">{item.name}</span>
+                      <Badge variant="secondary">{item.engagementScore}</Badge>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Open {item.openRate}% • Click {item.clickRate}% • Reply {item.replyRate}% • Bounce {item.bounceRate}%
+                    </div>
+                  </div>
+                ))}
+                {(report?.emailAnalytics.ranking.length ?? 0) === 0 ? (
+                  <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No campaign ranking data yet.</div>
+                ) : null}
               </CardContent>
             </Card>
           </TabsContent>

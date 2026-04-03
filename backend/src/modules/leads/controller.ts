@@ -9,6 +9,7 @@ import { ok } from "@/lib/api";
 import { queueLeadScoreChangedTrigger, recordTriggerEvent } from "@/lib/automation-runtime";
 import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
+import { recordLeadScoringEvent, routeLead } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
 import {
   createLeadSchema,
@@ -269,6 +270,25 @@ export async function createLead(c: Context<AppEnv>) {
     },
   });
 
+  await recordLeadScoringEvent({
+    companyId: tenant.companyId,
+    leadId: created.id,
+    eventType: "lead.created",
+    channel: "crm",
+    payload: {
+      source: created.source,
+      score: created.score,
+    },
+    createdBy: user.id,
+  });
+
+  await routeLead({
+    companyId: tenant.companyId,
+    leadId: created.id,
+    reason: "lead_created",
+    createdBy: user.id,
+  });
+
   return ok(c, created, 201);
 }
 
@@ -484,6 +504,12 @@ export async function updateLead(c: Context<AppEnv>) {
       previousScore: before.score ?? 0,
       score: updated.score,
     });
+    await routeLead({
+      companyId: tenant.companyId,
+      leadId: updated.id,
+      reason: "lead_score_update",
+      createdBy: user.id,
+    });
   }
 
   if (body.status && body.status !== before.status) {
@@ -498,6 +524,33 @@ export async function updateLead(c: Context<AppEnv>) {
         fromStatus: before.status,
         toStatus: body.status,
       },
+    });
+    await recordLeadScoringEvent({
+      companyId: tenant.companyId,
+      leadId: updated.id,
+      eventType: "lead.status_changed",
+      channel: "crm",
+      payload: {
+        fromStatus: before.status,
+        toStatus: body.status,
+        score: updated.score,
+      },
+      createdBy: user.id,
+    });
+  }
+
+  if (body.notes !== undefined || body.tags !== undefined) {
+    await recordLeadScoringEvent({
+      companyId: tenant.companyId,
+      leadId: updated.id,
+      eventType: "lead.activity_updated",
+      channel: "crm",
+      payload: {
+        score: updated.score,
+        notesUpdated: body.notes !== undefined,
+        tagsUpdated: body.tags !== undefined,
+      },
+      createdBy: user.id,
     });
   }
 

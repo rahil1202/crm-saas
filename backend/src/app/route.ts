@@ -23,6 +23,9 @@ import { socialRoutes } from "@/modules/social/route";
 import { taskRoutes } from "@/modules/tasks/route";
 import { templateRoutes } from "@/modules/templates/route";
 import { userRoutes } from "@/modules/users/route";
+import { whatsappRoutes } from "@/modules/whatsapp/route";
+import { leadIntelligenceRoutes } from "@/modules/lead-intelligence/route";
+import { sequenceRoutes } from "@/modules/sequences/route";
 import { uptime } from "process";
 
 export type AppEnv = { Variables: AppVariables };
@@ -73,5 +76,8 @@ api.route("/", reportRoutes);
 api.route("/", notificationRoutes);
 api.route("/", settingRoutes);
 api.route("/", socialRoutes);
+api.route("/", whatsappRoutes);
+api.route("/", leadIntelligenceRoutes);
+api.route("/", sequenceRoutes);
 
 app.route("/", api);

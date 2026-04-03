@@ -32,6 +32,9 @@ interface Automation {
   status: AutomationStatus;
   triggerType: string;
   triggerConfig: Record<string, unknown>;
+  testModeEnabled: boolean;
+  branchMode: string;
+  channelMetadata: Record<string, unknown>;
   actions: AutomationAction[];
   notes: string | null;
   logs: AutomationLog[];
@@ -59,6 +62,8 @@ export default function AutomationPage() {
   const [triggerConfigText, setTriggerConfigText] = useState('{"source":"website"}');
   const [actionsText, setActionsText] = useState('[{"type":"task.create","config":{"title":"Follow up with lead"}}]');
   const [notes, setNotes] = useState("");
+  const [testModeEnabled, setTestModeEnabled] = useState(true);
+  const [branchMode, setBranchMode] = useState("conditional");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -111,6 +116,9 @@ export default function AutomationPage() {
           status,
           triggerType,
           triggerConfig,
+          testModeEnabled,
+          branchMode,
+          channelMetadata: {},
           actions,
           notes: notes || undefined,
         }),
@@ -122,6 +130,8 @@ export default function AutomationPage() {
       setTriggerConfigText('{"source":"website"}');
       setActionsText('[{"type":"task.create","config":{"title":"Follow up with lead"}}]');
       setNotes("");
+      setTestModeEnabled(true);
+      setBranchMode("conditional");
       await loadAutomations();
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : requestError instanceof Error ? requestError.message : "Unable to create automation");
@@ -219,7 +229,18 @@ export default function AutomationPage() {
                     <Input id="automation-triggerType" value={triggerType} onChange={(event) => setTriggerType(event.target.value)} placeholder="lead.created" required />
                     <FieldDescription>Examples: `lead.created`, `deal.won`, `task.overdue`.</FieldDescription>
                   </Field>
+                  <Field>
+                    <FieldLabel htmlFor="automation-branch-mode">Branch mode</FieldLabel>
+                    <select id="automation-branch-mode" value={branchMode} onChange={(event) => setBranchMode(event.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                      <option value="none">none</option>
+                      <option value="conditional">conditional</option>
+                    </select>
+                  </Field>
                 </FieldGroup>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={testModeEnabled} onChange={(event) => setTestModeEnabled(event.target.checked)} />
+                  Enable workflow test mode by default
+                </label>
 
                 <Field>
                   <FieldLabel htmlFor="automation-triggerConfig">Trigger config JSON</FieldLabel>

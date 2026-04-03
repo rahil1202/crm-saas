@@ -15,6 +15,7 @@ import {
 } from "@/db/schema";
 import { processQueuedEmailMessages, queueLeadEmail } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
+import { processDueSequenceRuns } from "@/lib/sequence-runtime";
 import { sendWhatsappMessage, expireConversationStates } from "@/lib/whatsapp-runtime";
 
 type RuntimeContext = Record<string, unknown> & {
@@ -22,6 +23,7 @@ type RuntimeContext = Record<string, unknown> & {
   dealId?: string | null;
   customerId?: string | null;
   variables?: Record<string, unknown>;
+  __testMode?: boolean;
 };
 
 type AutomationActionRecord = {
@@ -30,7 +32,7 @@ type AutomationActionRecord = {
 };
 
 type ExecutorResult =
-  | { status: "completed"; output?: Record<string, unknown> }
+  | { status: "completed"; output?: Record<string, unknown>; nextActionIndex?: number }
   | { status: "scheduled"; nextRunAt: Date; output?: Record<string, unknown> };
 
 let workerStarted = false;
@@ -57,6 +59,62 @@ function actionParallelKey(action: AutomationActionRecord) {
 
 function resolveId(configValue: unknown, contextValue: unknown) {
   return asString(configValue) ?? asString(contextValue);
+}
+
+function getContextValue(context: Record<string, unknown>, fieldPath: string) {
+  const segments = fieldPath.split(".").filter(Boolean);
+  let cursor: unknown = context;
+  for (const segment of segments) {
+    if (!cursor || typeof cursor !== "object") {
+      return undefined;
+    }
+    cursor = (cursor as Record<string, unknown>)[segment];
+  }
+  return cursor;
+}
+
+function evaluateSimpleCondition(condition: Record<string, unknown>, context: Record<string, unknown>) {
+  const field = asString(condition.field);
+  if (!field) {
+    return true;
+  }
+  const operator = asString(condition.operator) ?? "equals";
+  const expected = condition.value;
+  const actual = getContextValue(context, field);
+
+  if (operator === "equals") return actual === expected;
+  if (operator === "not_equals") return actual !== expected;
+  if (operator === "gt") return asNumber(actual, Number.NEGATIVE_INFINITY) > asNumber(expected, Number.POSITIVE_INFINITY);
+  if (operator === "gte") return asNumber(actual, Number.NEGATIVE_INFINITY) >= asNumber(expected, Number.POSITIVE_INFINITY);
+  if (operator === "lt") return asNumber(actual, Number.POSITIVE_INFINITY) < asNumber(expected, Number.NEGATIVE_INFINITY);
+  if (operator === "lte") return asNumber(actual, Number.POSITIVE_INFINITY) <= asNumber(expected, Number.NEGATIVE_INFINITY);
+  if (operator === "contains") return String(actual ?? "").toLowerCase().includes(String(expected ?? "").toLowerCase());
+  if (operator === "in") return Array.isArray(expected) && expected.includes(actual);
+
+  return true;
+}
+
+export function evaluateActionCondition(condition: Record<string, unknown> | undefined, context: RuntimeContext): boolean {
+  if (!condition) {
+    return true;
+  }
+  const scope = context as Record<string, unknown>;
+
+  const all = Array.isArray(condition.all) ? condition.all : null;
+  if (all) {
+    return all.every((item) => evaluateActionCondition((item as Record<string, unknown>) ?? {}, context));
+  }
+
+  const any = Array.isArray(condition.any) ? condition.any : null;
+  if (any) {
+    return any.some((item) => evaluateActionCondition((item as Record<string, unknown>) ?? {}, context));
+  }
+
+  if (condition.not && typeof condition.not === "object") {
+    return !evaluateActionCondition(condition.not as Record<string, unknown>, context);
+  }
+
+  return evaluateSimpleCondition(condition, scope);
 }
 
 async function upsertRunStep(input: {
@@ -127,17 +185,65 @@ async function executeAction(input: {
 }) {
   const { action, context } = input;
   const config = action.config ?? {};
+  const isTestMode = context.__testMode === true;
+
+  if (!evaluateActionCondition((action as { condition?: Record<string, unknown> }).condition, context)) {
+    return {
+      status: "completed",
+      output: { skipped: true, reason: "condition_not_met" },
+    } satisfies ExecutorResult;
+  }
+
+  if (action.type === "condition.branch") {
+    const field = asString(config.field);
+    const equals = config.equals;
+    const actual = field ? (context as Record<string, unknown>)[field] : undefined;
+    const isTrue = field ? actual === equals : false;
+    const nextActionIndex = isTrue ? asNumber(config.onTrueActionIndex, input.actionIndex + 1) : asNumber(config.onFalseActionIndex, input.actionIndex + 1);
+    return {
+      status: "completed",
+      output: { branchResult: isTrue, field, actual, expected: equals },
+      nextActionIndex,
+    } satisfies ExecutorResult;
+  }
 
   if (action.type === "delay") {
-    const minutes = Math.max(1, asNumber(config.minutes, 5));
+    const runAtRaw = asString(config.runAt);
+    if (runAtRaw) {
+      const absolute = new Date(runAtRaw);
+      if (Number.isNaN(absolute.valueOf())) {
+        throw AppError.badRequest("delay action has invalid runAt timestamp");
+      }
+      const nextRunAt = absolute > new Date() ? absolute : new Date(Date.now() + 1000);
+      return {
+        status: "scheduled",
+        nextRunAt,
+        output: { delayedUntil: nextRunAt.toISOString() },
+      } satisfies ExecutorResult;
+    }
+
+    const amount = Math.max(1, asNumber(config.amount ?? config.minutes, 5));
+    const unit = asString(config.unit) ?? "minutes";
+    const minutes =
+      unit === "hours"
+        ? amount * 60
+        : unit === "days"
+          ? amount * 24 * 60
+          : amount;
     return {
       status: "scheduled",
       nextRunAt: new Date(Date.now() + minutes * 60 * 1000),
-      output: { delayedMinutes: minutes },
+      output: { delayedMinutes: minutes, amount, unit },
     } satisfies ExecutorResult;
   }
 
   if (action.type === "task.create") {
+    if (isTestMode) {
+      return {
+        status: "completed",
+        output: { simulated: true, action: "task.create" },
+      } satisfies ExecutorResult;
+    }
     const dueAtOffsetMinutes = asNumber(config.dueAtOffsetMinutes, 0);
     const dueAt = dueAtOffsetMinutes > 0 ? new Date(Date.now() + dueAtOffsetMinutes * 60 * 1000) : null;
     const [task] = await db
@@ -275,6 +381,12 @@ async function executeAction(input: {
   }
 
   if (action.type === "email.send") {
+    if (isTestMode) {
+      return {
+        status: "completed",
+        output: { simulated: true, action: "email.send" },
+      } satisfies ExecutorResult;
+    }
     const email = await queueLeadEmail({
       companyId: input.companyId,
       automationId: input.automationId,
@@ -293,6 +405,12 @@ async function executeAction(input: {
   }
 
   if (action.type === "whatsapp.send") {
+    if (isTestMode) {
+      return {
+        status: "completed",
+        output: { simulated: true, action: "whatsapp.send" },
+      } satisfies ExecutorResult;
+    }
     const contactHandle = asString(config.contactHandle) ?? asString((context.variables ?? {})["contactHandle"]);
     if (!contactHandle) {
       throw AppError.badRequest("whatsapp.send action requires contactHandle");
@@ -471,7 +589,10 @@ export async function processAutomationRun(runId: string) {
         return true;
       }
 
-      currentIndex = nextIndex;
+      const branchJump = results
+        .map((item) => item.result.nextActionIndex)
+        .find((value): value is number => typeof value === "number" && Number.isFinite(value));
+      currentIndex = branchJump ?? nextIndex;
       await db
         .update(automationRuns)
         .set({
@@ -773,6 +894,7 @@ async function runtimeTick() {
     }
 
     await processQueuedEmailMessages(25);
+    await processDueSequenceRuns(25);
     await queueLeadInactiveTriggers();
     await expireConversationStates();
   } finally {

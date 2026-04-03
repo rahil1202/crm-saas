@@ -45,6 +45,9 @@ export const updateSocialConversationSchema = z.object({
   status: conversationStatusSchema.optional(),
   assignedToUserId: z.string().uuid().nullable().optional(),
   unreadCount: z.number().int().min(0).optional(),
+  humanTakeoverEnabled: z.boolean().optional(),
+  botState: z.string().trim().min(1).max(40).optional(),
+  resolvedAt: z.string().datetime().nullable().optional(),
 });
 
 export const createSocialMessageSchema = z.object({
@@ -64,10 +67,38 @@ export const sendWhatsappMessageSchema = z.object({
   accountId: z.string().uuid().optional(),
   contactHandle: z.string().trim().min(1).max(180),
   contactName: z.string().trim().max(180).optional(),
-  message: z.string().trim().min(1).max(4000),
+  message: z.string().trim().max(4000).optional(),
+  messageType: z.enum(["text", "template", "interactive", "media"]).default("text"),
+  template: z
+    .object({
+      name: z.string().trim().min(1).max(180),
+      language: z.string().trim().min(1).max(16).optional(),
+      components: z.array(z.record(z.string(), z.unknown())).optional(),
+    })
+    .optional(),
+  interactive: z.record(z.string(), z.unknown()).optional(),
+  media: z
+    .object({
+      mediaType: z.enum(["image", "document", "video", "audio"]).optional(),
+      link: z.string().url(),
+      caption: z.string().trim().max(500).optional(),
+    })
+    .optional(),
   leadId: z.string().uuid().optional(),
   customerId: z.string().uuid().optional(),
   variables: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const assignConversationSchema = z.object({
+  assignedToUserId: z.string().uuid().nullable(),
+});
+
+export const toggleTakeoverSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export const resolveConversationSchema = z.object({
+  resolved: z.boolean(),
 });
 
 export const whatsappWebhookSchema = z.object({
@@ -92,3 +123,6 @@ export type CreateSocialMessageInput = z.infer<typeof createSocialMessageSchema>
 export type ConvertSocialConversationInput = z.infer<typeof convertSocialConversationSchema>;
 export type SendWhatsappMessageInput = z.infer<typeof sendWhatsappMessageSchema>;
 export type WhatsappWebhookInput = z.infer<typeof whatsappWebhookSchema>;
+export type AssignConversationInput = z.infer<typeof assignConversationSchema>;
+export type ToggleTakeoverInput = z.infer<typeof toggleTakeoverSchema>;
+export type ResolveConversationInput = z.infer<typeof resolveConversationSchema>;

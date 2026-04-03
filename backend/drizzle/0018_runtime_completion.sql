@@ -3,8 +3,8 @@ ALTER TYPE "public"."automation_run_status" ADD VALUE IF NOT EXISTS 'running';
 ALTER TYPE "public"."automation_run_status" ADD VALUE IF NOT EXISTS 'completed';
 ALTER TYPE "public"."automation_run_status" ADD VALUE IF NOT EXISTS 'canceled';
 
-UPDATE "automation_runs" SET "status" = 'completed' WHERE "status" = 'success';
-UPDATE "automation_runs" SET "message" = COALESCE("message", 'Completed') WHERE "status" = 'completed';
+-- Intentionally skip status backfill in this migration because PostgreSQL
+-- does not allow using newly added enum values in the same transaction block.
 
 DO $$ BEGIN
   CREATE TYPE "public"."automation_step_status" AS ENUM ('pending', 'running', 'completed', 'failed', 'canceled', 'scheduled');
