@@ -8,7 +8,6 @@ Bun.serve({
 });
 
 console.log(`crm-saas backend listening on http://localhost:${env.PORT}`);
-console.log(`[startup] Supabase auth target: ${env.SUPABASE_URL}`);
 
 void (async () => {
   const supabaseStatus = await checkSupabaseConnection();

@@ -1,8 +1,312 @@
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import type { Context } from "hono";
+
+import type { AppEnv } from "@/app/route";
+import { db } from "@/db/client";
+import { campaignCustomers, campaigns, deals, leads, partnerCompanies, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
+import type { ReportSummaryQuery } from "@/modules/reports/schema";
+
+function toCountItems(items: Map<string, number>) {
+  return Array.from(items.entries())
+    .map(([key, count]) => ({ key, count }))
+    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
+}
+
+function increment(items: Map<string, number>, key: string) {
+  items.set(key, (items.get(key) ?? 0) + 1);
+}
+
+function getMonthKey(date: Date) {
+  return date.toISOString().slice(0, 7);
+}
+
+function getMonthLabel(key: string) {
+  const [year, month] = key.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function getForecastMonths(forecastMonths: number) {
+  const now = new Date();
+  const months: Array<{ month: string; label: string }> = [];
+
+  for (let offset = 0; offset < forecastMonths; offset += 1) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+    const month = getMonthKey(date);
+    months.push({ month, label: getMonthLabel(month) });
+  }
+
+  return months;
+}
+
+function getRate(value: number, total: number) {
+  if (total <= 0) {
+    return 0;
+  }
+
+  return Number(((value / total) * 100).toFixed(1));
+}
 
 export function getReportOverview(c: Parameters<typeof ok>[0]) {
   return ok(c, {
     module: "reports",
     capabilities: ["lead-reports", "deal-reports", "revenue-forecast", "partner-performance", "campaign-performance"],
+  });
+}
+
+export async function getReportSummary(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as ReportSummaryQuery;
+  const periodStart = new Date(Date.now() - query.periodDays * 24 * 60 * 60 * 1000);
+  const now = new Date();
+
+  const [leadRows, dealRows, taskRows, partnerRows, campaignRows] = await Promise.all([
+    db
+      .select({
+        id: leads.id,
+        status: leads.status,
+        source: leads.source,
+        partnerCompanyId: leads.partnerCompanyId,
+        createdAt: leads.createdAt,
+      })
+      .from(leads)
+      .where(and(eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt))),
+    db
+      .select({
+        id: deals.id,
+        status: deals.status,
+        pipeline: deals.pipeline,
+        customerId: deals.customerId,
+        value: deals.value,
+        partnerCompanyId: deals.partnerCompanyId,
+        expectedCloseDate: deals.expectedCloseDate,
+        createdAt: deals.createdAt,
+      })
+      .from(deals)
+      .where(and(eq(deals.companyId, tenant.companyId), isNull(deals.deletedAt))),
+    db
+      .select({
+        id: tasks.id,
+        status: tasks.status,
+        dueAt: tasks.dueAt,
+      })
+      .from(tasks)
+      .where(and(eq(tasks.companyId, tenant.companyId), isNull(tasks.deletedAt))),
+    db
+      .select({
+        id: partnerCompanies.id,
+        name: partnerCompanies.name,
+        status: partnerCompanies.status,
+      })
+      .from(partnerCompanies)
+      .where(and(eq(partnerCompanies.companyId, tenant.companyId), isNull(partnerCompanies.deletedAt))),
+    db
+      .select({
+        id: campaigns.id,
+        name: campaigns.name,
+        status: campaigns.status,
+        channel: campaigns.channel,
+        sentCount: campaigns.sentCount,
+        deliveredCount: campaigns.deliveredCount,
+        openedCount: campaigns.openedCount,
+        clickedCount: campaigns.clickedCount,
+        scheduledAt: campaigns.scheduledAt,
+        launchedAt: campaigns.launchedAt,
+        createdAt: campaigns.createdAt,
+      })
+      .from(campaigns)
+      .where(and(eq(campaigns.companyId, tenant.companyId), isNull(campaigns.deletedAt)))
+      .orderBy(desc(campaigns.createdAt)),
+  ]);
+
+  const campaignIds = campaignRows.map((campaign) => campaign.id);
+  const campaignAudienceRows =
+    campaignIds.length === 0
+      ? []
+      : await db
+          .select({
+            campaignId: campaignCustomers.campaignId,
+          })
+          .from(campaignCustomers)
+          .where(and(eq(campaignCustomers.companyId, tenant.companyId), inArray(campaignCustomers.campaignId, campaignIds)));
+
+  const leadStatusCounts = new Map<string, number>();
+  const leadSourceCounts = new Map<string, number>();
+  const dealStatusCounts = new Map<string, number>();
+  const pipelineCounts = new Map<string, number>();
+  const forecastBuckets = new Map<string, { totalValue: number; dealCount: number }>();
+  const forecastMonths = getForecastMonths(query.forecastMonths);
+
+  for (const month of forecastMonths) {
+    forecastBuckets.set(month.month, { totalValue: 0, dealCount: 0 });
+  }
+
+  const recentLeads = leadRows.filter((lead) => new Date(lead.createdAt) >= periodStart);
+  const recentDeals = dealRows.filter((deal) => new Date(deal.createdAt) >= periodStart);
+  const openTasks = taskRows.filter((task) => task.status !== "done");
+  const overdueTasks = openTasks.filter((task) => task.dueAt && new Date(task.dueAt) < now);
+  const dueTodayTasks = openTasks.filter((task) => {
+    if (!task.dueAt) {
+      return false;
+    }
+
+    return new Date(task.dueAt).toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
+  });
+
+  for (const lead of recentLeads) {
+    increment(leadStatusCounts, lead.status);
+    increment(leadSourceCounts, lead.source ?? "unknown");
+  }
+
+  let openValue = 0;
+  let wonValue = 0;
+  let lostValue = 0;
+
+  for (const deal of dealRows) {
+    increment(dealStatusCounts, deal.status);
+    increment(pipelineCounts, deal.pipeline);
+
+    if (deal.status === "open") {
+      openValue += deal.value;
+    }
+    if (deal.status === "won") {
+      wonValue += deal.value;
+    }
+    if (deal.status === "lost") {
+      lostValue += deal.value;
+    }
+
+    if (deal.status !== "open" || !deal.expectedCloseDate) {
+      continue;
+    }
+
+    const monthKey = getMonthKey(new Date(deal.expectedCloseDate));
+    const bucket = forecastBuckets.get(monthKey);
+    if (!bucket) {
+      continue;
+    }
+
+    bucket.totalValue += deal.value;
+    bucket.dealCount += 1;
+  }
+
+  const partnerLeadCounts = new Map<string, number>();
+  const partnerDealOpenCounts = new Map<string, number>();
+  const partnerDealWonCounts = new Map<string, number>();
+  const partnerWonValues = new Map<string, number>();
+
+  for (const lead of leadRows) {
+    if (lead.partnerCompanyId) {
+      increment(partnerLeadCounts, lead.partnerCompanyId);
+    }
+  }
+
+  for (const deal of dealRows) {
+    if (!deal.partnerCompanyId) {
+      continue;
+    }
+
+    if (deal.status === "open") {
+      increment(partnerDealOpenCounts, deal.partnerCompanyId);
+    }
+    if (deal.status === "won") {
+      increment(partnerDealWonCounts, deal.partnerCompanyId);
+      partnerWonValues.set(deal.partnerCompanyId, (partnerWonValues.get(deal.partnerCompanyId) ?? 0) + deal.value);
+    }
+  }
+
+  const audienceByCampaign = new Map<string, number>();
+  for (const row of campaignAudienceRows) {
+    audienceByCampaign.set(row.campaignId, (audienceByCampaign.get(row.campaignId) ?? 0) + 1);
+  }
+
+  const forecastItems = forecastMonths.map((month) => ({
+    month: month.month,
+    label: month.label,
+    totalValue: forecastBuckets.get(month.month)?.totalValue ?? 0,
+    dealCount: forecastBuckets.get(month.month)?.dealCount ?? 0,
+  }));
+
+  const forecastValue = forecastItems.reduce((total, item) => total + item.totalValue, 0);
+  const averageDealValue = dealRows.length > 0 ? Math.round(dealRows.reduce((total, deal) => total + deal.value, 0) / dealRows.length) : 0;
+
+  return ok(c, {
+    generatedAt: now.toISOString(),
+    periodDays: query.periodDays,
+    forecastMonths: query.forecastMonths,
+      dashboard: {
+        totalLeads: leadRows.length,
+        leadsInPeriod: recentLeads.length,
+        openDeals: dealRows.filter((deal) => deal.status === "open").length,
+        customersWithDeals: new Set(dealRows.map((deal) => deal.customerId).filter((customerId) => customerId)).size,
+        overdueTasks: overdueTasks.length,
+        dueTodayTasks: dueTodayTasks.length,
+        activeCampaigns: campaignRows.filter((campaign) => campaign.status === "active").length,
+      activePartners: partnerRows.filter((partner) => partner.status === "active").length,
+      forecastValue,
+      wonValue,
+    },
+    leadReport: {
+      total: recentLeads.length,
+      byStatus: toCountItems(leadStatusCounts),
+      bySource: toCountItems(leadSourceCounts),
+    },
+    dealReport: {
+      total: recentDeals.length,
+      byStatus: toCountItems(dealStatusCounts),
+      byPipeline: toCountItems(pipelineCounts),
+      openValue,
+      wonValue,
+      lostValue,
+      averageDealValue,
+      forecastValue,
+    },
+    revenueForecast: {
+      totalValue: forecastValue,
+      months: forecastItems,
+    },
+    partnerPerformance: partnerRows
+      .map((partner) => {
+        const leadCount = partnerLeadCounts.get(partner.id) ?? 0;
+        const openDealCount = partnerDealOpenCounts.get(partner.id) ?? 0;
+        const wonDealCount = partnerDealWonCounts.get(partner.id) ?? 0;
+        const wonRevenue = partnerWonValues.get(partner.id) ?? 0;
+
+        return {
+          partnerId: partner.id,
+          name: partner.name,
+          status: partner.status,
+          leadCount,
+          openDealCount,
+          wonDealCount,
+          wonRevenue,
+        };
+      })
+      .sort((left, right) => right.wonRevenue - left.wonRevenue || right.leadCount - left.leadCount)
+      .slice(0, 10),
+    campaignPerformance: campaignRows.slice(0, 10).map((campaign) => {
+      const audienceCount = audienceByCampaign.get(campaign.id) ?? 0;
+      return {
+        campaignId: campaign.id,
+        name: campaign.name,
+        channel: campaign.channel,
+        status: campaign.status,
+        audienceCount,
+        sentCount: campaign.sentCount,
+        deliveredCount: campaign.deliveredCount,
+        openedCount: campaign.openedCount,
+        clickedCount: campaign.clickedCount,
+        deliveryRate: getRate(campaign.deliveredCount, campaign.sentCount),
+        openRate: getRate(campaign.openedCount, campaign.deliveredCount),
+        clickRate: getRate(campaign.clickedCount, campaign.openedCount),
+        scheduledAt: campaign.scheduledAt,
+        launchedAt: campaign.launchedAt,
+        createdAt: campaign.createdAt,
+      };
+    }),
   });
 }

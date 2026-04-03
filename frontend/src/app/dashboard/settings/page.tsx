@@ -91,6 +91,44 @@ interface CompanyPreferenceSettings {
   };
 }
 
+interface CustomFieldSettings {
+  customFields: Array<{
+    key: string;
+    label: string;
+    entity: "lead" | "customer" | "deal";
+    type: "text" | "number" | "date" | "select";
+    options: string[];
+    required: boolean;
+  }>;
+}
+
+interface TagSettings {
+  tags: Array<{
+    key: string;
+    label: string;
+    color: string;
+  }>;
+}
+
+interface NotificationRuleSettings {
+  notificationRules: {
+    emailAlerts: boolean;
+    taskReminders: boolean;
+    overdueDigest: boolean;
+    dealStageAlerts: boolean;
+    campaignAlerts: boolean;
+  };
+}
+
+interface IntegrationSettings {
+  integrations: {
+    slackWebhookUrl: string | null;
+    whatsappProvider: string | null;
+    emailProvider: string | null;
+    webhookUrl: string | null;
+  };
+}
+
 export default function SettingsPage() {
   const [me, setMe] = useState<AuthMePayload | null>(null);
   const [companySnapshot, setCompanySnapshot] = useState<CompanySnapshot | null>(null);
@@ -99,6 +137,10 @@ export default function SettingsPage() {
   const [pipelineSettings, setPipelineSettings] = useState<PipelineSettings | null>(null);
   const [leadSourceSettings, setLeadSourceSettings] = useState<LeadSourceSettings | null>(null);
   const [companyPreferenceSettings, setCompanyPreferenceSettings] = useState<CompanyPreferenceSettings | null>(null);
+  const [customFieldSettings, setCustomFieldSettings] = useState<CustomFieldSettings | null>(null);
+  const [tagSettings, setTagSettings] = useState<TagSettings | null>(null);
+  const [notificationRuleSettings, setNotificationRuleSettings] = useState<NotificationRuleSettings | null>(null);
+  const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings | null>(null);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
@@ -122,6 +164,10 @@ export default function SettingsPage() {
   const [savingPipelines, setSavingPipelines] = useState(false);
   const [savingLeadSources, setSavingLeadSources] = useState(false);
   const [savingCompanyPreferences, setSavingCompanyPreferences] = useState(false);
+  const [savingCustomFields, setSavingCustomFields] = useState(false);
+  const [savingTags, setSavingTags] = useState(false);
+  const [savingNotificationRules, setSavingNotificationRules] = useState(false);
+  const [savingIntegrations, setSavingIntegrations] = useState(false);
 
   const passwordStrength = useMemo(
     () =>
@@ -145,12 +191,16 @@ export default function SettingsPage() {
 
     const loadSettings = async () => {
       try {
-        const [mePayload, companyPayload, pipelinePayload, leadSourcePayload, preferencePayload] = await Promise.all([
+        const [mePayload, companyPayload, pipelinePayload, leadSourcePayload, preferencePayload, customFieldPayload, tagPayload, notificationPayload, integrationPayload] = await Promise.all([
           apiRequest<AuthMePayload>("/auth/me"),
           apiRequest<CompanySnapshot>("/companies/current"),
           apiRequest<PipelineSettings>("/settings/pipelines"),
           apiRequest<LeadSourceSettings>("/settings/lead-sources"),
           apiRequest<CompanyPreferenceSettings>("/settings/company-preferences"),
+          apiRequest<CustomFieldSettings>("/settings/custom-fields"),
+          apiRequest<TagSettings>("/settings/tags"),
+          apiRequest<NotificationRuleSettings>("/settings/notification-rules"),
+          apiRequest<IntegrationSettings>("/settings/integrations"),
         ]);
 
         if (!disposed) {
@@ -159,6 +209,10 @@ export default function SettingsPage() {
           setPipelineSettings(pipelinePayload);
           setLeadSourceSettings(leadSourcePayload);
           setCompanyPreferenceSettings(preferencePayload);
+          setCustomFieldSettings(customFieldPayload);
+          setTagSettings(tagPayload);
+          setNotificationRuleSettings(notificationPayload);
+          setIntegrationSettings(integrationPayload);
           setCompanyName(companyPayload.company.name);
           setTimezone(companyPayload.company.timezone);
           setCurrency(companyPayload.company.currency);
@@ -637,6 +691,222 @@ export default function SettingsPage() {
     }
   };
 
+  const handleCustomFieldChange = (
+    index: number,
+    field: "key" | "label" | "entity" | "type" | "required" | "options",
+    value: string | boolean,
+  ) => {
+    setCustomFieldSettings((current) =>
+      current
+        ? {
+            customFields: current.customFields.map((item, itemIndex) =>
+              itemIndex === index
+                ? {
+                    ...item,
+                    [field]:
+                      field === "options"
+                        ? String(value)
+                            .split(",")
+                            .map((entry) => entry.trim())
+                            .filter(Boolean)
+                        : value,
+                  }
+                : item,
+            ),
+          }
+        : current,
+    );
+  };
+
+  const addCustomField = () => {
+    setCustomFieldSettings((current) =>
+      current
+        ? {
+            customFields: [
+              ...current.customFields,
+              {
+                key: `field_${current.customFields.length + 1}`,
+                label: `Field ${current.customFields.length + 1}`,
+                entity: "lead",
+                type: "text",
+                options: [],
+                required: false,
+              },
+            ],
+          }
+        : current,
+    );
+  };
+
+  const removeCustomField = (index: number) => {
+    setCustomFieldSettings((current) =>
+      current
+        ? {
+            customFields: current.customFields.filter((_, itemIndex) => itemIndex !== index),
+          }
+        : current,
+    );
+  };
+
+  const handleCustomFieldsSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!customFieldSettings) {
+      return;
+    }
+
+    setSavingCustomFields(true);
+    setError(null);
+
+    try {
+      const response = await apiRequest<CustomFieldSettings>("/settings/custom-fields", {
+        method: "PATCH",
+        body: JSON.stringify(customFieldSettings),
+      });
+      setCustomFieldSettings(response);
+      toast.success("Custom fields updated.");
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to save custom fields.";
+      setError(message);
+    } finally {
+      setSavingCustomFields(false);
+    }
+  };
+
+  const handleTagChange = (index: number, field: "key" | "label" | "color", value: string) => {
+    setTagSettings((current) =>
+      current
+        ? {
+            tags: current.tags.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item)),
+          }
+        : current,
+    );
+  };
+
+  const addTag = () => {
+    setTagSettings((current) =>
+      current
+        ? {
+            tags: [
+              ...current.tags,
+              {
+                key: `tag_${current.tags.length + 1}`,
+                label: `Tag ${current.tags.length + 1}`,
+                color: "#102031",
+              },
+            ],
+          }
+        : current,
+    );
+  };
+
+  const removeTag = (index: number) => {
+    setTagSettings((current) =>
+      current
+        ? {
+            tags: current.tags.filter((_, itemIndex) => itemIndex !== index),
+          }
+        : current,
+    );
+  };
+
+  const handleTagsSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!tagSettings) {
+      return;
+    }
+
+    setSavingTags(true);
+    setError(null);
+
+    try {
+      const response = await apiRequest<TagSettings>("/settings/tags", {
+        method: "PATCH",
+        body: JSON.stringify(tagSettings),
+      });
+      setTagSettings(response);
+      toast.success("Tag library updated.");
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to save tags.";
+      setError(message);
+    } finally {
+      setSavingTags(false);
+    }
+  };
+
+  const handleNotificationRuleChange = (field: keyof NotificationRuleSettings["notificationRules"], value: boolean) => {
+    setNotificationRuleSettings((current) =>
+      current
+        ? {
+            notificationRules: {
+              ...current.notificationRules,
+              [field]: value,
+            },
+          }
+        : current,
+    );
+  };
+
+  const handleNotificationRulesSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!notificationRuleSettings) {
+      return;
+    }
+
+    setSavingNotificationRules(true);
+    setError(null);
+
+    try {
+      const response = await apiRequest<NotificationRuleSettings>("/settings/notification-rules", {
+        method: "PATCH",
+        body: JSON.stringify(notificationRuleSettings),
+      });
+      setNotificationRuleSettings(response);
+      toast.success("Notification rules updated.");
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to save notification rules.";
+      setError(message);
+    } finally {
+      setSavingNotificationRules(false);
+    }
+  };
+
+  const handleIntegrationChange = (field: keyof IntegrationSettings["integrations"], value: string) => {
+    setIntegrationSettings((current) =>
+      current
+        ? {
+            integrations: {
+              ...current.integrations,
+              [field]: value.trim().length === 0 ? null : value,
+            },
+          }
+        : current,
+    );
+  };
+
+  const handleIntegrationsSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!integrationSettings) {
+      return;
+    }
+
+    setSavingIntegrations(true);
+    setError(null);
+
+    try {
+      const response = await apiRequest<IntegrationSettings>("/settings/integrations", {
+        method: "PATCH",
+        body: JSON.stringify(integrationSettings),
+      });
+      setIntegrationSettings(response);
+      toast.success("Integration settings updated.");
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to save integration settings.";
+      setError(message);
+    } finally {
+      setSavingIntegrations(false);
+    }
+  };
+
   return (
     <AppShell
       title="Settings"
@@ -657,6 +927,10 @@ export default function SettingsPage() {
             <TabsTrigger value="preferences">Preferences</TabsTrigger>
             <TabsTrigger value="pipelines">Pipelines</TabsTrigger>
             <TabsTrigger value="lead-sources">Lead Sources</TabsTrigger>
+            <TabsTrigger value="custom-fields">Custom Fields</TabsTrigger>
+            <TabsTrigger value="tags">Tags</TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
+            <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="team">Team</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="recovery">Recovery</TabsTrigger>
@@ -1002,6 +1276,175 @@ export default function SettingsPage() {
                     </div>
                   </form>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="custom-fields" className="flex flex-col gap-6">
+            <Card className="border-border/60">
+              <CardHeader>
+                <CardTitle>Custom fields</CardTitle>
+                <CardDescription>Define reusable lead, customer, and deal fields for future form and profile expansion.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6">
+                <form onSubmit={handleCustomFieldsSubmit} className="flex flex-col gap-6">
+                  <div className="grid gap-4">
+                    {customFieldSettings?.customFields.map((field, index) => (
+                      <div key={`${field.key}-${index}`} className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 lg:grid-cols-[1fr_1fr_160px_160px_auto]">
+                        <Field>
+                          <FieldLabel>Field key</FieldLabel>
+                          <Input value={field.key} onChange={(event) => handleCustomFieldChange(index, "key", event.target.value)} required />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Label</FieldLabel>
+                          <Input value={field.label} onChange={(event) => handleCustomFieldChange(index, "label", event.target.value)} required />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Entity</FieldLabel>
+                          <select value={field.entity} onChange={(event) => handleCustomFieldChange(index, "entity", event.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                            <option value="lead">lead</option>
+                            <option value="customer">customer</option>
+                            <option value="deal">deal</option>
+                          </select>
+                        </Field>
+                        <Field>
+                          <FieldLabel>Type</FieldLabel>
+                          <select value={field.type} onChange={(event) => handleCustomFieldChange(index, "type", event.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                            <option value="text">text</option>
+                            <option value="number">number</option>
+                            <option value="date">date</option>
+                            <option value="select">select</option>
+                          </select>
+                        </Field>
+                        <div className="flex items-end">
+                          <Button type="button" variant="outline" size="sm" onClick={() => removeCustomField(index)}>
+                            Remove
+                          </Button>
+                        </div>
+                        <Field className="lg:col-span-3">
+                          <FieldLabel>Options</FieldLabel>
+                          <Input value={field.options.join(", ")} onChange={(event) => handleCustomFieldChange(index, "options", event.target.value)} placeholder="Needed for select fields" />
+                        </Field>
+                        <label className="flex items-end gap-2 text-sm text-muted-foreground">
+                          <input type="checkbox" checked={field.required} onChange={(event) => handleCustomFieldChange(index, "required", event.target.checked)} />
+                          Required field
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Button type="button" variant="outline" onClick={addCustomField}>
+                      Add custom field
+                    </Button>
+                    <Button type="submit" disabled={savingCustomFields}>
+                      {savingCustomFields ? "Saving custom fields..." : "Save custom fields"}
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="tags" className="flex flex-col gap-6">
+            <Card className="border-border/60">
+              <CardHeader>
+                <CardTitle>Tags</CardTitle>
+                <CardDescription>Maintain a shared company tag library with color-coded labels.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6">
+                <form onSubmit={handleTagsSubmit} className="flex flex-col gap-6">
+                  <div className="grid gap-4">
+                    {tagSettings?.tags.map((tag, index) => (
+                      <div key={`${tag.key}-${index}`} className="grid gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 sm:grid-cols-[1fr_1fr_140px_auto]">
+                        <Field>
+                          <FieldLabel>Tag key</FieldLabel>
+                          <Input value={tag.key} onChange={(event) => handleTagChange(index, "key", event.target.value)} required />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Tag label</FieldLabel>
+                          <Input value={tag.label} onChange={(event) => handleTagChange(index, "label", event.target.value)} required />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Color</FieldLabel>
+                          <Input type="color" value={tag.color} onChange={(event) => handleTagChange(index, "color", event.target.value)} />
+                        </Field>
+                        <div className="flex items-end">
+                          <Button type="button" variant="outline" size="sm" onClick={() => removeTag(index)}>
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Button type="button" variant="outline" onClick={addTag}>
+                      Add tag
+                    </Button>
+                    <Button type="submit" disabled={savingTags}>
+                      {savingTags ? "Saving tags..." : "Save tags"}
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="notifications" className="flex flex-col gap-6">
+            <Card className="border-border/60">
+              <CardHeader>
+                <CardTitle>Notification rules</CardTitle>
+                <CardDescription>Define which alert categories remain enabled for this company workspace.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6">
+                <form onSubmit={handleNotificationRulesSubmit} className="flex flex-col gap-6">
+                  <div className="grid gap-3">
+                    {notificationRuleSettings
+                      ? (Object.entries(notificationRuleSettings.notificationRules) as Array<[keyof NotificationRuleSettings["notificationRules"], boolean]>).map(([key, value]) => (
+                          <label key={key} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                            <span className="capitalize">{key.replace(/([A-Z])/g, " $1")}</span>
+                            <input type="checkbox" checked={value} onChange={(event) => handleNotificationRuleChange(key, event.target.checked)} />
+                          </label>
+                        ))
+                      : null}
+                  </div>
+                  <Button type="submit" disabled={savingNotificationRules}>
+                    {savingNotificationRules ? "Saving notification rules..." : "Save notification rules"}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="integrations" className="flex flex-col gap-6">
+            <Card className="border-border/60">
+              <CardHeader>
+                <CardTitle>Integrations</CardTitle>
+                <CardDescription>Store provider references and outbound webhook endpoints used by external systems.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6">
+                <form onSubmit={handleIntegrationsSubmit} className="flex flex-col gap-6">
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel>Slack webhook URL</FieldLabel>
+                      <Input value={integrationSettings?.integrations.slackWebhookUrl ?? ""} onChange={(event) => handleIntegrationChange("slackWebhookUrl", event.target.value)} placeholder="https://hooks.slack.com/services/..." />
+                    </Field>
+                    <Field>
+                      <FieldLabel>WhatsApp provider</FieldLabel>
+                      <Input value={integrationSettings?.integrations.whatsappProvider ?? ""} onChange={(event) => handleIntegrationChange("whatsappProvider", event.target.value)} placeholder="Twilio / Meta / Gupshup" />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Email provider</FieldLabel>
+                      <Input value={integrationSettings?.integrations.emailProvider ?? ""} onChange={(event) => handleIntegrationChange("emailProvider", event.target.value)} placeholder="Resend / SendGrid / SMTP" />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Generic webhook URL</FieldLabel>
+                      <Input value={integrationSettings?.integrations.webhookUrl ?? ""} onChange={(event) => handleIntegrationChange("webhookUrl", event.target.value)} placeholder="https://example.com/webhooks/crm" />
+                    </Field>
+                  </FieldGroup>
+                  <Button type="submit" disabled={savingIntegrations}>
+                    {savingIntegrations ? "Saving integrations..." : "Save integrations"}
+                  </Button>
+                </form>
               </CardContent>
             </Card>
           </TabsContent>

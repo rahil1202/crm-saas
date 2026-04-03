@@ -7,6 +7,7 @@ import { dealActivities, deals, partnerCompanies } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
+import { createNotification } from "@/lib/notifications";
 import { dealParamSchema } from "@/modules/deals/schema";
 import type {
   BoardDealsQuery,
@@ -266,6 +267,19 @@ export async function createDeal(c: Context<AppEnv>) {
     actorUserId: user.id,
     type: "deal_created",
     payload: { title: created.title, status: created.status },
+  });
+
+  await createNotification({
+    companyId: tenant.companyId,
+    type: "deal",
+    title: "New deal created",
+    message: `${created.title} was added to ${created.pipeline}/${created.stage}`,
+    entityId: created.id,
+    entityPath: `/dashboard/deals`,
+    payload: {
+      status: created.status,
+      value: created.value,
+    },
   });
 
   return ok(c, created, 201);

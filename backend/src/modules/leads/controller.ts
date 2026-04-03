@@ -8,6 +8,7 @@ import { customers, dealActivities, deals, leadActivities, leads, partnerCompani
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
+import { createNotification } from "@/lib/notifications";
 import {
   createLeadSchema,
   leadParamSchema,
@@ -251,6 +252,19 @@ export async function createLead(c: Context<AppEnv>) {
     payload: {
       title: created.title,
       status: created.status,
+    },
+  });
+
+  await createNotification({
+    companyId: tenant.companyId,
+    type: "lead",
+    title: "New lead created",
+    message: `${created.title} entered the CRM pipeline`,
+    entityId: created.id,
+    entityPath: `/dashboard/leads`,
+    payload: {
+      status: created.status,
+      source: created.source,
     },
   });
 

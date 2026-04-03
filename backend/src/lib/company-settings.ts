@@ -39,6 +39,28 @@ export interface CompanySettingsPayload {
   leadSources: LeadSourceSetting[];
   businessHours: BusinessHourSetting[];
   branding: BrandingSetting;
+  customFields: Array<{
+    key: string;
+    label: string;
+    entity: "lead" | "customer" | "deal";
+    type: "text" | "number" | "date" | "select";
+    options?: string[];
+    required: boolean;
+  }>;
+  tags: Array<{ key: string; label: string; color: string }>;
+  notificationRules: {
+    emailAlerts: boolean;
+    taskReminders: boolean;
+    overdueDigest: boolean;
+    dealStageAlerts: boolean;
+    campaignAlerts: boolean;
+  };
+  integrations: {
+    slackWebhookUrl: string | null;
+    whatsappProvider: string | null;
+    emailProvider: string | null;
+    webhookUrl: string | null;
+  };
 }
 
 const defaultDealPipelines: DealPipelineSetting[] = [
@@ -79,6 +101,22 @@ const defaultBranding: BrandingSetting = {
   logoUrl: null,
 };
 
+const defaultCustomFields: CompanySettingsPayload["customFields"] = [];
+const defaultTags: CompanySettingsPayload["tags"] = [];
+const defaultNotificationRules: CompanySettingsPayload["notificationRules"] = {
+  emailAlerts: true,
+  taskReminders: true,
+  overdueDigest: true,
+  dealStageAlerts: true,
+  campaignAlerts: true,
+};
+const defaultIntegrations: CompanySettingsPayload["integrations"] = {
+  slackWebhookUrl: null,
+  whatsappProvider: null,
+  emailProvider: null,
+  webhookUrl: null,
+};
+
 export function getDefaultCompanySettings(): CompanySettingsPayload {
   return {
     defaultDealPipeline: "default",
@@ -86,6 +124,10 @@ export function getDefaultCompanySettings(): CompanySettingsPayload {
     leadSources: defaultLeadSources,
     businessHours: defaultBusinessHours,
     branding: defaultBranding,
+    customFields: defaultCustomFields,
+    tags: defaultTags,
+    notificationRules: defaultNotificationRules,
+    integrations: defaultIntegrations,
   };
 }
 
@@ -101,6 +143,10 @@ export async function ensureCompanySettings(companyId: string) {
       leadSources: defaults.leadSources,
       businessHours: defaults.businessHours,
       branding: defaults.branding,
+      customFields: defaults.customFields,
+      tags: defaults.tags,
+      notificationRules: defaults.notificationRules,
+      integrations: defaults.integrations,
     })
     .onConflictDoNothing()
     .returning();
@@ -123,5 +169,9 @@ export async function getCompanySettings(companyId: string): Promise<CompanySett
     leadSources: settings?.leadSources?.length ? settings.leadSources : defaultLeadSources,
     businessHours: settings?.businessHours?.length ? settings.businessHours : defaultBusinessHours,
     branding: settings?.branding ?? defaultBranding,
+    customFields: settings?.customFields ?? defaultCustomFields,
+    tags: settings?.tags ?? defaultTags,
+    notificationRules: settings?.notificationRules ?? defaultNotificationRules,
+    integrations: settings?.integrations ?? defaultIntegrations,
   };
 }

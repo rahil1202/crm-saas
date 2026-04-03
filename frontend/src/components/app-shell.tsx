@@ -41,9 +41,14 @@ const navItems = [
   { href: "/dashboard/leads", label: "Leads", minRole: "member" as CompanyRole },
   { href: "/dashboard/deals", label: "Deals", minRole: "member" as CompanyRole },
   { href: "/dashboard/customers", label: "Customers", minRole: "member" as CompanyRole },
+  { href: "/dashboard/documents", label: "Files", minRole: "member" as CompanyRole },
   { href: "/dashboard/tasks", label: "Tasks", minRole: "member" as CompanyRole },
   { href: "/dashboard/partners", label: "Partners", minRole: "admin" as CompanyRole },
   { href: "/dashboard/campaigns", label: "Campaigns", minRole: "admin" as CompanyRole },
+  { href: "/dashboard/automation", label: "Automation", minRole: "admin" as CompanyRole },
+  { href: "/dashboard/reports", label: "Reports", minRole: "admin" as CompanyRole },
+  { href: "/dashboard/social", label: "Social", minRole: "admin" as CompanyRole },
+  { href: "/dashboard/notifications", label: "Notifications", minRole: "admin" as CompanyRole },
   { href: "/dashboard/settings", label: "Settings", minRole: "admin" as CompanyRole },
 ];
 

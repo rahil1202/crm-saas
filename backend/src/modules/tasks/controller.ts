@@ -1,13 +1,15 @@
-import { and, asc, count, desc, eq, ilike, isNull, lte } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, isNull, lte, or } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
+import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
+import { createNotification } from "@/lib/notifications";
 import { taskParamSchema } from "@/modules/tasks/schema";
-import type { CreateTaskInput, ListTasksQuery, TaskCalendarQuery, UpdateTaskInput } from "@/modules/tasks/schema";
+import type { CreateTaskInput, ListTasksQuery, TaskCalendarQuery, TaskReminderQuery, UpdateTaskInput } from "@/modules/tasks/schema";
 
 export async function listTasks(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
@@ -67,6 +69,8 @@ export async function getTaskSummary(c: Context<AppEnv>) {
       status: tasks.status,
       priority: tasks.priority,
       dueAt: tasks.dueAt,
+      reminderSentAt: tasks.reminderSentAt,
+      reminderMinutesBefore: tasks.reminderMinutesBefore,
     })
     .from(tasks)
     .where(and(eq(tasks.companyId, tenant.companyId), isNull(tasks.deletedAt)));
@@ -81,14 +85,68 @@ export async function getTaskSummary(c: Context<AppEnv>) {
     const dueAt = new Date(task.dueAt);
     return dueAt.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
   });
+  const reminderReadyTasks = openTasks.filter((task) => {
+    if (!task.dueAt) {
+      return false;
+    }
+
+    const reminderAt = new Date(new Date(task.dueAt).getTime() - (task.reminderMinutesBefore ?? 0) * 60 * 1000);
+    return reminderAt <= now && !task.reminderSentAt;
+  });
 
   return ok(c, {
     total: items.length,
     open: openTasks.length,
     overdue: overdueTasks.length,
     dueToday: dueTodayTasks.length,
+    reminderReady: reminderReadyTasks.length,
     highPriorityOpen: openTasks.filter((task) => task.priority === "high").length,
     completed: items.filter((task) => task.status === "done").length,
+  });
+}
+
+export async function getTaskReminders(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as TaskReminderQuery;
+  const now = new Date();
+  const windowEnd = new Date(now.getTime() + query.windowHours * 60 * 60 * 1000);
+
+  const items = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.companyId, tenant.companyId),
+        isNull(tasks.deletedAt),
+        or(eq(tasks.status, "todo"), eq(tasks.status, "in_progress"), eq(tasks.status, "overdue")),
+        lte(tasks.dueAt, windowEnd),
+      ),
+    )
+    .orderBy(asc(tasks.dueAt), desc(tasks.priority), desc(tasks.createdAt));
+
+  const reminders = items
+    .filter((task) => task.dueAt)
+    .filter((task) => query.includeSent || !task.reminderSentAt)
+    .map((task) => {
+      const dueAt = new Date(task.dueAt as Date | string);
+      const reminderAt = new Date(dueAt.getTime() - task.reminderMinutesBefore * 60 * 1000);
+      return {
+        ...task,
+        reminderAt: reminderAt.toISOString(),
+        reminderReady: reminderAt <= now && !task.reminderSentAt,
+        dueSoon: dueAt <= windowEnd,
+      };
+    })
+    .filter((task) => task.dueSoon);
+
+  return ok(c, {
+    windowHours: query.windowHours,
+    items: reminders,
+    summary: {
+      total: reminders.length,
+      ready: reminders.filter((task) => task.reminderReady).length,
+      sent: reminders.filter((task) => task.reminderSentAt).length,
+    },
   });
 }
 
@@ -152,12 +210,29 @@ export async function createTask(c: Context<AppEnv>) {
       status: body.status,
       priority: body.priority,
       dueAt: body.dueAt ? new Date(body.dueAt) : null,
+      reminderMinutesBefore: body.reminderMinutesBefore,
+      reminderSentAt: null,
       completedAt: body.status === "done" ? new Date() : null,
       isRecurring: body.isRecurring,
       recurrenceRule: body.recurrenceRule ?? null,
       createdBy: user.id,
     })
     .returning();
+
+  await createNotification({
+    companyId: tenant.companyId,
+    type: "task",
+    title: "New task created",
+    message: created.dueAt
+      ? `${created.title} is due ${new Date(created.dueAt).toLocaleDateString("en-US", { timeZone: "UTC" })}`
+      : `${created.title} was created without a due date`,
+    entityId: created.id,
+    entityPath: `/dashboard/tasks`,
+    payload: {
+      status: created.status,
+      priority: created.priority,
+    },
+  });
 
   return ok(c, created, 201);
 }
@@ -172,10 +247,14 @@ export async function updateTask(c: Context<AppEnv>) {
   }
 
   let completedAt: Date | null | undefined = undefined;
+  let reminderSentAt: Date | null | undefined = undefined;
   if (body.status === "done") {
     completedAt = new Date();
   } else if (body.status !== undefined) {
     completedAt = null;
+  }
+  if (body.dueAt !== undefined || body.reminderMinutesBefore !== undefined) {
+    reminderSentAt = null;
   }
 
   const [updated] = await db
@@ -186,7 +265,9 @@ export async function updateTask(c: Context<AppEnv>) {
       ...(body.status !== undefined ? { status: body.status } : {}),
       ...(body.priority !== undefined ? { priority: body.priority } : {}),
       ...(body.dueAt !== undefined ? { dueAt: body.dueAt ? new Date(body.dueAt) : null } : {}),
+      ...(body.reminderMinutesBefore !== undefined ? { reminderMinutesBefore: body.reminderMinutesBefore } : {}),
       ...(completedAt !== undefined ? { completedAt } : {}),
+      ...(reminderSentAt !== undefined ? { reminderSentAt } : {}),
       ...(body.isRecurring !== undefined ? { isRecurring: body.isRecurring } : {}),
       ...(body.recurrenceRule !== undefined ? { recurrenceRule: body.recurrenceRule ?? null } : {}),
       ...(body.assignedToUserId !== undefined ? { assignedToUserId: body.assignedToUserId ?? null } : {}),
@@ -220,4 +301,64 @@ export async function deleteTask(c: Context<AppEnv>) {
   }
 
   return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function sendTaskReminder(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = taskParamSchema.parse(c.req.param());
+  const settings = await getCompanySettings(tenant.companyId);
+
+  if (!settings.notificationRules.taskReminders) {
+    throw AppError.conflict("Task reminders are disabled in company notification settings");
+  }
+
+  const [task] = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.id, params.taskId), eq(tasks.companyId, tenant.companyId), isNull(tasks.deletedAt)))
+    .limit(1);
+
+  if (!task) {
+    throw AppError.notFound("Task not found");
+  }
+
+  if (task.status === "done") {
+    throw AppError.conflict("Completed tasks cannot send reminders");
+  }
+
+  const dueLabel = task.dueAt
+    ? new Date(task.dueAt).toLocaleString("en-US", {
+        timeZone: "UTC",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "without a due date";
+
+  await createNotification({
+    companyId: tenant.companyId,
+    type: "task",
+    title: "Follow-up reminder",
+    message: `${task.title} is due ${dueLabel}`,
+    entityId: task.id,
+    entityPath: `/dashboard/tasks`,
+    payload: {
+      status: task.status,
+      priority: task.priority,
+      dueAt: task.dueAt,
+      reminderMinutesBefore: task.reminderMinutesBefore,
+    },
+  });
+
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      reminderSentAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, task.id))
+    .returning();
+
+  return ok(c, updated);
 }

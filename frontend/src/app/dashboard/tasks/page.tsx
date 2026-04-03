@@ -23,6 +23,8 @@ interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   dueAt: string | null;
+  reminderMinutesBefore: number;
+  reminderSentAt?: string | null;
   isRecurring: boolean;
   recurrenceRule: string | null;
 }
@@ -36,6 +38,7 @@ interface TaskSummaryResponse {
   open: number;
   overdue: number;
   dueToday: number;
+  reminderReady: number;
   highPriorityOpen: number;
   completed: number;
 }
@@ -48,6 +51,22 @@ interface TaskCalendarResponse {
     overdue: number;
     items: Task[];
   }>;
+}
+
+interface TaskReminderResponse {
+  windowHours: number;
+  items: Array<
+    Task & {
+      reminderAt: string;
+      reminderReady: boolean;
+      dueSoon: boolean;
+    }
+  >;
+  summary: {
+    total: number;
+    ready: number;
+    sent: number;
+  };
 }
 
 const statuses: TaskStatus[] = ["todo", "in_progress", "done", "overdue"];
@@ -82,13 +101,16 @@ export default function TasksPage() {
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [dueAt, setDueAt] = useState("");
+  const [reminderMinutesBefore, setReminderMinutesBefore] = useState("1440");
   const [recurrenceRule, setRecurrenceRule] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [reminders, setReminders] = useState<TaskReminderResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+  const [sendingReminderTaskId, setSendingReminderTaskId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadTasks = useCallback(async () => {
@@ -131,9 +153,18 @@ export default function TasksPage() {
     }
   }, [calendarMonth]);
 
+  const loadReminders = useCallback(async () => {
+    try {
+      const data = await apiRequest<TaskReminderResponse>("/tasks/reminders?windowHours=72");
+      setReminders(data);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load task reminders");
+    }
+  }, []);
+
   const reloadAll = useCallback(async () => {
-    await Promise.all([loadTasks(), loadSummary(), loadCalendar()]);
-  }, [loadCalendar, loadSummary, loadTasks]);
+    await Promise.all([loadTasks(), loadSummary(), loadCalendar(), loadReminders()]);
+  }, [loadCalendar, loadReminders, loadSummary, loadTasks]);
 
   useEffect(() => {
     void loadTasks();
@@ -146,6 +177,10 @@ export default function TasksPage() {
   useEffect(() => {
     void loadCalendar();
   }, [loadCalendar]);
+
+  useEffect(() => {
+    void loadReminders();
+  }, [loadReminders]);
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -160,6 +195,7 @@ export default function TasksPage() {
           description: description || undefined,
           priority,
           dueAt: dueAt ? new Date(`${dueAt}T09:00:00.000Z`).toISOString() : undefined,
+          reminderMinutesBefore: Number(reminderMinutesBefore) || 0,
           isRecurring: recurrenceRule.trim().length > 0,
           recurrenceRule: recurrenceRule || undefined,
         }),
@@ -168,6 +204,7 @@ export default function TasksPage() {
       setDescription("");
       setPriority("medium");
       setDueAt("");
+      setReminderMinutesBefore("1440");
       setRecurrenceRule("");
       await reloadAll();
     } catch (requestError) {
@@ -201,6 +238,23 @@ export default function TasksPage() {
     }
   };
 
+  const sendReminder = async (taskId: string) => {
+    setSendingReminderTaskId(taskId);
+    setError(null);
+
+    try {
+      await apiRequest(`/tasks/${taskId}/send-reminder`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await reloadAll();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to send reminder");
+    } finally {
+      setSendingReminderTaskId(null);
+    }
+  };
+
   return (
     <AppShell
       title="Tasks & Follow-ups"
@@ -214,12 +268,13 @@ export default function TasksPage() {
           </Alert>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           {[
             { label: "Total", value: summary?.total ?? 0 },
             { label: "Open", value: summary?.open ?? 0 },
             { label: "Overdue", value: summary?.overdue ?? 0 },
             { label: "Due today", value: summary?.dueToday ?? 0 },
+            { label: "Reminder ready", value: summary?.reminderReady ?? 0 },
             { label: "High priority", value: summary?.highPriorityOpen ?? 0 },
             { label: "Completed", value: summary?.completed ?? 0 },
           ].map((item) => (
@@ -277,6 +332,22 @@ export default function TasksPage() {
                     <FieldDescription>Tasks without a due date stay off the calendar.</FieldDescription>
                   </Field>
                   <Field>
+                    <FieldLabel htmlFor="task-reminder">Reminder timing</FieldLabel>
+                    <select
+                      id="task-reminder"
+                      value={reminderMinutesBefore}
+                      onChange={(event) => setReminderMinutesBefore(event.target.value)}
+                      className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                    >
+                      <option value="0">No reminder</option>
+                      <option value="60">1 hour before</option>
+                      <option value="180">3 hours before</option>
+                      <option value="720">12 hours before</option>
+                      <option value="1440">24 hours before</option>
+                      <option value="2880">48 hours before</option>
+                    </select>
+                  </Field>
+                  <Field>
                     <FieldLabel htmlFor="task-recurrence">Recurrence rule</FieldLabel>
                     <Input id="task-recurrence" value={recurrenceRule} onChange={(event) => setRecurrenceRule(event.target.value)} placeholder="weekly-follow-up" />
                   </Field>
@@ -301,6 +372,7 @@ export default function TasksPage() {
               <Tabs defaultValue="list" className="grid gap-4">
                 <TabsList className="w-fit">
                   <TabsTrigger value="list">List</TabsTrigger>
+                  <TabsTrigger value="reminders">Reminders</TabsTrigger>
                   <TabsTrigger value="calendar">Calendar</TabsTrigger>
                 </TabsList>
 
@@ -391,6 +463,66 @@ export default function TasksPage() {
                       ) : null}
                     </div>
                   ) : null}
+                </TabsContent>
+
+                <TabsContent value="reminders" className="grid gap-4">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardDescription>Due soon</CardDescription>
+                        <CardTitle className="text-2xl">{reminders?.summary.total ?? 0}</CardTitle>
+                      </CardHeader>
+                    </Card>
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardDescription>Ready now</CardDescription>
+                        <CardTitle className="text-2xl">{reminders?.summary.ready ?? 0}</CardTitle>
+                      </CardHeader>
+                    </Card>
+                    <Card size="sm">
+                      <CardHeader>
+                        <CardDescription>Sent</CardDescription>
+                        <CardTitle className="text-2xl">{reminders?.summary.sent ?? 0}</CardTitle>
+                      </CardHeader>
+                    </Card>
+                  </div>
+
+                  <div className="grid gap-3">
+                    {(reminders?.items ?? []).map((task) => (
+                      <Card key={task.id} size="sm">
+                        <CardHeader>
+                          <CardTitle className="flex flex-wrap items-center gap-2">
+                            <span>{task.title}</span>
+                            <Badge variant={statusTone[task.status]}>{task.status}</Badge>
+                            <Badge variant={priorityTone[task.priority]}>{task.priority}</Badge>
+                            <Badge variant={task.reminderReady ? "destructive" : task.reminderSentAt ? "secondary" : "outline"}>
+                              {task.reminderReady ? "ready" : task.reminderSentAt ? "sent" : "scheduled"}
+                            </Badge>
+                          </CardTitle>
+                          <CardDescription>
+                            Due {task.dueAt ? new Date(task.dueAt).toLocaleString() : "No due date"} • Reminder at {new Date(task.reminderAt).toLocaleString()}
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="text-sm text-muted-foreground">{task.description ?? "No description"}</div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={sendingReminderTaskId === task.id || !task.reminderReady}
+                            onClick={() => void sendReminder(task.id)}
+                          >
+                            {sendingReminderTaskId === task.id ? "Sending..." : task.reminderSentAt ? "Reminder sent" : "Send reminder"}
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+
+                    {(reminders?.items.length ?? 0) === 0 ? (
+                      <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                        No reminder candidates in the next 72 hours.
+                      </div>
+                    ) : null}
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="calendar" className="grid gap-4">

@@ -31,7 +31,8 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, apiRequest } from "@/lib/api";
+import { buildApiUrl, ApiError, apiRequest } from "@/lib/api";
+import { getCompanyCookie } from "@/lib/cookies";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -54,6 +55,15 @@ interface LeadActivity {
   createdAt: string;
 }
 
+interface DocumentItem {
+  id: string;
+  folder: string;
+  originalName: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  createdAt: string;
+}
+
 interface ListLeadResponse {
   items: Lead[];
   total: number;
@@ -63,6 +73,10 @@ interface ListLeadResponse {
 
 interface TimelineResponse {
   items: LeadActivity[];
+}
+
+interface DocumentListResponse {
+  items: DocumentItem[];
 }
 
 interface ConvertLeadResponse {
@@ -150,6 +164,11 @@ export default function LeadsPage() {
   const [timelineByLead, setTimelineByLead] = useState<Record<string, LeadActivity[]>>({});
   const [timelineDraftByLead, setTimelineDraftByLead] = useState<Record<string, string>>({});
   const [timelineLoadingLeadId, setTimelineLoadingLeadId] = useState<string | null>(null);
+  const [documentsByLead, setDocumentsByLead] = useState<Record<string, DocumentItem[]>>({});
+  const [uploadingLeadId, setUploadingLeadId] = useState<string | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+
+  const companyId = getCompanyCookie();
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -183,6 +202,15 @@ export default function LeadsPage() {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead timeline");
     } finally {
       setTimelineLoadingLeadId(null);
+    }
+  }, []);
+
+  const loadLeadDocuments = useCallback(async (leadId: string) => {
+    try {
+      const data = await apiRequest<DocumentListResponse>(`/documents/list?entityType=lead&entityId=${leadId}`);
+      setDocumentsByLead((prev) => ({ ...prev, [leadId]: data.items }));
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead attachments");
     }
   }, []);
 
@@ -325,7 +353,7 @@ export default function LeadsPage() {
     }
 
     setExpandedLeadId(leadId);
-    await loadTimeline(leadId);
+    await Promise.all([loadTimeline(leadId), loadLeadDocuments(leadId)]);
   };
 
   const addTimelineNote = async (leadId: string) => {
@@ -343,6 +371,50 @@ export default function LeadsPage() {
       await loadTimeline(leadId);
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to add timeline note");
+    }
+  };
+
+  const uploadLeadDocument = async (leadId: string, file: File | null) => {
+    if (!file) {
+      return;
+    }
+
+    setUploadingLeadId(leadId);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+      formData.set("entityType", "lead");
+      formData.set("entityId", leadId);
+      formData.set("folder", "leads");
+
+      await apiRequest("/documents/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      await loadLeadDocuments(leadId);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to upload lead attachment");
+    } finally {
+      setUploadingLeadId(null);
+    }
+  };
+
+  const deleteLeadDocument = async (leadId: string, documentId: string) => {
+    setDeletingDocumentId(documentId);
+    setError(null);
+
+    try {
+      await apiRequest(`/documents/${documentId}`, {
+        method: "DELETE",
+      });
+      await loadLeadDocuments(leadId);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to delete lead attachment");
+    } finally {
+      setDeletingDocumentId(null);
     }
   };
 
@@ -717,6 +789,54 @@ export default function LeadsPage() {
                                 <Button type="button" onClick={() => void addTimelineNote(lead.id)}>
                                   Add note
                                 </Button>
+                              </div>
+                              <div className="grid gap-3 rounded-lg border bg-background p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div className="font-medium">Attachments</div>
+                                  <label className="text-sm text-muted-foreground">
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      onChange={(event) => {
+                                        const nextFile = event.target.files?.[0] ?? null;
+                                        void uploadLeadDocument(lead.id, nextFile);
+                                        event.currentTarget.value = "";
+                                      }}
+                                    />
+                                    <span className="cursor-pointer underline underline-offset-4">
+                                      {uploadingLeadId === lead.id ? "Uploading..." : "Upload file"}
+                                    </span>
+                                  </label>
+                                </div>
+                                {(documentsByLead[lead.id] ?? []).map((document) => (
+                                  <div key={document.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
+                                    <div>
+                                      <div className="font-medium">{document.originalName}</div>
+                                      <div className="text-muted-foreground">
+                                        {document.folder} • {document.mimeType ?? "unknown"} • {Math.max(1, Math.round(document.sizeBytes / 1024))} KB
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <a
+                                        href={buildApiUrl(`/documents/${document.id}/download`, { companyId })}
+                                        className="font-medium underline underline-offset-4"
+                                      >
+                                        Download
+                                      </a>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        disabled={deletingDocumentId === document.id}
+                                        onClick={() => void deleteLeadDocument(lead.id, document.id)}
+                                      >
+                                        {deletingDocumentId === document.id ? "Deleting..." : "Delete"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                                {(documentsByLead[lead.id] ?? []).length === 0 ? (
+                                  <div className="text-sm text-muted-foreground">No attachments uploaded for this lead yet.</div>
+                                ) : null}
                               </div>
                             </div>
                           ) : null}

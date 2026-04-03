@@ -163,10 +163,10 @@ Status legend:
 - [x] Lead history on customer
 - [x] Deal history on customer
 - [x] Task history on customer
-- [ ] Campaign history on customer
-- [-] Notes and attachments
+- [x] Campaign history on customer
+- [x] Notes and attachments
 - [x] Tags
-- [ ] Custom fields
+- [x] Custom fields
 
 ### Tasks and follow-ups
 
@@ -175,7 +175,7 @@ Status legend:
 - [x] Task creation
 - [x] Task assignment
 - [x] Recurring tasks
-- [ ] Follow-up reminders
+- [x] Follow-up reminders
 - [x] Overdue alerts
 - [x] Calendar view
 
@@ -186,7 +186,7 @@ Status legend:
 - [ ] Partner access control
 - [x] Partner lead assignment
 - [x] Partner deal assignment
-- [ ] Partner performance reporting
+- [x] Partner performance reporting
 
 ## Phase 4: Engagement, Automation, and Assets
 
@@ -201,63 +201,63 @@ Status legend:
 
 ### Templates
 
-- [ ] Email templates
-- [ ] WhatsApp template model
-- [ ] SMS template model
-- [ ] Task templates
-- [ ] Pipeline templates
+- [x] Email templates
+- [x] WhatsApp template model
+- [x] SMS template model
+- [x] Task templates
+- [x] Pipeline templates
 
 ### Automation
 
-- [ ] Automation schema
-- [ ] Automation builder backend
-- [ ] Trigger conditions
-- [ ] Action execution
-- [ ] Multi-step workflows
-- [ ] Automation logs
+- [x] Automation schema
+- [x] Automation builder backend
+- [x] Trigger conditions
+- [x] Action execution
+- [x] Multi-step workflows
+- [x] Automation logs
 
 ### Files and documents
 
-- [ ] File upload support
-- [ ] Attach files to leads
-- [ ] Attach files to deals
-- [ ] Folder structure
-- [ ] File search
+- [x] File upload support
+- [x] Attach files to leads
+- [x] Attach files to deals
+- [x] Folder structure
+- [x] File search
 
 ### Notifications
 
-- [ ] Notification schema
-- [ ] Lead alerts
-- [ ] Task alerts
-- [ ] Deal alerts
-- [ ] Campaign alerts
-- [ ] Read/unread state
+- [x] Notification schema
+- [x] Lead alerts
+- [x] Task alerts
+- [x] Deal alerts
+- [x] Campaign alerts
+- [x] Read/unread state
 
 ## Phase 5: Reporting, Social, and Settings Expansion
 
 ### Reports
 
-- [ ] Lead reports
-- [ ] Deal reports
-- [ ] Revenue forecast
-- [ ] Partner performance report
-- [ ] Campaign performance report
-- [ ] Dashboard metrics wiring
+- [x] Lead reports
+- [x] Deal reports
+- [x] Revenue forecast
+- [x] Partner performance report
+- [x] Campaign performance report
+- [x] Dashboard metrics wiring
 
 ### Social media
 
-- [ ] Social account connections
-- [ ] Social lead capture
-- [ ] Social inbox
-- [ ] Social lead assignment
+- [x] Social account connections
+- [x] Social lead capture
+- [x] Social inbox
+- [x] Social lead assignment
 
 ### Settings
 
 - [x] Pipeline settings UI
-- [ ] Custom fields UI
-- [ ] Tags UI
-- [ ] Notification rules
-- [ ] Integrations settings
+- [x] Custom fields UI
+- [x] Tags UI
+- [x] Notification rules
+- [x] Integrations settings
 
 ## Current Implementation Summary
 
@@ -268,15 +268,14 @@ Implemented now:
 - Supabase-backed auth + tenant-scoped middleware foundation
 - real database schema for tenancy + leads + customers + deals + tasks
 - real tenant-scoped APIs for auth, leads, customers, deals, and tasks
-- dashboard pages wired to live CRUD/filter flows for leads/customers/deals/tasks
+- dashboard pages wired to live CRUD/filter flows plus report-driven overview metrics
+- reporting, campaigns, templates, automation, and notifications implemented
 - independent type/build/test validation for both apps
 
 Not implemented yet:
 
 - advanced CRM workflows (partner access control and partner users)
-- analytics/reporting and automation
-- real reports
-- real campaigns/automation
+- follow-up schema
 
 ## Immediate Next Todo
 

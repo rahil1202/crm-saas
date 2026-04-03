@@ -40,12 +40,13 @@ export async function apiRequest<T>(
   const env = getFrontendEnv();
   const companyId = getCompanyCookie();
   const storeId = getStoreCookie();
+  const hasFormDataBody = typeof FormData !== "undefined" && init?.body instanceof FormData;
 
   const response = await fetch(`${env.apiUrl}/api/v1${path}`, {
     ...init,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      ...(hasFormDataBody ? {} : { "Content-Type": "application/json" }),
       ...(companyId ? { "x-company-id": companyId } : {}),
       ...(storeId ? { "x-store-id": storeId } : {}),
       ...(init?.headers ?? {}),
@@ -75,4 +76,18 @@ export async function apiRequest<T>(
   }
 
   return payload.data;
+}
+
+export function buildApiUrl(path: string, query?: Record<string, string | null | undefined>) {
+  const env = getFrontendEnv();
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value) {
+      params.set(key, value);
+    }
+  }
+
+  const suffix = params.toString();
+  return `${env.apiUrl}/api/v1${path}${suffix ? `?${suffix}` : ""}`;
 }

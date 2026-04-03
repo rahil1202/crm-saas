@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import { campaignCustomers, campaigns, customers } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
+import { createNotification } from "@/lib/notifications";
 import { campaignParamSchema } from "@/modules/campaigns/schema";
 import type { CreateCampaignInput, ListCampaignsQuery, UpdateCampaignInput } from "@/modules/campaigns/schema";
 
@@ -148,6 +149,19 @@ export async function createCampaign(c: Context<AppEnv>) {
     companyId: tenant.companyId,
     campaignId: created.id,
     customerIds: body.customerIds,
+  });
+
+  await createNotification({
+    companyId: tenant.companyId,
+    type: "campaign",
+    title: "Campaign created",
+    message: `${created.name} is ${created.status} with ${body.customerIds.length} linked customers`,
+    entityId: created.id,
+    entityPath: `/dashboard/campaigns`,
+    payload: {
+      status: created.status,
+      audienceCount: body.customerIds.length,
+    },
   });
 
   return ok(c, created, 201);

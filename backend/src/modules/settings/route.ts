@@ -3,17 +3,29 @@ import { Hono } from "hono";
 import type { AppEnv } from "@/app/route";
 import {
   getCompanyPreferences,
+  getCustomFields,
+  getIntegrations,
   getLeadSources,
+  getNotificationRules,
   getPipelines,
   getSettingsOverview,
+  getTags,
   updateCompanyPreferences,
+  updateCustomFields,
+  updateIntegrations,
   updateLeadSources,
+  updateNotificationRules,
   updatePipelines,
+  updateTags,
 } from "@/modules/settings/controller";
 import {
   updateCompanyPreferencesSchema,
+  updateCustomFieldsSchema,
+  updateIntegrationsSchema,
   updateLeadSourcesSchema,
+  updateNotificationRulesSchema,
   updatePipelineSettingsSchema,
+  updateTagsSchema,
 } from "@/modules/settings/schema";
 import { requireAuth, requireRole, requireTenant } from "@/middleware/auth";
 import { validateJson } from "@/middleware/common";
@@ -34,3 +46,18 @@ settingRoutes.patch(
   validateJson(updateCompanyPreferencesSchema),
   updateCompanyPreferences,
 );
+settingRoutes.get("/custom-fields", requireAuth, requireTenant, getCustomFields);
+settingRoutes.patch("/custom-fields", requireAuth, requireTenant, requireRole("admin"), validateJson(updateCustomFieldsSchema), updateCustomFields);
+settingRoutes.get("/tags", requireAuth, requireTenant, getTags);
+settingRoutes.patch("/tags", requireAuth, requireTenant, requireRole("admin"), validateJson(updateTagsSchema), updateTags);
+settingRoutes.get("/notification-rules", requireAuth, requireTenant, getNotificationRules);
+settingRoutes.patch(
+  "/notification-rules",
+  requireAuth,
+  requireTenant,
+  requireRole("admin"),
+  validateJson(updateNotificationRulesSchema),
+  updateNotificationRules,
+);
+settingRoutes.get("/integrations", requireAuth, requireTenant, getIntegrations);
+settingRoutes.patch("/integrations", requireAuth, requireTenant, requireRole("admin"), validateJson(updateIntegrationsSchema), updateIntegrations);

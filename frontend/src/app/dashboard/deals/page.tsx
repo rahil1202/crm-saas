@@ -4,7 +4,8 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { AppShell } from "@/components/app-shell";
-import { ApiError, apiRequest } from "@/lib/api";
+import { buildApiUrl, ApiError, apiRequest } from "@/lib/api";
+import { getCompanyCookie } from "@/lib/cookies";
 
 type DealStatus = "open" | "won" | "lost";
 
@@ -26,12 +27,25 @@ interface DealActivity {
   createdAt: string;
 }
 
+interface DocumentItem {
+  id: string;
+  folder: string;
+  originalName: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  createdAt: string;
+}
+
 interface ListResponse {
   items: Deal[];
 }
 
 interface TimelineResponse {
   items: DealActivity[];
+}
+
+interface DocumentListResponse {
+  items: DocumentItem[];
 }
 
 interface DealBoardResponse {
@@ -115,6 +129,11 @@ export default function DealsPage() {
   const [timelineByDeal, setTimelineByDeal] = useState<Record<string, DealActivity[]>>({});
   const [timelineDraftByDeal, setTimelineDraftByDeal] = useState<Record<string, string>>({});
   const [timelineLoadingDealId, setTimelineLoadingDealId] = useState<string | null>(null);
+  const [documentsByDeal, setDocumentsByDeal] = useState<Record<string, DocumentItem[]>>({});
+  const [uploadingDealId, setUploadingDealId] = useState<string | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+
+  const companyId = getCompanyCookie();
 
   const loadDeals = useCallback(async () => {
     setLoading(true);
@@ -185,6 +204,15 @@ export default function DealsPage() {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal timeline");
     } finally {
       setTimelineLoadingDealId(null);
+    }
+  }, []);
+
+  const loadDealDocuments = useCallback(async (dealId: string) => {
+    try {
+      const data = await apiRequest<DocumentListResponse>(`/documents/list?entityType=deal&entityId=${dealId}`);
+      setDocumentsByDeal((prev) => ({ ...prev, [dealId]: data.items }));
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal attachments");
     }
   }, []);
 
@@ -294,7 +322,7 @@ export default function DealsPage() {
     }
 
     setExpandedDealId(dealId);
-    await loadTimeline(dealId);
+    await Promise.all([loadTimeline(dealId), loadDealDocuments(dealId)]);
   };
 
   const addTimelineNote = async (dealId: string) => {
@@ -312,6 +340,50 @@ export default function DealsPage() {
       await loadTimeline(dealId);
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to add deal timeline note");
+    }
+  };
+
+  const uploadDealDocument = async (dealId: string, file: File | null) => {
+    if (!file) {
+      return;
+    }
+
+    setUploadingDealId(dealId);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.set("file", file);
+      formData.set("entityType", "deal");
+      formData.set("entityId", dealId);
+      formData.set("folder", "deals");
+
+      await apiRequest("/documents/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      await loadDealDocuments(dealId);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to upload deal attachment");
+    } finally {
+      setUploadingDealId(null);
+    }
+  };
+
+  const deleteDealDocument = async (dealId: string, documentId: string) => {
+    setDeletingDocumentId(documentId);
+    setError(null);
+
+    try {
+      await apiRequest(`/documents/${documentId}`, {
+        method: "DELETE",
+      });
+      await loadDealDocuments(dealId);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to delete deal attachment");
+    } finally {
+      setDeletingDocumentId(null);
     }
   };
 
@@ -489,6 +561,47 @@ export default function DealsPage() {
                           <button type="button" onClick={() => void addTimelineNote(deal.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}>
                             Add
                           </button>
+                        </div>
+                        <div style={{ display: "grid", gap: 8, border: "1px solid #e8edf3", borderRadius: 10, padding: 10, background: "#fff" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                            <strong>Attachments</strong>
+                            <label style={{ color: "#556371", fontSize: 13, cursor: "pointer", textDecoration: "underline" }}>
+                              <input
+                                type="file"
+                                style={{ display: "none" }}
+                                onChange={(event) => {
+                                  const nextFile = event.target.files?.[0] ?? null;
+                                  void uploadDealDocument(deal.id, nextFile);
+                                  event.currentTarget.value = "";
+                                }}
+                              />
+                              {uploadingDealId === deal.id ? "Uploading..." : "Upload file"}
+                            </label>
+                          </div>
+                          {(documentsByDeal[deal.id] ?? []).map((document) => (
+                            <div key={document.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap", border: "1px solid #e8edf3", borderRadius: 10, padding: 10 }}>
+                              <div>
+                                <div style={{ fontWeight: 600 }}>{document.originalName}</div>
+                                <div style={{ color: "#556371", fontSize: 13 }}>
+                                  {document.folder} • {document.mimeType ?? "unknown"} • {Math.max(1, Math.round(document.sizeBytes / 1024))} KB
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                                <a href={buildApiUrl(`/documents/${document.id}/download`, { companyId })} style={{ color: "#102031", fontWeight: 600 }}>
+                                  Download
+                                </a>
+                                <button
+                                  type="button"
+                                  disabled={deletingDocumentId === document.id}
+                                  onClick={() => void deleteDealDocument(deal.id, document.id)}
+                                  style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}
+                                >
+                                  {deletingDocumentId === document.id ? "Deleting..." : "Delete"}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                          {(documentsByDeal[deal.id] ?? []).length === 0 ? <p style={{ margin: 0, color: "#556371", fontSize: 13 }}>No attachments uploaded for this deal yet.</p> : null}
                         </div>
                       </div>
                     ) : null}

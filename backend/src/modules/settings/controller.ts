@@ -9,8 +9,12 @@ import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
 import type {
   UpdateCompanyPreferencesInput,
+  UpdateCustomFieldsInput,
+  UpdateIntegrationsInput,
   UpdateLeadSourcesInput,
+  UpdateNotificationRulesInput,
   UpdatePipelineSettingsInput,
+  UpdateTagsInput,
 } from "@/modules/settings/schema";
 
 function assertUniqueKeys(values: string[], message: string) {
@@ -113,6 +117,137 @@ export async function getCompanyPreferences(c: Context<AppEnv>) {
   return ok(c, {
     businessHours: settings.businessHours,
     branding: settings.branding,
+  });
+}
+
+export async function getCustomFields(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const settings = await getCompanySettings(tenant.companyId);
+
+  return ok(c, {
+    customFields: settings.customFields,
+  });
+}
+
+export async function updateCustomFields(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as UpdateCustomFieldsInput;
+
+  assertUniqueKeys(
+    body.customFields.map((item) => item.key),
+    "Custom field keys must be unique",
+  );
+
+  await getCompanySettings(tenant.companyId);
+
+  const [updated] = await db
+    .update(companySettings)
+    .set({
+      customFields: body.customFields,
+      updatedAt: new Date(),
+    })
+    .where(eq(companySettings.companyId, tenant.companyId))
+    .returning();
+
+  return ok(c, {
+    customFields: updated.customFields,
+  });
+}
+
+export async function getTags(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const settings = await getCompanySettings(tenant.companyId);
+
+  return ok(c, {
+    tags: settings.tags,
+  });
+}
+
+export async function updateTags(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as UpdateTagsInput;
+
+  assertUniqueKeys(
+    body.tags.map((item) => item.key),
+    "Tag keys must be unique",
+  );
+
+  await getCompanySettings(tenant.companyId);
+
+  const [updated] = await db
+    .update(companySettings)
+    .set({
+      tags: body.tags,
+      updatedAt: new Date(),
+    })
+    .where(eq(companySettings.companyId, tenant.companyId))
+    .returning();
+
+  return ok(c, {
+    tags: updated.tags,
+  });
+}
+
+export async function getNotificationRules(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const settings = await getCompanySettings(tenant.companyId);
+
+  return ok(c, {
+    notificationRules: settings.notificationRules,
+  });
+}
+
+export async function updateNotificationRules(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as UpdateNotificationRulesInput;
+
+  await getCompanySettings(tenant.companyId);
+
+  const [updated] = await db
+    .update(companySettings)
+    .set({
+      notificationRules: body.notificationRules,
+      updatedAt: new Date(),
+    })
+    .where(eq(companySettings.companyId, tenant.companyId))
+    .returning();
+
+  return ok(c, {
+    notificationRules: updated.notificationRules,
+  });
+}
+
+export async function getIntegrations(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const settings = await getCompanySettings(tenant.companyId);
+
+  return ok(c, {
+    integrations: settings.integrations,
+  });
+}
+
+export async function updateIntegrations(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as UpdateIntegrationsInput;
+
+  await getCompanySettings(tenant.companyId);
+
+  const [updated] = await db
+    .update(companySettings)
+    .set({
+      integrations: {
+        slackWebhookUrl: body.integrations.slackWebhookUrl ?? null,
+        whatsappProvider: body.integrations.whatsappProvider ?? null,
+        emailProvider: body.integrations.emailProvider ?? null,
+        webhookUrl: body.integrations.webhookUrl ?? null,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(companySettings.companyId, tenant.companyId))
+    .returning();
+
+  return ok(c, {
+    integrations: updated.integrations,
   });
 }
 

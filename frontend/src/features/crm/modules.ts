@@ -31,6 +31,12 @@ export const crmModules: CrmModuleDefinition[] = [
     capabilities: ["Profile", "Attachments", "Tags", "Custom fields"],
   },
   {
+    slug: "documents",
+    title: "Files",
+    summary: "Shared file index with folder-based organization plus lead and deal attachment support.",
+    capabilities: ["Upload", "Folders", "Search", "Attachments"],
+  },
+  {
     slug: "tasks",
     title: "Tasks & Follow-ups",
     summary: "Action engine for reminders, due work, recurring items, and calendar-based follow-up execution.",
@@ -53,5 +59,17 @@ export const crmModules: CrmModuleDefinition[] = [
     title: "Automation",
     summary: "Trigger-based CRM workflows with multi-step actions and execution logs.",
     capabilities: ["Builder", "Triggers", "Actions", "Logs"],
+  },
+  {
+    slug: "reports",
+    title: "Reports",
+    summary: "Lead, deal, revenue, partner, and campaign analytics for workspace planning and review.",
+    capabilities: ["Lead reports", "Deal reports", "Forecast", "Partner performance"],
+  },
+  {
+    slug: "social",
+    title: "Social",
+    summary: "Connected social handles, captured conversations, inbox assignment, and lead conversion workflows.",
+    capabilities: ["Accounts", "Capture", "Inbox", "Lead assignment"],
   },
 ];

@@ -38,12 +38,12 @@ const envSchema = z.object({
   REFRESH_TOKEN_SECRET: z.string().min(32).default("dev-refresh-secret-dev-refresh-secret-123"),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).default(900),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(3600).default(60 * 60 * 24 * 30),
+  FILE_STORAGE_DIR: z.string().default("storage/uploads"),
   COOKIE_SECURE: z
     .enum(["0", "1", "true", "false"])
     .default("0")
     .transform((value) => value === "1" || value === "true"),
   AUTH_CALLBACK_URL: z.string().url().default("http://localhost:3000/auth/callback"),
-  
 });
 
 export const env = envSchema.parse(process.env);
