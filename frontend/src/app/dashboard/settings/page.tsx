@@ -129,6 +129,30 @@ interface IntegrationSettings {
   };
 }
 
+interface RuntimeReadiness {
+  email: {
+    provider: string | null;
+    envReady: boolean;
+    apiKeyConfigured: boolean;
+    webhookSecretConfigured: boolean;
+    accountCount: number;
+    connectedAccounts: number;
+    defaultAccountCount: number;
+    webhookUrl: string;
+  };
+  whatsapp: {
+    provider: string | null;
+    envReady: boolean;
+    verifyTokenConfigured: boolean;
+    appSecretConfigured: boolean;
+    globalAccessTokenConfigured: boolean;
+    accountCount: number;
+    configuredAccountCount: number;
+    verifyUrl: string;
+    eventUrl: string;
+  };
+}
+
 export default function SettingsPage() {
   const [me, setMe] = useState<AuthMePayload | null>(null);
   const [companySnapshot, setCompanySnapshot] = useState<CompanySnapshot | null>(null);
@@ -141,6 +165,7 @@ export default function SettingsPage() {
   const [tagSettings, setTagSettings] = useState<TagSettings | null>(null);
   const [notificationRuleSettings, setNotificationRuleSettings] = useState<NotificationRuleSettings | null>(null);
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings | null>(null);
+  const [runtimeReadiness, setRuntimeReadiness] = useState<RuntimeReadiness | null>(null);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
@@ -191,7 +216,7 @@ export default function SettingsPage() {
 
     const loadSettings = async () => {
       try {
-        const [mePayload, companyPayload, pipelinePayload, leadSourcePayload, preferencePayload, customFieldPayload, tagPayload, notificationPayload, integrationPayload] = await Promise.all([
+        const [mePayload, companyPayload, pipelinePayload, leadSourcePayload, preferencePayload, customFieldPayload, tagPayload, notificationPayload, integrationPayload, runtimePayload] = await Promise.all([
           apiRequest<AuthMePayload>("/auth/me"),
           apiRequest<CompanySnapshot>("/companies/current"),
           apiRequest<PipelineSettings>("/settings/pipelines"),
@@ -201,6 +226,7 @@ export default function SettingsPage() {
           apiRequest<TagSettings>("/settings/tags"),
           apiRequest<NotificationRuleSettings>("/settings/notification-rules"),
           apiRequest<IntegrationSettings>("/settings/integrations"),
+          apiRequest<RuntimeReadiness>("/settings/runtime-readiness"),
         ]);
 
         if (!disposed) {
@@ -213,6 +239,7 @@ export default function SettingsPage() {
           setTagSettings(tagPayload);
           setNotificationRuleSettings(notificationPayload);
           setIntegrationSettings(integrationPayload);
+          setRuntimeReadiness(runtimePayload);
           setCompanyName(companyPayload.company.name);
           setTimezone(companyPayload.company.timezone);
           setCurrency(companyPayload.company.currency);
@@ -897,7 +924,9 @@ export default function SettingsPage() {
         method: "PATCH",
         body: JSON.stringify(integrationSettings),
       });
+      const readiness = await apiRequest<RuntimeReadiness>("/settings/runtime-readiness");
       setIntegrationSettings(response);
+      setRuntimeReadiness(readiness);
       toast.success("Integration settings updated.");
     } catch (caughtError) {
       const message = caughtError instanceof ApiError ? caughtError.message : "Unable to save integration settings.";
@@ -1416,6 +1445,76 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="integrations" className="flex flex-col gap-6">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card className="border-border/60">
+                <CardHeader>
+                  <CardTitle>Email runtime readiness</CardTitle>
+                  <CardDescription>Checks the Resend-backed email runtime, sender identities, and webhook setup.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={runtimeReadiness?.email.envReady ? "secondary" : "outline"}>
+                      {runtimeReadiness?.email.envReady ? "Ready" : "Needs setup"}
+                    </Badge>
+                    {runtimeReadiness?.email.provider ? <Badge variant="outline">{runtimeReadiness.email.provider}</Badge> : null}
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      API key: {runtimeReadiness?.email.apiKeyConfigured ? "configured" : "missing"}
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      Webhook secret: {runtimeReadiness?.email.webhookSecretConfigured ? "configured" : "missing"}
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      Connected sender identities: {runtimeReadiness?.email.connectedAccounts ?? 0}
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      Default sender identities: {runtimeReadiness?.email.defaultAccountCount ?? 0}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm">
+                    <div className="font-medium">Webhook URL</div>
+                    <div className="mt-2 break-all text-muted-foreground">{runtimeReadiness?.email.webhookUrl ?? "Loading..."}</div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/60">
+                <CardHeader>
+                  <CardTitle>WhatsApp runtime readiness</CardTitle>
+                  <CardDescription>Checks Meta webhook verification, secrets, and account-level phone number mapping.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={runtimeReadiness?.whatsapp.envReady ? "secondary" : "outline"}>
+                      {runtimeReadiness?.whatsapp.envReady ? "Ready" : "Needs setup"}
+                    </Badge>
+                    {runtimeReadiness?.whatsapp.provider ? <Badge variant="outline">{runtimeReadiness.whatsapp.provider}</Badge> : null}
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      Verify token: {runtimeReadiness?.whatsapp.verifyTokenConfigured ? "configured" : "missing"}
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      App secret: {runtimeReadiness?.whatsapp.appSecretConfigured ? "configured" : "missing"}
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      Global access token: {runtimeReadiness?.whatsapp.globalAccessTokenConfigured ? "configured" : "missing"}
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      Configured WhatsApp accounts: {runtimeReadiness?.whatsapp.configuredAccountCount ?? 0} / {runtimeReadiness?.whatsapp.accountCount ?? 0}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm">
+                    <div className="font-medium">Verification URL</div>
+                    <div className="mt-2 break-all text-muted-foreground">{runtimeReadiness?.whatsapp.verifyUrl ?? "Loading..."}</div>
+                    <div className="mt-4 font-medium">Event URL</div>
+                    <div className="mt-2 break-all text-muted-foreground">{runtimeReadiness?.whatsapp.eventUrl ?? "Loading..."}</div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
             <Card className="border-border/60">
               <CardHeader>
                 <CardTitle>Integrations</CardTitle>

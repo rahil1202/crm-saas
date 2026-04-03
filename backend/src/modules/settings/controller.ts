@@ -1,11 +1,12 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { companySettings } from "@/db/schema";
+import { companySettings, emailAccounts, socialAccounts } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
+import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import type {
   UpdateCompanyPreferencesInput,
@@ -117,6 +118,52 @@ export async function getCompanyPreferences(c: Context<AppEnv>) {
   return ok(c, {
     businessHours: settings.businessHours,
     branding: settings.branding,
+  });
+}
+
+export async function getRuntimeReadiness(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const settings = await getCompanySettings(tenant.companyId);
+
+  const [companyEmailAccounts, companyWhatsappAccounts] = await Promise.all([
+    db
+      .select()
+      .from(emailAccounts)
+      .where(and(eq(emailAccounts.companyId, tenant.companyId), isNull(emailAccounts.deletedAt))),
+    db
+      .select()
+      .from(socialAccounts)
+      .where(and(eq(socialAccounts.companyId, tenant.companyId), eq(socialAccounts.platform, "whatsapp"), isNull(socialAccounts.deletedAt))),
+  ]);
+
+  const whatsappConfiguredAccounts = companyWhatsappAccounts.filter((account) => {
+    const phoneNumberId = account.metadata?.phoneNumberId;
+    const token = account.metadata?.accessToken;
+    return typeof phoneNumberId === "string" && phoneNumberId.length > 0 && (typeof token === "string" && token.length > 0 || Boolean(env.WHATSAPP_ACCESS_TOKEN));
+  });
+
+  return ok(c, {
+    email: {
+      provider: settings.integrations.emailProvider,
+      envReady: Boolean(env.RESEND_API_KEY && env.RESEND_WEBHOOK_SECRET),
+      apiKeyConfigured: Boolean(env.RESEND_API_KEY),
+      webhookSecretConfigured: Boolean(env.RESEND_WEBHOOK_SECRET),
+      accountCount: companyEmailAccounts.length,
+      connectedAccounts: companyEmailAccounts.filter((account) => account.status === "connected").length,
+      defaultAccountCount: companyEmailAccounts.filter((account) => account.isDefault && account.status === "connected").length,
+      webhookUrl: `${env.BACKEND_URL}/api/v1/public/email/resend/webhook`,
+    },
+    whatsapp: {
+      provider: settings.integrations.whatsappProvider,
+      envReady: Boolean(env.WHATSAPP_WEBHOOK_VERIFY_TOKEN && env.WHATSAPP_APP_SECRET && (env.WHATSAPP_ACCESS_TOKEN || whatsappConfiguredAccounts.length > 0)),
+      verifyTokenConfigured: Boolean(env.WHATSAPP_WEBHOOK_VERIFY_TOKEN),
+      appSecretConfigured: Boolean(env.WHATSAPP_APP_SECRET),
+      globalAccessTokenConfigured: Boolean(env.WHATSAPP_ACCESS_TOKEN),
+      accountCount: companyWhatsappAccounts.length,
+      configuredAccountCount: whatsappConfiguredAccounts.length,
+      verifyUrl: `${env.BACKEND_URL}/api/v1/public/whatsapp/webhook`,
+      eventUrl: `${env.BACKEND_URL}/api/v1/public/whatsapp/webhook`,
+    },
   });
 }
 

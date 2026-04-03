@@ -18,6 +18,7 @@
     "hono": "^4.8.0",
     "jose": "^6.2.2",
     "postgres": "^3.4.8",
+    "svix": "^1.90.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

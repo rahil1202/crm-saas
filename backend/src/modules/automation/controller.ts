@@ -5,9 +5,10 @@ import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { automationRuns, automations } from "@/db/schema";
 import { ok } from "@/lib/api";
+import { cancelAutomationRun, enqueueAutomationRun, getAutomationRunDetail, listAutomationRuns } from "@/lib/automation-runtime";
 import { AppError } from "@/lib/errors";
-import { automationParamSchema } from "@/modules/automation/schema";
-import type { CreateAutomationInput, ListAutomationsQuery, UpdateAutomationInput } from "@/modules/automation/schema";
+import { automationParamSchema, automationRunParamSchema } from "@/modules/automation/schema";
+import type { CreateAutomationInput, ListAutomationRunsQuery, ListAutomationsQuery, UpdateAutomationInput } from "@/modules/automation/schema";
 
 export function getAutomationOverview(c: Context<AppEnv>) {
   return ok(c, {
@@ -18,7 +19,7 @@ export function getAutomationOverview(c: Context<AppEnv>) {
 
 async function loadAutomationLogs(companyId: string, automationIds: string[]) {
   if (automationIds.length === 0) {
-    return new Map<string, Array<{ id: string; status: "success" | "failed"; message: string; executedAt: Date }>>();
+    return new Map<string, Array<{ id: string; status: "queued" | "running" | "completed" | "failed" | "canceled"; message: string; executedAt: Date }>>();
   }
 
   const rows = await db
@@ -33,7 +34,7 @@ async function loadAutomationLogs(companyId: string, automationIds: string[]) {
     .where(and(eq(automationRuns.companyId, companyId)))
     .orderBy(desc(automationRuns.executedAt));
 
-  const logsByAutomation = new Map<string, Array<{ id: string; status: "success" | "failed"; message: string; executedAt: Date }>>();
+  const logsByAutomation = new Map<string, Array<{ id: string; status: "queued" | "running" | "completed" | "failed" | "canceled"; message: string; executedAt: Date }>>();
 
   for (const row of rows) {
     if (!automationIds.includes(row.automationId)) {
@@ -151,22 +152,42 @@ export async function runAutomationTest(c: Context<AppEnv>) {
     throw AppError.notFound("Automation not found");
   }
 
-  const [run] = await db
-    .insert(automationRuns)
-    .values({
-      companyId: tenant.companyId,
-      automationId: automation.id,
-      status: "success",
-      message: `Executed ${automation.actions.length} actions from trigger ${automation.triggerType}`,
-      payload: {
-        triggerType: automation.triggerType,
-        actionCount: automation.actions.length,
-        simulated: true,
-      },
-    })
-    .returning();
+  const run = await enqueueAutomationRun({
+    companyId: tenant.companyId,
+    automationId: automation.id,
+    triggerType: automation.triggerType,
+    payload: {
+      triggerType: automation.triggerType,
+      actionCount: automation.actions.length,
+      source: "manual_test",
+    },
+  });
 
   return ok(c, run, 201);
+}
+
+export async function listRuns(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as ListAutomationRunsQuery;
+
+  const items = await listAutomationRuns(tenant.companyId, query.automationId);
+  return ok(c, { items });
+}
+
+export async function getRun(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = automationRunParamSchema.parse(c.req.param());
+
+  const detail = await getAutomationRunDetail(tenant.companyId, params.runId);
+  return ok(c, detail);
+}
+
+export async function cancelRun(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = automationRunParamSchema.parse(c.req.param());
+
+  const run = await cancelAutomationRun(tenant.companyId, params.runId);
+  return ok(c, run);
 }
 
 export async function deleteAutomation(c: Context<AppEnv>) {

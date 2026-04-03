@@ -8,6 +8,7 @@ import {
   getLeadSources,
   getNotificationRules,
   getPipelines,
+  getRuntimeReadiness,
   getSettingsOverview,
   getTags,
   updateCompanyPreferences,
@@ -60,4 +61,5 @@ settingRoutes.patch(
   updateNotificationRules,
 );
 settingRoutes.get("/integrations", requireAuth, requireTenant, getIntegrations);
+settingRoutes.get("/runtime-readiness", requireAuth, requireTenant, getRuntimeReadiness);
 settingRoutes.patch("/integrations", requireAuth, requireTenant, requireRole("admin"), validateJson(updateIntegrationsSchema), updateIntegrations);

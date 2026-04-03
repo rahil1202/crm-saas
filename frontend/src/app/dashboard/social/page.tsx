@@ -11,7 +11,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, apiRequest } from "@/lib/api";
+import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
 
 type SocialPlatform = "instagram" | "facebook" | "whatsapp" | "linkedin";
 type SocialConversationStatus = "open" | "assigned" | "closed";
@@ -23,6 +23,7 @@ interface SocialAccount {
   handle: string;
   status: "connected" | "disconnected";
   accessMode: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface SocialConversation {
@@ -51,6 +52,20 @@ interface SocialMessage {
   sentAt: string;
 }
 
+interface WhatsappLogItem {
+  id: string;
+  conversationId: string;
+  direction: "inbound" | "outbound";
+  senderName: string | null;
+  body: string;
+  sentAt: string;
+  metadata: Record<string, unknown>;
+  contactName: string | null;
+  contactHandle: string;
+  accountName: string;
+  accountHandle: string;
+}
+
 interface Member {
   membershipId: string;
   userId: string;
@@ -68,13 +83,23 @@ export default function SocialPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SocialMessage[]>([]);
+  const [whatsappLog, setWhatsappLog] = useState<WhatsappLogItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingWhatsappLog, setLoadingWhatsappLog] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [accountPlatform, setAccountPlatform] = useState<SocialPlatform>("instagram");
   const [accountName, setAccountName] = useState("");
   const [accountHandle, setAccountHandle] = useState("");
+  const [whatsappPhoneNumberId, setWhatsappPhoneNumberId] = useState("");
+  const [whatsappBusinessAccountId, setWhatsappBusinessAccountId] = useState("");
+  const [whatsappAccessToken, setWhatsappAccessToken] = useState("");
+  const [testWhatsappAccountId, setTestWhatsappAccountId] = useState("");
+  const [testWhatsappHandle, setTestWhatsappHandle] = useState("");
+  const [testWhatsappName, setTestWhatsappName] = useState("");
+  const [testWhatsappMessage, setTestWhatsappMessage] = useState("This is a live WhatsApp runtime test from CRM.");
+  const [whatsappTestMessage, setWhatsappTestMessage] = useState<string | null>(null);
 
   const [captureAccountId, setCaptureAccountId] = useState("");
   const [captureContactName, setCaptureContactName] = useState("");
@@ -91,6 +116,8 @@ export default function SocialPage() {
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],
   );
+  const whatsappWebhookGetUrl = useMemo(() => buildApiUrl("/public/whatsapp/webhook"), []);
+  const whatsappWebhookPostUrl = whatsappWebhookGetUrl;
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -111,6 +138,7 @@ export default function SocialPage() {
       setConversations(inboxData.items);
       setMembers(memberData.members.filter((member) => member.status === "active"));
       setCaptureAccountId((current) => current || accountData.items[0]?.id || "");
+      setTestWhatsappAccountId((current) => current || accountData.items.find((account) => account.platform === "whatsapp")?.id || "");
       setCaptureAssignedTo((current) => current || memberData.members.find((member) => member.status === "active")?.userId || "");
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load social workspace");
@@ -128,9 +156,24 @@ export default function SocialPage() {
     }
   }, []);
 
+  const loadWhatsappLog = useCallback(async () => {
+    setLoadingWhatsappLog(true);
+    try {
+      const data = await apiRequest<{ items: WhatsappLogItem[] }>("/social/whatsapp/log?limit=12");
+      setWhatsappLog(data.items);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load WhatsApp activity");
+    } finally {
+      setLoadingWhatsappLog(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadData();
   }, [loadData]);
+  useEffect(() => {
+    void loadWhatsappLog();
+  }, [loadWhatsappLog]);
 
   useEffect(() => {
     if (selectedConversationId) {
@@ -144,6 +187,7 @@ export default function SocialPage() {
     event.preventDefault();
     setWorking(true);
     setError(null);
+    setWhatsappTestMessage(null);
 
     try {
       await apiRequest("/social/accounts", {
@@ -152,13 +196,49 @@ export default function SocialPage() {
           platform: accountPlatform,
           accountName,
           handle: accountHandle,
+          metadata:
+            accountPlatform === "whatsapp"
+              ? {
+                  phoneNumberId: whatsappPhoneNumberId || undefined,
+                  businessAccountId: whatsappBusinessAccountId || undefined,
+                  accessToken: whatsappAccessToken || undefined,
+                }
+              : {},
         }),
       });
       setAccountName("");
       setAccountHandle("");
+      setWhatsappPhoneNumberId("");
+      setWhatsappBusinessAccountId("");
+      setWhatsappAccessToken("");
       await loadData();
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to create social account");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleWhatsappTestSend = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setWorking(true);
+    setError(null);
+    setWhatsappTestMessage(null);
+
+    try {
+      const response = await apiRequest<{ message: { id: string }; conversation: { id: string } }>("/social/whatsapp/test-send", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: testWhatsappAccountId || undefined,
+          contactHandle: testWhatsappHandle,
+          contactName: testWhatsappName || undefined,
+          message: testWhatsappMessage,
+        }),
+      });
+      setWhatsappTestMessage(`Sent live WhatsApp test. Conversation ${response.conversation.id}, message ${response.message.id}.`);
+      await Promise.all([loadData(), loadWhatsappLog()]);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to send WhatsApp test");
     } finally {
       setWorking(false);
     }
@@ -202,13 +282,26 @@ export default function SocialPage() {
     setError(null);
 
     try {
-      await apiRequest(`/social/inbox/${selectedConversationId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({
-          direction: "outbound",
-          body: replyBody,
-        }),
-      });
+      if (selectedConversation?.platform === "whatsapp") {
+        await apiRequest("/social/whatsapp/send", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: selectedConversation.socialAccountId,
+            contactHandle: selectedConversation.contactHandle,
+            contactName: selectedConversation.contactName ?? undefined,
+            leadId: selectedConversation.leadId ?? undefined,
+            message: replyBody,
+          }),
+        });
+      } else {
+        await apiRequest(`/social/inbox/${selectedConversationId}/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            direction: "outbound",
+            body: replyBody,
+          }),
+        });
+      }
       setReplyBody("");
       await Promise.all([loadData(), loadMessages(selectedConversationId)]);
     } catch (requestError) {
@@ -336,6 +429,22 @@ export default function SocialPage() {
                     <FieldLabel>Handle</FieldLabel>
                     <Input value={accountHandle} onChange={(event) => setAccountHandle(event.target.value)} placeholder="@northregioncrm" required />
                   </Field>
+                  {accountPlatform === "whatsapp" ? (
+                    <>
+                      <Field>
+                        <FieldLabel>Phone number ID</FieldLabel>
+                        <Input value={whatsappPhoneNumberId} onChange={(event) => setWhatsappPhoneNumberId(event.target.value)} placeholder="Meta phone number ID" required />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Business account ID</FieldLabel>
+                        <Input value={whatsappBusinessAccountId} onChange={(event) => setWhatsappBusinessAccountId(event.target.value)} placeholder="Optional WABA ID" />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Access token override</FieldLabel>
+                        <Input value={whatsappAccessToken} onChange={(event) => setWhatsappAccessToken(event.target.value)} placeholder="Optional per-account token" />
+                      </Field>
+                    </>
+                  ) : null}
                   <Button type="submit" disabled={working}>
                     {working ? "Saving..." : "Connect account"}
                   </Button>
@@ -360,12 +469,90 @@ export default function SocialPage() {
                       <div className="mt-1 text-sm text-muted-foreground">
                         {account.handle} • mode {account.accessMode}
                       </div>
+                      {account.platform === "whatsapp" ? (
+                        <div className="mt-1 text-sm text-muted-foreground">
+                          phone number ID {typeof account.metadata?.phoneNumberId === "string" ? account.metadata.phoneNumberId : "not set"}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))}
                 {!loading && accounts.length === 0 ? (
                   <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
                     No social accounts connected yet.
+                  </div>
+                ) : null}
+                <div className="rounded-xl border bg-muted/20 p-4 text-sm">
+                  <div className="font-medium">Meta verification URL</div>
+                  <div className="mt-2 break-all text-muted-foreground">{whatsappWebhookGetUrl}</div>
+                  <div className="mt-4 font-medium">Meta event URL</div>
+                  <div className="mt-2 break-all text-muted-foreground">{whatsappWebhookPostUrl}</div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Send WhatsApp test</CardTitle>
+                <CardDescription>Dispatch a live Meta WhatsApp message through a configured account before using inbox replies or automations.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form className="grid gap-4" onSubmit={handleWhatsappTestSend}>
+                  <Field>
+                    <FieldLabel>WhatsApp account</FieldLabel>
+                    <select value={testWhatsappAccountId} onChange={(event) => setTestWhatsappAccountId(event.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                      <option value="">Auto-select first WhatsApp account</option>
+                      {accounts.filter((account) => account.platform === "whatsapp").map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.accountName} ({account.handle})
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field>
+                    <FieldLabel>Destination handle</FieldLabel>
+                    <Input value={testWhatsappHandle} onChange={(event) => setTestWhatsappHandle(event.target.value)} placeholder="919876543210" required />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Contact name</FieldLabel>
+                    <Input value={testWhatsappName} onChange={(event) => setTestWhatsappName(event.target.value)} placeholder="Optional contact name" />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Message</FieldLabel>
+                    <Textarea value={testWhatsappMessage} onChange={(event) => setTestWhatsappMessage(event.target.value)} className="min-h-24" required />
+                  </Field>
+                  {whatsappTestMessage ? <div className="text-sm text-emerald-700">{whatsappTestMessage}</div> : null}
+                  <Button type="submit" disabled={working || accounts.every((account) => account.platform !== "whatsapp")}>
+                    {working ? "Sending..." : "Send WhatsApp test"}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Recent WhatsApp activity</CardTitle>
+                <CardDescription>Latest inbound and outbound WhatsApp messages reaching the live runtime.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                {loadingWhatsappLog ? <div className="text-sm text-muted-foreground">Loading WhatsApp activity...</div> : null}
+                {!loadingWhatsappLog && whatsappLog.length === 0 ? (
+                  <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No WhatsApp activity yet.</div>
+                ) : null}
+                {!loadingWhatsappLog && whatsappLog.length > 0 ? (
+                  <div className="grid gap-3">
+                    {whatsappLog.map((item) => (
+                      <div key={item.id} className="rounded-xl border p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{item.contactName ?? item.contactHandle}</span>
+                          <Badge variant="outline">{item.direction}</Badge>
+                          <Badge variant="secondary">{item.accountName}</Badge>
+                        </div>
+                        <div className="mt-2 text-sm">{item.body}</div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          {new Date(item.sentAt).toLocaleString()}
+                          {typeof item.metadata?.providerMessageId === "string" ? ` • provider ${item.metadata.providerMessageId}` : ""}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </CardContent>
@@ -564,6 +751,11 @@ export default function SocialPage() {
                     <Field>
                       <FieldLabel>Reply</FieldLabel>
                       <Textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="min-h-24" />
+                      {selectedConversation.platform === "whatsapp" ? (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          This reply uses the live Meta WhatsApp runtime instead of the local-only inbox stub.
+                        </div>
+                      ) : null}
                     </Field>
                     <Button type="button" variant="outline" disabled={working || !replyBody.trim()} onClick={() => void handleReply()}>
                       {working ? "Sending..." : "Send reply"}

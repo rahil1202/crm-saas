@@ -20,4 +20,5 @@ export interface AppVariables {
   tenant: TenantContext;
   validatedBody: unknown;
   validatedQuery: unknown;
+  rawBody: string;
 }

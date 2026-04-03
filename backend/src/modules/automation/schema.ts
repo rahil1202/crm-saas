@@ -25,9 +25,14 @@ export const automationSchema = z.object({
 
 export const updateAutomationSchema = automationSchema.partial();
 export const automationParamSchema = z.object({ automationId: z.string().uuid() });
+export const automationRunParamSchema = z.object({ runId: z.string().uuid() });
+export const listAutomationRunsSchema = z.object({
+  automationId: z.string().uuid().optional(),
+});
 
 export type AutomationStatus = z.infer<typeof automationStatusSchema>;
 export type AutomationAction = z.infer<typeof automationActionSchema>;
 export type ListAutomationsQuery = z.infer<typeof listAutomationsSchema>;
 export type CreateAutomationInput = z.infer<typeof automationSchema>;
 export type UpdateAutomationInput = z.infer<typeof updateAutomationSchema>;
+export type ListAutomationRunsQuery = z.infer<typeof listAutomationRunsSchema>;

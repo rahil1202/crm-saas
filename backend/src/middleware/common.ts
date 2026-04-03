@@ -26,7 +26,9 @@ export const errorMiddleware = (error: Error, c: Parameters<MiddlewareHandler>[0
 
 export const validateJson = <T>(schema: ZodType<T>): MiddlewareHandler => {
   return async (c, next) => {
-    const parsed = schema.parse(await c.req.json());
+    const rawBody = await c.req.text();
+    c.set("rawBody", rawBody);
+    const parsed = schema.parse(rawBody.length > 0 ? JSON.parse(rawBody) : {});
     c.set("validatedBody", parsed);
     await next();
   };

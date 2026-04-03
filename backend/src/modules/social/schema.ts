@@ -8,6 +8,9 @@ const directionSchema = z.enum(["inbound", "outbound"]);
 export const listSocialAccountsSchema = z.object({
   platform: platformSchema.optional(),
 });
+export const listWhatsappLogSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
 
 export const socialAccountSchema = z.object({
   platform: platformSchema,
@@ -15,6 +18,7 @@ export const socialAccountSchema = z.object({
   handle: z.string().trim().min(1).max(180),
   status: accountStatusSchema.default("connected"),
   accessMode: z.string().trim().min(1).max(40).default("manual"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
 export const updateSocialAccountSchema = socialAccountSchema.partial();
@@ -56,10 +60,29 @@ export const convertSocialConversationSchema = z.object({
   assignedToUserId: z.string().uuid().nullable().optional(),
 });
 
+export const sendWhatsappMessageSchema = z.object({
+  accountId: z.string().uuid().optional(),
+  contactHandle: z.string().trim().min(1).max(180),
+  contactName: z.string().trim().max(180).optional(),
+  message: z.string().trim().min(1).max(4000),
+  leadId: z.string().uuid().optional(),
+  customerId: z.string().uuid().optional(),
+  variables: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const whatsappWebhookSchema = z.object({
+  accountId: z.string().uuid().optional(),
+  companyId: z.string().uuid(),
+  contactHandle: z.string().trim().min(1).max(180),
+  contactName: z.string().trim().max(180).optional(),
+  body: z.string().trim().min(1).max(4000),
+});
+
 export const socialAccountParamSchema = z.object({ accountId: z.string().uuid() });
 export const socialConversationParamSchema = z.object({ conversationId: z.string().uuid() });
 
 export type ListSocialAccountsQuery = z.infer<typeof listSocialAccountsSchema>;
+export type ListWhatsappLogQuery = z.infer<typeof listWhatsappLogSchema>;
 export type CreateSocialAccountInput = z.infer<typeof socialAccountSchema>;
 export type UpdateSocialAccountInput = z.infer<typeof updateSocialAccountSchema>;
 export type ListSocialInboxQuery = z.infer<typeof listSocialInboxSchema>;
@@ -67,3 +90,5 @@ export type CaptureSocialConversationInput = z.infer<typeof captureSocialConvers
 export type UpdateSocialConversationInput = z.infer<typeof updateSocialConversationSchema>;
 export type CreateSocialMessageInput = z.infer<typeof createSocialMessageSchema>;
 export type ConvertSocialConversationInput = z.infer<typeof convertSocialConversationSchema>;
+export type SendWhatsappMessageInput = z.infer<typeof sendWhatsappMessageSchema>;
+export type WhatsappWebhookInput = z.infer<typeof whatsappWebhookSchema>;

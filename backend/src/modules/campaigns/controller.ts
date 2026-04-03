@@ -3,12 +3,22 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { campaignCustomers, campaigns, customers } from "@/db/schema";
+import { campaignCustomers, campaigns, customers, emailAccounts, emailMessages, emailTrackingEvents } from "@/db/schema";
 import { ok } from "@/lib/api";
+import { recordTriggerEvent } from "@/lib/automation-runtime";
+import {
+  ensureEmailAccount,
+  handleResendWebhook,
+  queueLeadEmail,
+  queueCampaignDelivery,
+  recordEmailClick,
+  recordEmailOpen,
+  recordEmailReply,
+} from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
 import { createNotification } from "@/lib/notifications";
 import { campaignParamSchema } from "@/modules/campaigns/schema";
-import type { CreateCampaignInput, ListCampaignsQuery, UpdateCampaignInput } from "@/modules/campaigns/schema";
+import type { CreateCampaignInput, CreateEmailAccountInput, EmailReplyWebhookInput, ListCampaignsQuery, ListDeliveryLogQuery, TestEmailInput, UpdateCampaignInput } from "@/modules/campaigns/schema";
 
 export function getCampaignOverview(c: Context<AppEnv>) {
   return ok(c, {
@@ -234,4 +244,242 @@ export async function deleteCampaign(c: Context<AppEnv>) {
   }
 
   return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function listEmailAccounts(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+
+  const items = await db
+    .select()
+    .from(emailAccounts)
+    .where(and(eq(emailAccounts.companyId, tenant.companyId), isNull(emailAccounts.deletedAt)))
+    .orderBy(desc(emailAccounts.isDefault), desc(emailAccounts.createdAt));
+
+  return ok(c, { items });
+}
+
+export async function listDeliveryLog(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as ListDeliveryLogQuery;
+
+  const items = await db
+    .select({
+      id: emailMessages.id,
+      campaignId: emailMessages.campaignId,
+      recipientEmail: emailMessages.recipientEmail,
+      recipientName: emailMessages.recipientName,
+      subject: emailMessages.subject,
+      status: emailMessages.status,
+      provider: emailMessages.provider,
+      providerMessageId: emailMessages.providerMessageId,
+      sentAt: emailMessages.sentAt,
+      deliveredAt: emailMessages.deliveredAt,
+      failedAt: emailMessages.failedAt,
+      lastError: emailMessages.lastError,
+      queuedAt: emailMessages.queuedAt,
+      campaignName: campaigns.name,
+    })
+    .from(emailMessages)
+    .leftJoin(campaigns, eq(campaigns.id, emailMessages.campaignId))
+    .where(eq(emailMessages.companyId, tenant.companyId))
+    .orderBy(desc(emailMessages.createdAt))
+    .limit(query.limit);
+
+  const messageIds = items.map((item) => item.id);
+  const events = messageIds.length
+    ? await db
+        .select({
+          emailMessageId: emailTrackingEvents.emailMessageId,
+          eventType: emailTrackingEvents.eventType,
+          occurredAt: emailTrackingEvents.occurredAt,
+          url: emailTrackingEvents.url,
+        })
+        .from(emailTrackingEvents)
+        .where(inArray(emailTrackingEvents.emailMessageId, messageIds))
+        .orderBy(desc(emailTrackingEvents.occurredAt))
+    : [];
+
+  const eventsByMessage = new Map<string, Array<(typeof events)[number]>>();
+  for (const event of events) {
+    const bucket = eventsByMessage.get(event.emailMessageId) ?? [];
+    bucket.push(event);
+    eventsByMessage.set(event.emailMessageId, bucket);
+  }
+
+  return ok(c, {
+    items: items.map((item) => ({
+      ...item,
+      recentEvents: (eventsByMessage.get(item.id) ?? []).slice(0, 5),
+    })),
+  });
+}
+
+export async function createEmailAccount(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const body = c.get("validatedBody") as CreateEmailAccountInput;
+
+  const account = await ensureEmailAccount({
+    companyId: tenant.companyId,
+    userId: user.id,
+    createdBy: user.id,
+    label: body.label,
+    provider: body.provider,
+    fromName: body.fromName ?? null,
+    fromEmail: body.fromEmail,
+    isDefault: body.isDefault,
+    credentials: body.credentials,
+    metadata: body.metadata,
+  });
+
+  return ok(c, account, 201);
+}
+
+export async function sendTestEmail(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const body = c.get("validatedBody") as TestEmailInput;
+
+  const queued = await queueLeadEmail({
+    companyId: tenant.companyId,
+    recipientEmail: body.recipientEmail,
+    recipientName: body.recipientName ?? null,
+    subjectTemplate: body.subject,
+    bodyTemplate: body.body,
+    createdBy: user.id,
+    variables: {
+      company: {
+        id: tenant.companyId,
+      },
+    },
+  });
+
+  return ok(
+    c,
+    {
+      queued: true,
+      messageId: queued.id,
+      recipientEmail: queued.recipientEmail,
+      status: queued.status,
+    },
+    202,
+  );
+}
+
+export async function launchCampaign(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const params = campaignParamSchema.parse(c.req.param());
+
+  const result = await queueCampaignDelivery({
+    companyId: tenant.companyId,
+    campaignId: params.campaignId,
+    createdBy: user.id,
+  });
+
+  return ok(c, result, 202);
+}
+
+export async function trackEmailOpen(c: Context) {
+  const token = c.req.param("token");
+  if (!token) {
+    throw AppError.badRequest("Tracking token is required");
+  }
+  const tracked = await recordEmailOpen(token);
+  if (tracked?.message) {
+    await recordTriggerEvent({
+      companyId: tracked.message.companyId,
+      triggerType: "email.opened",
+      eventKey: `email.opened:${tracked.message.id}:${new Date().toISOString().slice(0, 16)}`,
+      entityType: tracked.message.customerId ? "customer" : tracked.message.leadId ? "lead" : "email_message",
+      entityId: tracked.message.customerId ?? tracked.message.leadId ?? tracked.message.id,
+      payload: {
+        messageId: tracked.message.id,
+        customerId: tracked.message.customerId,
+        leadId: tracked.message.leadId,
+      },
+    });
+  }
+
+  const pixel = Uint8Array.from([
+    71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 255, 255, 255, 0, 0, 0, 33, 249, 4, 1, 0, 0, 1, 0, 44,
+    0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 68, 1, 0, 59,
+  ]);
+  c.header("Content-Type", "image/gif");
+  c.header("Cache-Control", "no-store");
+  return c.body(pixel);
+}
+
+export async function trackEmailClick(c: Context) {
+  const token = c.req.param("token");
+  const rawUrl = c.req.query("url");
+  if (!token || !rawUrl) {
+    throw AppError.badRequest("url query parameter is required");
+  }
+
+  const tracked = await recordEmailClick(token, rawUrl);
+  if (tracked?.message) {
+    await recordTriggerEvent({
+      companyId: tracked.message.companyId,
+      triggerType: "email.clicked",
+      eventKey: `email.clicked:${tracked.message.id}:${rawUrl}`,
+      entityType: tracked.message.customerId ? "customer" : tracked.message.leadId ? "lead" : "email_message",
+      entityId: tracked.message.customerId ?? tracked.message.leadId ?? tracked.message.id,
+      payload: {
+        messageId: tracked.message.id,
+        customerId: tracked.message.customerId,
+        leadId: tracked.message.leadId,
+        url: rawUrl,
+      },
+    });
+  }
+
+  return c.redirect(rawUrl);
+}
+
+export async function handleEmailReplyWebhook(c: Context) {
+  const body = c.get("validatedBody") as EmailReplyWebhookInput;
+  const tracked = await recordEmailReply(body);
+  await recordTriggerEvent({
+    companyId: tracked.message.companyId,
+    triggerType: "email.replied",
+    eventKey: `email.replied:${tracked.message.id}:${body.fromEmail}:${Date.now()}`,
+    entityType: tracked.message.customerId ? "customer" : tracked.message.leadId ? "lead" : "email_message",
+    entityId: tracked.message.customerId ?? tracked.message.leadId ?? tracked.message.id,
+    payload: {
+      messageId: tracked.message.id,
+      customerId: tracked.message.customerId,
+      leadId: tracked.message.leadId,
+      body: body.body,
+      fromEmail: body.fromEmail,
+    },
+  });
+
+  return c.json({ success: true }, 200);
+}
+
+export async function handleResendWebhookRequest(c: Context) {
+  const rawBody = await c.req.text();
+  const tracked = await handleResendWebhook(rawBody, c.req.raw.headers);
+
+  if ("ignored" in tracked) {
+    return c.json({ success: true, ignored: true }, 200);
+  }
+
+  if (tracked.eventType === "opened" || tracked.eventType === "clicked" || tracked.eventType === "replied") {
+    await recordTriggerEvent({
+      companyId: tracked.message.companyId,
+      triggerType: `email.${tracked.eventType}`,
+      eventKey: `email.${tracked.eventType}:${tracked.message.id}:${Date.now()}`,
+      entityType: tracked.message.customerId ? "customer" : tracked.message.leadId ? "lead" : "email_message",
+      entityId: tracked.message.customerId ?? tracked.message.leadId ?? tracked.message.id,
+      payload: {
+        messageId: tracked.message.id,
+        customerId: tracked.message.customerId,
+        leadId: tracked.message.leadId,
+      },
+    });
+  }
+
+  return c.json({ success: true, eventType: tracked.eventType }, 200);
 }

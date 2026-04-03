@@ -6,6 +6,7 @@ import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { customers, dealActivities, deals, leadActivities, leads, partnerCompanies } from "@/db/schema";
 import { ok } from "@/lib/api";
+import { queueLeadScoreChangedTrigger, recordTriggerEvent } from "@/lib/automation-runtime";
 import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
 import { createNotification } from "@/lib/notifications";
@@ -423,7 +424,7 @@ export async function updateLead(c: Context<AppEnv>) {
   }
 
   const [before] = await db
-    .select({ status: leads.status })
+    .select({ status: leads.status, score: leads.score })
     .from(leads)
     .where(and(eq(leads.id, params.leadId), eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt)))
     .limit(1);
@@ -472,6 +473,30 @@ export async function updateLead(c: Context<AppEnv>) {
       payload: {
         from: before.status,
         to: body.status,
+      },
+    });
+  }
+
+  if (body.score !== undefined && body.score !== before.score) {
+    await queueLeadScoreChangedTrigger({
+      companyId: tenant.companyId,
+      leadId: updated.id,
+      previousScore: before.score ?? 0,
+      score: updated.score,
+    });
+  }
+
+  if (body.status && body.status !== before.status) {
+    await recordTriggerEvent({
+      companyId: tenant.companyId,
+      triggerType: `lead.status_changed`,
+      eventKey: `lead.status_changed:${updated.id}:${body.status}:${Date.now()}`,
+      entityType: "lead",
+      entityId: updated.id,
+      payload: {
+        leadId: updated.id,
+        fromStatus: before.status,
+        toStatus: body.status,
       },
     });
   }

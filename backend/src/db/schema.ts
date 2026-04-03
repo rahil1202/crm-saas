@@ -26,7 +26,8 @@ export const partnerAccessLevelEnum = pgEnum("partner_access_level", ["restricte
 export const campaignStatusEnum = pgEnum("campaign_status", ["draft", "scheduled", "active", "completed", "paused"]);
 export const templateTypeEnum = pgEnum("template_type", ["email", "whatsapp", "sms", "task", "pipeline"]);
 export const automationStatusEnum = pgEnum("automation_status", ["active", "paused"]);
-export const automationRunStatusEnum = pgEnum("automation_run_status", ["success", "failed"]);
+export const automationRunStatusEnum = pgEnum("automation_run_status", ["queued", "running", "completed", "failed", "canceled"]);
+export const automationStepStatusEnum = pgEnum("automation_step_status", ["pending", "running", "completed", "failed", "canceled", "scheduled"]);
 export const notificationTypeEnum = pgEnum("notification_type", ["lead", "deal", "task", "campaign"]);
 export const documentEntityTypeEnum = pgEnum("document_entity_type", ["general", "lead", "deal", "customer"]);
 export const socialPlatformEnum = pgEnum("social_platform", ["instagram", "facebook", "whatsapp", "linkedin"]);
@@ -35,6 +36,10 @@ export const socialConversationStatusEnum = pgEnum("social_conversation_status",
 export const socialMessageDirectionEnum = pgEnum("social_message_direction", ["inbound", "outbound"]);
 export const companyPlanStatusEnum = pgEnum("company_plan_status", ["trial", "active", "past_due", "canceled"]);
 export const companyPlanIntervalEnum = pgEnum("company_plan_interval", ["monthly", "yearly", "custom"]);
+export const emailAccountStatusEnum = pgEnum("email_account_status", ["connected", "disconnected"]);
+export const emailMessageStatusEnum = pgEnum("email_message_status", ["queued", "sending", "sent", "delivered", "failed"]);
+export const emailEventTypeEnum = pgEnum("email_event_type", ["sent", "delivered", "opened", "clicked", "replied", "failed"]);
+export const conversationStateStatusEnum = pgEnum("conversation_state_status", ["active", "paused", "completed", "expired"]);
 
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
@@ -664,14 +669,204 @@ export const automationRuns = pgTable(
     automationId: uuid("automation_id")
       .notNull()
       .references(() => automations.id, { onDelete: "cascade" }),
-    status: automationRunStatusEnum("status").notNull(),
-    message: varchar("message", { length: 240 }).notNull(),
+    status: automationRunStatusEnum("status").notNull().default("queued"),
+    triggerType: varchar("trigger_type", { length: 80 }).notNull().default("manual"),
+    currentActionIndex: integer("current_action_index").notNull().default(0),
+    retryCount: integer("retry_count").notNull().default(0),
+    maxRetries: integer("max_retries").notNull().default(3),
+    message: varchar("message", { length: 240 }).notNull().default("Queued for execution"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    correlationKey: varchar("correlation_key", { length: 180 }),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }).defaultNow().notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    lastError: text("last_error"),
     executedAt: timestamp("executed_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
     byAutomationIdx: index("automation_runs_automation_idx").on(table.automationId, table.executedAt),
     byCompanyIdx: index("automation_runs_company_idx").on(table.companyId),
+    byStatusIdx: index("automation_runs_status_idx").on(table.companyId, table.status, table.nextRunAt),
+    correlationIdx: index("automation_runs_correlation_idx").on(table.companyId, table.correlationKey),
+  }),
+);
+
+export const automationRunSteps = pgTable(
+  "automation_run_steps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    automationRunId: uuid("automation_run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    actionIndex: integer("action_index").notNull(),
+    actionType: varchar("action_type", { length: 80 }).notNull(),
+    status: automationStepStatusEnum("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    parallelKey: varchar("parallel_key", { length: 80 }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    output: jsonb("output").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    runActionUnique: uniqueIndex("automation_run_steps_run_action_unique").on(table.automationRunId, table.actionIndex),
+    byRunIdx: index("automation_run_steps_run_idx").on(table.automationRunId, table.actionIndex),
+    byCompanyStatusIdx: index("automation_run_steps_company_status_idx").on(table.companyId, table.status),
+  }),
+);
+
+export const automationTriggerEvents = pgTable(
+  "automation_trigger_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    triggerType: varchar("trigger_type", { length: 80 }).notNull(),
+    eventKey: varchar("event_key", { length: 180 }).notNull(),
+    entityType: varchar("entity_type", { length: 80 }),
+    entityId: uuid("entity_id"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    eventKeyUnique: uniqueIndex("automation_trigger_events_key_unique").on(table.companyId, table.eventKey),
+    byTriggerIdx: index("automation_trigger_events_trigger_idx").on(table.companyId, table.triggerType, table.createdAt),
+  }),
+);
+
+export const emailAccounts = pgTable(
+  "email_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => profiles.id, { onDelete: "set null" }),
+    label: varchar("label", { length: 180 }).notNull(),
+    provider: varchar("provider", { length: 80 }).notNull().default("mock"),
+    fromName: varchar("from_name", { length: 180 }),
+    fromEmail: varchar("from_email", { length: 320 }).notNull(),
+    status: emailAccountStatusEnum("status").notNull().default("connected"),
+    isDefault: boolean("is_default").notNull().default(false),
+    credentials: jsonb("credentials").$type<Record<string, unknown>>().notNull().default({}),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("email_accounts_company_idx").on(table.companyId, table.createdAt),
+    byDefaultIdx: index("email_accounts_default_idx").on(table.companyId, table.isDefault),
+    companyEmailUnique: uniqueIndex("email_accounts_company_email_unique").on(table.companyId, table.fromEmail),
+  }),
+);
+
+export const emailMessages = pgTable(
+  "email_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id").references(() => campaigns.id, { onDelete: "set null" }),
+    automationId: uuid("automation_id").references(() => automations.id, { onDelete: "set null" }),
+    automationRunId: uuid("automation_run_id").references(() => automationRuns.id, { onDelete: "set null" }),
+    emailAccountId: uuid("email_account_id").references(() => emailAccounts.id, { onDelete: "set null" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    recipientEmail: varchar("recipient_email", { length: 320 }).notNull(),
+    recipientName: varchar("recipient_name", { length: 180 }),
+    subject: varchar("subject", { length: 240 }).notNull(),
+    htmlContent: text("html_content").notNull(),
+    textContent: text("text_content"),
+    status: emailMessageStatusEnum("status").notNull().default("queued"),
+    provider: varchar("provider", { length: 80 }).notNull().default("mock"),
+    providerMessageId: varchar("provider_message_id", { length: 180 }),
+    trackingToken: varchar("tracking_token", { length: 180 }).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    queuedAt: timestamp("queued_at", { withTimezone: true }).defaultNow().notNull(),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    trackingTokenUnique: uniqueIndex("email_messages_tracking_token_unique").on(table.trackingToken),
+    byStatusIdx: index("email_messages_status_idx").on(table.companyId, table.status, table.queuedAt),
+    byCampaignIdx: index("email_messages_campaign_idx").on(table.campaignId, table.createdAt),
+    byRunIdx: index("email_messages_run_idx").on(table.automationRunId, table.createdAt),
+  }),
+);
+
+export const emailTrackingEvents = pgTable(
+  "email_tracking_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    emailMessageId: uuid("email_message_id")
+      .notNull()
+      .references(() => emailMessages.id, { onDelete: "cascade" }),
+    eventType: emailEventTypeEnum("event_type").notNull(),
+    trackingToken: varchar("tracking_token", { length: 180 }).notNull(),
+    eventKey: varchar("event_key", { length: 180 }).notNull(),
+    url: text("url"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    eventKeyUnique: uniqueIndex("email_tracking_events_key_unique").on(table.eventKey),
+    byMessageIdx: index("email_tracking_events_message_idx").on(table.emailMessageId, table.occurredAt),
+    byCompanyTypeIdx: index("email_tracking_events_company_type_idx").on(table.companyId, table.eventType, table.occurredAt),
+  }),
+);
+
+export const conversationStates = pgTable(
+  "conversation_states",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    socialConversationId: uuid("social_conversation_id")
+      .notNull()
+      .references(() => socialConversations.id, { onDelete: "cascade" }),
+    automationId: uuid("automation_id").references(() => automations.id, { onDelete: "set null" }),
+    automationRunId: uuid("automation_run_id").references(() => automationRuns.id, { onDelete: "set null" }),
+    sessionKey: varchar("session_key", { length: 180 }).notNull(),
+    currentNode: varchar("current_node", { length: 120 }).notNull().default("start"),
+    status: conversationStateStatusEnum("status").notNull().default("active"),
+    state: jsonb("state").$type<Record<string, unknown>>().notNull().default({}),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }).defaultNow().notNull(),
+    resumedAt: timestamp("resumed_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    sessionKeyUnique: uniqueIndex("conversation_states_session_key_unique").on(table.companyId, table.sessionKey),
+    byConversationIdx: index("conversation_states_conversation_idx").on(table.socialConversationId, table.updatedAt),
+    byStatusIdx: index("conversation_states_status_idx").on(table.companyId, table.status, table.expiresAt),
   }),
 );
 
@@ -772,6 +967,7 @@ export const socialConversations = pgTable(
     status: socialConversationStatusEnum("status").notNull().default("open"),
     subject: varchar("subject", { length: 240 }),
     latestMessage: text("latest_message"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     unreadCount: integer("unread_count").notNull().default(0),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).defaultNow().notNull(),
     createdBy: uuid("created_by")
@@ -801,6 +997,7 @@ export const socialMessages = pgTable(
     direction: socialMessageDirectionEnum("direction").notNull(),
     senderName: varchar("sender_name", { length: 180 }),
     body: text("body").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
     createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

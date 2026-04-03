@@ -29,6 +29,7 @@ function normalizeSupabaseUrl(rawValue: string) {
 const envSchema = z.object({
   PORT: z.coerce.number().default(8787),
   FRONTEND_URL: z.string().url().default("http://localhost:3000"),
+  BACKEND_URL: z.string().url().default("http://localhost:8787"),
   DATABASE_URL: z.string().min(1).default("postgres://postgres:postgres@localhost:5432/crm_saas"),
   SUPABASE_URL: z.string().min(1).default("http://localhost:54321").transform(normalizeSupabaseUrl),
   SUPABASE_ANON_KEY: z.string().min(1).default("dev-anon-key"),
@@ -53,6 +54,17 @@ const envSchema = z.object({
     .default("0")
     .transform((value) => value === "1" || value === "true"),
   AUTH_CALLBACK_URL: z.string().url().default("http://localhost:3000/auth/callback"),
+  RUNTIME_WORKER_ENABLED: z
+    .enum(["0", "1", "true", "false"])
+    .default("1")
+    .transform((value) => value === "1" || value === "true"),
+  RUNTIME_POLL_INTERVAL_MS: z.coerce.number().int().min(250).default(2000),
+  RESEND_API_KEY: z.string().default(""),
+  RESEND_WEBHOOK_SECRET: z.string().default(""),
+  WHATSAPP_ACCESS_TOKEN: z.string().default(""),
+  WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().default(""),
+  WHATSAPP_APP_SECRET: z.string().default(""),
+  WHATSAPP_GRAPH_API_VERSION: z.string().default("v23.0"),
 });
 
 export const env = envSchema.parse(process.env);

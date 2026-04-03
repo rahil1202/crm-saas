@@ -27,8 +27,37 @@ export const campaignSchema = z.object({
 
 export const updateCampaignSchema = campaignSchema.partial();
 export const campaignParamSchema = z.object({ campaignId: z.string().uuid() });
+export const emailAccountSchema = z.object({
+  label: z.string().trim().min(1).max(180),
+  provider: z.string().trim().min(1).max(80).default("resend"),
+  fromName: z.string().trim().max(180).optional(),
+  fromEmail: z.string().trim().email(),
+  isDefault: z.boolean().default(false),
+  credentials: z.record(z.string(), z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+});
+export const listEmailAccountsSchema = z.object({});
+export const listDeliveryLogSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+export const emailReplyWebhookSchema = z.object({
+  trackingToken: z.string().trim().optional(),
+  providerMessageId: z.string().trim().optional(),
+  fromEmail: z.string().trim().email(),
+  body: z.string().trim().min(1).max(10000),
+});
+export const testEmailSchema = z.object({
+  recipientEmail: z.string().trim().email(),
+  recipientName: z.string().trim().max(180).optional(),
+  subject: z.string().trim().min(1).max(240),
+  body: z.string().trim().min(1).max(10000),
+});
 
 export type CampaignStatus = z.infer<typeof campaignStatusSchema>;
 export type ListCampaignsQuery = z.infer<typeof listCampaignsSchema>;
 export type CreateCampaignInput = z.infer<typeof campaignSchema>;
 export type UpdateCampaignInput = z.infer<typeof updateCampaignSchema>;
+export type CreateEmailAccountInput = z.infer<typeof emailAccountSchema>;
+export type EmailReplyWebhookInput = z.infer<typeof emailReplyWebhookSchema>;
+export type TestEmailInput = z.infer<typeof testEmailSchema>;
+export type ListDeliveryLogQuery = z.infer<typeof listDeliveryLogSchema>;

@@ -3,9 +3,11 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
+import { recordTriggerEvent } from "@/lib/automation-runtime";
 import { createNotification } from "@/lib/notifications";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
+import { ingestMetaWhatsappWebhook, sendWhatsappMessage, verifyWhatsappWebhookChallenge } from "@/lib/whatsapp-runtime";
 import { companyMemberships, leads, profiles, socialAccounts, socialConversations, socialMessages } from "@/db/schema";
 import {
   socialAccountParamSchema,
@@ -18,8 +20,10 @@ import type {
   CreateSocialMessageInput,
   ListSocialAccountsQuery,
   ListSocialInboxQuery,
+  ListWhatsappLogQuery,
   UpdateSocialAccountInput,
   UpdateSocialConversationInput,
+  SendWhatsappMessageInput,
 } from "@/modules/social/schema";
 
 async function assertSocialAccount(companyId: string, accountId: string) {
@@ -98,6 +102,34 @@ export async function listSocialAccounts(c: Context<AppEnv>) {
   return ok(c, { items });
 }
 
+export async function listWhatsappLog(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const query = c.get("validatedQuery") as ListWhatsappLogQuery;
+
+  const items = await db
+    .select({
+      id: socialMessages.id,
+      conversationId: socialMessages.conversationId,
+      direction: socialMessages.direction,
+      senderName: socialMessages.senderName,
+      body: socialMessages.body,
+      metadata: socialMessages.metadata,
+      sentAt: socialMessages.sentAt,
+      contactName: socialConversations.contactName,
+      contactHandle: socialConversations.contactHandle,
+      accountName: socialAccounts.accountName,
+      accountHandle: socialAccounts.handle,
+    })
+    .from(socialMessages)
+    .innerJoin(socialConversations, eq(socialConversations.id, socialMessages.conversationId))
+    .innerJoin(socialAccounts, eq(socialAccounts.id, socialConversations.socialAccountId))
+    .where(and(eq(socialMessages.companyId, tenant.companyId), eq(socialConversations.platform, "whatsapp")))
+    .orderBy(desc(socialMessages.sentAt))
+    .limit(query.limit);
+
+  return ok(c, { items });
+}
+
 export async function createSocialAccount(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const user = c.get("user");
@@ -112,6 +144,7 @@ export async function createSocialAccount(c: Context<AppEnv>) {
       handle: body.handle,
       status: body.status,
       accessMode: body.accessMode,
+      metadata: body.metadata,
       createdBy: user.id,
     })
     .returning();
@@ -136,6 +169,7 @@ export async function updateSocialAccount(c: Context<AppEnv>) {
       ...(body.handle !== undefined ? { handle: body.handle } : {}),
       ...(body.status !== undefined ? { status: body.status } : {}),
       ...(body.accessMode !== undefined ? { accessMode: body.accessMode } : {}),
+      ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
       updatedAt: new Date(),
     })
     .where(and(eq(socialAccounts.id, params.accountId), eq(socialAccounts.companyId, tenant.companyId), isNull(socialAccounts.deletedAt)))
@@ -411,4 +445,51 @@ export async function convertSocialConversationToLead(c: Context<AppEnv>) {
     leadId: createdLead.id,
     converted: true,
   });
+}
+
+export async function sendWhatsappConversationMessage(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const body = c.get("validatedBody") as SendWhatsappMessageInput;
+
+  const sent = await sendWhatsappMessage({
+    companyId: tenant.companyId,
+    accountId: body.accountId,
+    contactHandle: body.contactHandle,
+    contactName: body.contactName,
+    messageTemplate: body.message,
+    createdBy: user.id,
+    leadId: body.leadId,
+    customerId: body.customerId,
+    variables: body.variables,
+  });
+
+  return ok(c, sent, 201);
+}
+
+export async function verifyWhatsappWebhook(c: Context) {
+  const challenge = verifyWhatsappWebhookChallenge(c.req.query());
+  return c.text(challenge, 200);
+}
+
+export async function ingestWhatsappProviderWebhook(c: Context) {
+  const rawBody = await c.req.text();
+  const ingested = await ingestMetaWhatsappWebhook(rawBody, c.req.header("x-hub-signature-256") ?? null);
+
+  for (const item of ingested.ingested) {
+    await recordTriggerEvent({
+      companyId: item.companyId,
+      triggerType: "whatsapp.replied",
+      eventKey: `whatsapp.replied:${item.conversationId}:${item.messageId}`,
+      entityType: "conversation",
+      entityId: item.conversationId,
+      payload: {
+        conversationId: item.conversationId,
+        messageId: item.messageId,
+        leadId: item.leadId,
+      },
+    });
+  }
+
+  return c.json({ success: true, ingested: ingested.ingested.length }, 200);
 }
