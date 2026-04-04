@@ -4,11 +4,15 @@ import type { AppEnv } from "@/app/route";
 import {
   acceptInvite,
   changePassword,
+  createReferralLink,
   createGoogleAuthUrl,
   exchangeSupabaseSession,
   forgotPassword,
+  getInviteLookup,
   getCurrentUser,
   inviteMember,
+  listInvites,
+  listReferralLinks,
   login,
   logout,
   onboarding,
@@ -20,6 +24,7 @@ import {
 import {
   acceptInviteSchema,
   changePasswordSchema,
+  createReferralSchema,
   exchangeSupabaseSchema,
   forgotPasswordSchema,
   inviteSchema,
@@ -50,4 +55,8 @@ authRoutes.post("/logout", logout);
 authRoutes.get("/me", requireAuth, getCurrentUser);
 authRoutes.post("/onboarding", requireAuth, validateJson(onboardingSchema), onboarding);
 authRoutes.post("/invite", requireAuth, requireTenant, requireRole("admin"), validateJson(inviteSchema), inviteMember);
+authRoutes.get("/invites", requireAuth, requireTenant, requireRole("admin"), listInvites);
+authRoutes.get("/invite/:token", getInviteLookup);
 authRoutes.post("/accept-invite", requireAuth, validateJson(acceptInviteSchema), acceptInvite);
+authRoutes.post("/referrals", requireAuth, requireTenant, requireRole("admin"), validateJson(createReferralSchema), createReferralLink);
+authRoutes.get("/referrals", requireAuth, requireTenant, requireRole("admin"), listReferralLinks);

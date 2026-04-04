@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowRight, CheckCircle2, MailCheck, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,10 +17,27 @@ import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLab
 import { Input } from "@/components/ui/input";
 import { Progress, ProgressLabel } from "@/components/ui/progress";
 import { apiRequest } from "@/lib/api";
-import { useAsyncForm } from "@/hooks/use-async-form";
 import { evaluatePasswordStrength } from "@/lib/auth-ui";
+import { savePendingInviteReferralContext } from "@/lib/invite-referral";
+import { useAsyncForm } from "@/hooks/use-async-form";
 
-export default function RegisterPage() {
+interface InviteLookupResponse {
+  valid: boolean;
+  invite: {
+    email: string;
+    role: string;
+    storeId: string | null;
+    referralCode: string | null;
+    inviteMessage: string | null;
+    expiresAt: string;
+  } | null;
+}
+
+function RegisterPageContent() {
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get("inviteToken");
+  const referralCodeFromUrl = searchParams.get("referralCode");
+
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,7 +45,11 @@ export default function RegisterPage() {
   const [acknowledged, setAcknowledged] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
+  const [inviteLookup, setInviteLookup] = useState<InviteLookupResponse["invite"] | null>(null);
+  const [inviteWarning, setInviteWarning] = useState<string | null>(null);
   const { submitting, formError, fieldErrors, clearFieldError, runSubmit } = useAsyncForm();
+
+  const referralCode = referralCodeFromUrl ?? inviteLookup?.referralCode ?? null;
 
   const passwordStrength = useMemo(
     () =>
@@ -40,6 +62,52 @@ export default function RegisterPage() {
 
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
 
+  useEffect(() => {
+    savePendingInviteReferralContext({
+      inviteToken,
+      referralCode,
+    });
+  }, [inviteToken, referralCode]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    const loadInvite = async () => {
+      if (!inviteToken) {
+        setInviteLookup(null);
+        setInviteWarning(null);
+        return;
+      }
+
+      try {
+        const response = await apiRequest<InviteLookupResponse>(`/auth/invite/${encodeURIComponent(inviteToken)}`);
+        if (disposed) {
+          return;
+        }
+
+        if (!response.valid || !response.invite) {
+          setInviteLookup(null);
+          setInviteWarning("This invite is invalid or expired. Registration can still continue normally.");
+          return;
+        }
+
+        setInviteLookup(response.invite);
+        setInviteWarning(null);
+      } catch {
+        if (!disposed) {
+          setInviteLookup(null);
+          setInviteWarning("Invite details could not be verified right now. Registration can still continue.");
+        }
+      }
+    };
+
+    void loadInvite();
+
+    return () => {
+      disposed = true;
+    };
+  }, [inviteToken]);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!acknowledged) {
@@ -47,6 +115,10 @@ export default function RegisterPage() {
     }
 
     try {
+      savePendingInviteReferralContext({
+        inviteToken,
+        referralCode,
+      });
       await runSubmit(
         () =>
           apiRequest("/auth/register", {
@@ -56,6 +128,8 @@ export default function RegisterPage() {
               email,
               password,
               confirmPassword,
+              inviteToken,
+              referralCode,
             }),
           }),
         "Registration failed",
@@ -112,6 +186,17 @@ export default function RegisterPage() {
               Open the verification email sent to <strong>{successEmail}</strong>. Once the link is confirmed, this account can continue directly into onboarding.
             </AlertDescription>
           </Alert>
+          {inviteLookup || referralCode ? (
+            <Alert>
+              <CheckCircle2 />
+              <AlertTitle>Invite or referral captured</AlertTitle>
+              <AlertDescription>
+                {inviteLookup
+                  ? `This account will try to accept the ${inviteLookup.role} invite for ${inviteLookup.email} after verification.`
+                  : "Referral attribution is saved and will continue after verification."}
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <Card className="border-border/60 bg-muted/20">
             <CardHeader>
               <CardTitle className="text-base">Next steps</CardTitle>
@@ -145,28 +230,92 @@ export default function RegisterPage() {
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+          {inviteLookup ? (
+            <Alert>
+              <CheckCircle2 />
+              <AlertTitle>Invite recognized</AlertTitle>
+              <AlertDescription>
+                {inviteLookup.email} is invited as <strong>{inviteLookup.role}</strong>.
+                {inviteLookup.inviteMessage ? ` Message: ${inviteLookup.inviteMessage}` : ""}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {inviteWarning ? (
+            <Alert>
+              <AlertCircle />
+              <AlertTitle>Invite warning</AlertTitle>
+              <AlertDescription>{inviteWarning}</AlertDescription>
+            </Alert>
+          ) : null}
+          {referralCode ? (
+            <Alert>
+              <CheckCircle2 />
+              <AlertTitle>Referral captured</AlertTitle>
+              <AlertDescription>
+                Referral code <strong>{referralCode}</strong> will be attached to this registration.
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <FormSection title="Owner account" description="This account becomes the first workspace owner after onboarding.">
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="fullName">Full name</FieldLabel>
-                <Input id="fullName" value={fullName} onChange={(event) => { clearFieldError("fullName"); setFullName(event.target.value); }} required />
+                <Input
+                  id="fullName"
+                  value={fullName}
+                  onChange={(event) => {
+                    clearFieldError("fullName");
+                    setFullName(event.target.value);
+                  }}
+                  required
+                />
                 <FieldDescription>This becomes the owner profile name used during onboarding.</FieldDescription>
                 <FieldError errors={fieldErrors.fullName?.map((message) => ({ message }))} />
               </Field>
               <Field>
                 <FieldLabel htmlFor="email">Email</FieldLabel>
-                <Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => { clearFieldError("email"); setEmail(event.target.value); }} required />
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => {
+                    clearFieldError("email");
+                    setEmail(event.target.value);
+                  }}
+                  required
+                />
                 <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
               </Field>
               <Field>
                 <FieldLabel htmlFor="password">Password</FieldLabel>
-                <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => { clearFieldError("password"); setPassword(event.target.value); }} required />
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => {
+                    clearFieldError("password");
+                    setPassword(event.target.value);
+                  }}
+                  required
+                />
                 <FieldDescription>The backend enforces the same strength rules shown below.</FieldDescription>
                 <FieldError errors={fieldErrors.password?.map((message) => ({ message }))} />
               </Field>
               <Field>
                 <FieldLabel htmlFor="confirmPassword">Confirm password</FieldLabel>
-                <Input id="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => { clearFieldError("confirmPassword"); setConfirmPassword(event.target.value); }} required />
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(event) => {
+                    clearFieldError("confirmPassword");
+                    setConfirmPassword(event.target.value);
+                  }}
+                  required
+                />
                 <FieldDescription>
                   {confirmPassword.length === 0 ? "Re-enter the password to avoid setup mistakes." : passwordsMatch ? "Passwords match." : "Passwords do not match yet."}
                 </FieldDescription>
@@ -190,9 +339,7 @@ export default function RegisterPage() {
             <CardContent className="flex flex-col gap-4">
               <Progress value={password.length === 0 ? 0 : passwordStrength.score}>
                 <ProgressLabel>{passwordStrength.label}</ProgressLabel>
-                <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-                  {password.length === 0 ? "0%" : `${passwordStrength.score}%`}
-                </span>
+                <span className="ml-auto text-sm text-muted-foreground tabular-nums">{password.length === 0 ? "0%" : `${passwordStrength.score}%`}</span>
               </Progress>
               <div className="grid gap-2 sm:grid-cols-2">
                 {passwordStrength.requirements.map((requirement) => (
@@ -212,5 +359,27 @@ export default function RegisterPage() {
         </form>
       )}
     </AuthShell>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthShell
+          badge="Register"
+          title="Create the first operator account"
+          description="Preparing registration details and invite context."
+        >
+          <Alert>
+            <MailCheck />
+            <AlertTitle>Loading registration</AlertTitle>
+            <AlertDescription>Checking invite and referral context before showing the form.</AlertDescription>
+          </Alert>
+        </AuthShell>
+      }
+    >
+      <RegisterPageContent />
+    </Suspense>
   );
 }

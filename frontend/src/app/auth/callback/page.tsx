@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAuthMe } from "@/lib/auth-client";
 import { getFrontendEnv } from "@/lib/env";
+import { clearPendingInviteReferralContext, readPendingInviteReferralContext, savePendingInviteReferralContext } from "@/lib/invite-referral";
 import { supabase } from "@/lib/supabase";
 
 function AuthCallbackContent() {
@@ -29,6 +30,16 @@ function AuthCallbackContent() {
         const type = searchParams.get("type") ?? hashParams.get("type");
         const accessTokenFromUrl = searchParams.get("access_token") ?? hashParams.get("access_token");
         const refreshTokenFromUrl = searchParams.get("refresh_token") ?? hashParams.get("refresh_token");
+        const inviteTokenFromUrl = searchParams.get("inviteToken");
+        const referralCodeFromUrl = searchParams.get("referralCode");
+        const pendingContext = readPendingInviteReferralContext();
+        const inviteToken = inviteTokenFromUrl ?? pendingContext.inviteToken ?? null;
+        const referralCode = referralCodeFromUrl ?? pendingContext.referralCode ?? null;
+
+        savePendingInviteReferralContext({
+          inviteToken,
+          referralCode,
+        });
 
         if (code) {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
@@ -76,6 +87,8 @@ function AuthCallbackContent() {
           },
           body: JSON.stringify({
             supabaseAccessToken: accessToken,
+            inviteToken,
+            referralCode,
           }),
         });
 
@@ -84,6 +97,7 @@ function AuthCallbackContent() {
         }
 
         await supabase.auth.signOut();
+        clearPendingInviteReferralContext();
 
         const me = await fetchAuthMe();
         if (!disposed) {

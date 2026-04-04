@@ -4,7 +4,18 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { authRefreshTokens, companies, companyInvites, companyMemberships, companyPlans, profiles, stores, superAdmins } from "@/db/schema";
+import {
+  authRefreshTokens,
+  companies,
+  companyInvites,
+  companyMemberships,
+  companyPlans,
+  profiles,
+  referralAttributions,
+  referralCodes,
+  stores,
+  superAdmins,
+} from "@/db/schema";
 import {
   assertPasswordPolicy,
   hashToken,
@@ -22,9 +33,20 @@ import { ok } from "@/lib/api";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { ensureAuthSession, recordSecurityAuditLog, requireActiveAuthSession, revokeAuthSession } from "@/lib/security";
+import {
+  buildInviteRegistrationUrl,
+  buildReferralRegistrationUrl,
+  canAcceptInviteForUser,
+  isInviteActive,
+  resolveReferralStatusAfterInviteAcceptance,
+  resolveReferralStatusAfterOnboarding,
+  resolveReferralStatusAfterRegistration,
+  resolveReferralStatusAfterVerification,
+} from "@/modules/auth/invite-referral";
 import type {
   AcceptInviteInput,
   ChangePasswordInput,
+  CreateReferralInput,
   ExchangeSupabaseInput,
   ForgotPasswordInput,
   InviteInput,
@@ -45,6 +67,192 @@ const authCookieBase = {
   sameSite: env.COOKIE_SAME_SITE as "lax" | "strict" | "none" | "Lax" | "Strict" | "None",
   secure: env.COOKIE_SECURE,
 };
+
+function generateReferralCode(seed: string) {
+  const cleanSeed = seed.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const prefix = cleanSeed.slice(0, 6) || "REF";
+  return `${prefix}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+}
+
+async function getInviteByToken(token: string) {
+  const [invite] = await db
+    .select()
+    .from(companyInvites)
+    .where(eq(companyInvites.token, token))
+    .limit(1);
+
+  return invite ?? null;
+}
+
+async function getReferralCodeByCode(code: string) {
+  const [referralCode] = await db
+    .select()
+    .from(referralCodes)
+    .where(and(eq(referralCodes.code, code), eq(referralCodes.isActive, true)))
+    .limit(1);
+
+  return referralCode ?? null;
+}
+
+async function ensureUserReferralCode(input: { userId: string; companyId?: string | null; email?: string | null }) {
+  const [existing] = await db
+    .select()
+    .from(referralCodes)
+    .where(
+      and(
+        eq(referralCodes.referrerUserId, input.userId),
+        input.companyId ? eq(referralCodes.companyId, input.companyId) : isNull(referralCodes.companyId),
+        eq(referralCodes.isActive, true),
+      ),
+    )
+    .orderBy(desc(referralCodes.createdAt))
+    .limit(1);
+
+  if (existing) {
+    return existing;
+  }
+
+  const [created] = await db
+    .insert(referralCodes)
+    .values({
+      companyId: input.companyId ?? null,
+      referrerUserId: input.userId,
+      code: generateReferralCode(input.email ?? input.userId),
+    })
+    .returning();
+
+  return created;
+}
+
+async function createOrUpdateReferralAttribution(input: {
+  referralCodeId: string;
+  companyId?: string | null;
+  referrerUserId: string;
+  referredUserId?: string | null;
+  referredEmail?: string | null;
+  inviteId?: string | null;
+  status: "captured" | "registered" | "verified" | "joined_company" | "completed_onboarding";
+}) {
+  const referredEmail = input.referredEmail?.toLowerCase() ?? null;
+  let existing = null as typeof referralAttributions.$inferSelect | null;
+
+  if (input.referredUserId) {
+    [existing] = await db
+      .select()
+      .from(referralAttributions)
+      .where(and(eq(referralAttributions.referralCodeId, input.referralCodeId), eq(referralAttributions.referredUserId, input.referredUserId)))
+      .limit(1);
+  }
+
+  if (!existing && referredEmail) {
+    [existing] = await db
+      .select()
+      .from(referralAttributions)
+      .where(and(eq(referralAttributions.referralCodeId, input.referralCodeId), eq(referralAttributions.referredEmail, referredEmail)))
+      .limit(1);
+  }
+
+  const timestampFields =
+    input.status === "registered"
+      ? { registeredAt: new Date() }
+      : input.status === "verified"
+        ? { verifiedAt: new Date() }
+        : input.status === "joined_company"
+          ? { joinedCompanyAt: new Date() }
+          : input.status === "completed_onboarding"
+            ? { completedOnboardingAt: new Date() }
+            : {};
+
+  if (existing) {
+    const [updated] = await db
+      .update(referralAttributions)
+      .set({
+        companyId: input.companyId ?? existing.companyId,
+        referredUserId: input.referredUserId ?? existing.referredUserId,
+        referredEmail: referredEmail ?? existing.referredEmail,
+        inviteId: input.inviteId ?? existing.inviteId,
+        status: input.status,
+        ...timestampFields,
+        updatedAt: new Date(),
+      })
+      .where(eq(referralAttributions.id, existing.id))
+      .returning();
+
+    return updated;
+  }
+
+  const [created] = await db
+    .insert(referralAttributions)
+    .values({
+      referralCodeId: input.referralCodeId,
+      companyId: input.companyId ?? null,
+      referrerUserId: input.referrerUserId,
+      referredUserId: input.referredUserId ?? null,
+      referredEmail,
+      inviteId: input.inviteId ?? null,
+      status: input.status,
+      capturedAt: new Date(),
+      ...timestampFields,
+    })
+    .returning();
+
+  return created;
+}
+
+async function acceptInviteForIdentity(input: { token: string; userId: string; email: string | null }) {
+  const [invite] = await db
+    .select()
+    .from(companyInvites)
+    .where(and(eq(companyInvites.token, input.token), eq(companyInvites.status, "pending"), gt(companyInvites.expiresAt, new Date())))
+    .limit(1);
+
+  if (!invite) {
+    return {
+      accepted: false as const,
+      reason: "invalid_invite",
+      invite: null,
+    };
+  }
+
+  if (!canAcceptInviteForUser({ inviteEmail: invite.email, authenticatedEmail: input.email })) {
+    throw AppError.forbidden("Invite email does not match authenticated user");
+  }
+
+  await db
+    .insert(companyMemberships)
+    .values({
+      companyId: invite.companyId,
+      userId: input.userId,
+      role: invite.role,
+      storeId: invite.storeId,
+      status: "active",
+    })
+    .onConflictDoUpdate({
+      target: [companyMemberships.companyId, companyMemberships.userId],
+      set: {
+        role: invite.role,
+        storeId: invite.storeId,
+        status: "active",
+        deletedAt: null,
+        updatedAt: new Date(),
+      },
+    });
+
+  await db
+    .update(companyInvites)
+    .set({
+      status: "accepted",
+      acceptedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(companyInvites.id, invite.id));
+
+  return {
+    accepted: true as const,
+    reason: null,
+    invite,
+  };
+}
 
 function setAuthCookies(c: Parameters<typeof setCookie>[0], input: { accessToken: string; refreshToken: string }) {
   setCookie(c, ACCESS_COOKIE, input.accessToken, {
@@ -192,6 +400,20 @@ export async function register(c: Context<AppEnv>) {
         updatedAt: new Date(),
       })
       .where(eq(profiles.id, registration.userId));
+
+    if (body.referralCode) {
+      const referralCode = await getReferralCodeByCode(body.referralCode);
+      if (referralCode) {
+        await createOrUpdateReferralAttribution({
+          referralCodeId: referralCode.id,
+          companyId: referralCode.companyId ?? null,
+          referrerUserId: referralCode.referrerUserId,
+          referredUserId: registration.userId,
+          referredEmail: registration.email,
+          status: resolveReferralStatusAfterRegistration(),
+        });
+      }
+    }
   }
 
   return ok(
@@ -200,6 +422,8 @@ export async function register(c: Context<AppEnv>) {
       registered: true,
       email: registration.email ?? body.email,
       emailConfirmationRequired: registration.emailConfirmationRequired,
+      inviteCaptured: Boolean(body.inviteToken),
+      referralCaptured: Boolean(body.referralCode),
     },
     201,
   );
@@ -252,6 +476,64 @@ export async function exchangeSupabaseSession(c: Context<AppEnv>) {
   const identity = await verifySupabaseAccessToken(body.supabaseAccessToken);
 
   await createSession(c, identity);
+  let inviteAccepted = false;
+  let inviteError: string | null = null;
+
+  if (body.inviteToken) {
+    try {
+      const inviteResult = await acceptInviteForIdentity({
+        token: body.inviteToken,
+        userId: identity.userId,
+        email: identity.email,
+      });
+      inviteAccepted = inviteResult.accepted;
+      if (inviteResult.accepted && inviteResult.invite?.referralCode) {
+        const referralCode = await getReferralCodeByCode(inviteResult.invite.referralCode);
+        if (referralCode) {
+          await createOrUpdateReferralAttribution({
+            referralCodeId: referralCode.id,
+            companyId: inviteResult.invite.companyId,
+            referrerUserId: referralCode.referrerUserId,
+            referredUserId: identity.userId,
+            referredEmail: identity.email,
+            inviteId: inviteResult.invite.id,
+          status: resolveReferralStatusAfterInviteAcceptance(),
+          });
+        }
+      }
+    } catch (error) {
+      if (error instanceof AppError && error.status < 500) {
+        inviteError = error.message;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  if (body.referralCode) {
+    const referralCode = await getReferralCodeByCode(body.referralCode);
+    if (referralCode) {
+      const membership = referralCode.companyId
+        ? await db
+            .select({ id: companyMemberships.id })
+            .from(companyMemberships)
+            .where(and(eq(companyMemberships.userId, identity.userId), eq(companyMemberships.companyId, referralCode.companyId), isNull(companyMemberships.deletedAt)))
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+        : null;
+
+      await createOrUpdateReferralAttribution({
+        referralCodeId: referralCode.id,
+        companyId: referralCode.companyId ?? null,
+        referrerUserId: referralCode.referrerUserId,
+        referredUserId: identity.userId,
+        referredEmail: identity.email,
+        status: resolveReferralStatusAfterVerification({
+          hasCompanyMembership: Boolean(membership),
+        }),
+      });
+    }
+  }
 
   return ok(c, {
     user: {
@@ -259,6 +541,8 @@ export async function exchangeSupabaseSession(c: Context<AppEnv>) {
       email: identity.email,
     },
     authenticated: true,
+    inviteAccepted,
+    inviteError,
   });
 }
 
@@ -598,6 +882,23 @@ export async function onboarding(c: Context<AppEnv>) {
     })
     .returning();
 
+  const attributions = await db
+    .select()
+    .from(referralAttributions)
+    .where(eq(referralAttributions.referredUserId, user.id));
+
+  for (const attribution of attributions) {
+    await db
+      .update(referralAttributions)
+      .set({
+        companyId: attribution.companyId ?? company.id,
+        status: resolveReferralStatusAfterOnboarding(),
+        completedOnboardingAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(referralAttributions.id, attribution.id));
+  }
+
   return ok(
     c,
     {
@@ -634,6 +935,11 @@ export async function inviteMember(c: Context<AppEnv>) {
 
   const token = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000);
+  const inviterReferralCode = await ensureUserReferralCode({
+    userId: user.id,
+    companyId: tenant.companyId,
+    email: user.email,
+  });
 
   const [createdInvite] = await db
     .insert(companyInvites)
@@ -643,6 +949,8 @@ export async function inviteMember(c: Context<AppEnv>) {
       role: body.role,
       storeId: body.storeId ?? null,
       token,
+      referralCode: inviterReferralCode.code,
+      inviteMessage: body.inviteMessage ?? null,
       invitedBy: user.id,
       expiresAt,
     })
@@ -653,62 +961,178 @@ export async function inviteMember(c: Context<AppEnv>) {
     {
       inviteId: createdInvite.id,
       token: createdInvite.token,
+      inviteUrl: buildInviteRegistrationUrl({
+        frontendUrl: env.FRONTEND_URL,
+        inviteToken: createdInvite.token,
+        referralCode: inviterReferralCode.code,
+      }),
       expiresAt: createdInvite.expiresAt,
       role: createdInvite.role,
       email: createdInvite.email,
+      referralCode: inviterReferralCode.code,
+      inviteMessage: createdInvite.inviteMessage,
     },
     201,
   );
 }
 
+export async function listInvites(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+
+  const items = await db
+    .select({
+      inviteId: companyInvites.id,
+      email: companyInvites.email,
+      role: companyInvites.role,
+      status: companyInvites.status,
+      storeId: companyInvites.storeId,
+      referralCode: companyInvites.referralCode,
+      inviteMessage: companyInvites.inviteMessage,
+      metadata: companyInvites.metadata,
+      expiresAt: companyInvites.expiresAt,
+      acceptedAt: companyInvites.acceptedAt,
+      createdAt: companyInvites.createdAt,
+      token: companyInvites.token,
+    })
+    .from(companyInvites)
+    .where(eq(companyInvites.companyId, tenant.companyId))
+    .orderBy(desc(companyInvites.createdAt));
+
+  return ok(c, {
+    items: items.map((item) => ({
+      ...item,
+      inviteUrl: buildInviteRegistrationUrl({
+        frontendUrl: env.FRONTEND_URL,
+        inviteToken: item.token,
+        referralCode: item.referralCode,
+      }),
+    })),
+  });
+}
+
+export async function getInviteLookup(c: Context<AppEnv>) {
+  const token = c.req.param("token");
+  if (!token) {
+    return ok(c, {
+      valid: false,
+      invite: null,
+    });
+  }
+  const invite = await getInviteByToken(token);
+
+  if (!isInviteActive(invite)) {
+    return ok(c, {
+      valid: false,
+      invite: null,
+    });
+  }
+
+  return ok(c, {
+    valid: true,
+    invite: {
+      email: invite.email,
+      role: invite.role,
+      storeId: invite.storeId,
+      referralCode: invite.referralCode,
+      inviteMessage: invite.inviteMessage,
+      expiresAt: invite.expiresAt,
+    },
+  });
+}
+
+export async function createReferralLink(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const body = c.get("validatedBody") as CreateReferralInput;
+
+  const referralCode = await ensureUserReferralCode({
+    userId: user.id,
+    companyId: tenant.companyId,
+    email: user.email,
+  });
+
+  if (body.metadata && Object.keys(body.metadata).length > 0) {
+    await db
+      .update(referralCodes)
+      .set({
+        metadata: body.metadata,
+        updatedAt: new Date(),
+      })
+      .where(eq(referralCodes.id, referralCode.id));
+  }
+
+  return ok(c, {
+    referralCode: referralCode.code,
+    referralUrl: buildReferralRegistrationUrl({
+      frontendUrl: env.FRONTEND_URL,
+      referralCode: referralCode.code,
+    }),
+    createdAt: referralCode.createdAt,
+  }, 201);
+}
+
+export async function listReferralLinks(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const tenantIsAdmin = c.get("tenant")?.role === "admin" || c.get("tenant")?.role === "owner";
+  const codeConditions = [eq(referralCodes.companyId, tenant.companyId)];
+  const attributionConditions = [eq(referralAttributions.companyId, tenant.companyId)];
+  if (!tenantIsAdmin) {
+    codeConditions.push(eq(referralCodes.referrerUserId, user.id));
+    attributionConditions.push(eq(referralAttributions.referrerUserId, user.id));
+  }
+
+  const codeRows = await db
+    .select()
+    .from(referralCodes)
+    .where(and(...codeConditions));
+
+  const attributionRows = await db
+    .select()
+    .from(referralAttributions)
+    .where(and(...attributionConditions))
+    .orderBy(desc(referralAttributions.createdAt));
+
+  return ok(c, {
+    codes: codeRows.map((item) => ({
+      ...item,
+      referralUrl: buildReferralRegistrationUrl({
+        frontendUrl: env.FRONTEND_URL,
+        referralCode: item.code,
+      }),
+    })),
+    attributions: attributionRows,
+  });
+}
+
 export async function acceptInvite(c: Context<AppEnv>) {
   const body = c.get("validatedBody") as AcceptInviteInput;
   const user = c.get("user");
+  const result = await acceptInviteForIdentity({
+    token: body.token,
+    userId: user.id,
+    email: user.email,
+  });
 
-  const [invite] = await db
-    .select()
-    .from(companyInvites)
-    .where(and(eq(companyInvites.token, body.token), eq(companyInvites.status, "pending"), gt(companyInvites.expiresAt, new Date())))
-    .limit(1);
-
-  if (!invite) {
+  if (!result.accepted || !result.invite) {
     throw AppError.notFound("Invite token is invalid or expired");
   }
+  const invite = result.invite;
 
-  if (user.email && user.email.toLowerCase() !== invite.email.toLowerCase()) {
-    throw AppError.forbidden("Invite email does not match authenticated user");
+  if (invite.referralCode) {
+    const referralCode = await getReferralCodeByCode(invite.referralCode);
+    if (referralCode) {
+      await createOrUpdateReferralAttribution({
+        referralCodeId: referralCode.id,
+        companyId: invite.companyId,
+        referrerUserId: referralCode.referrerUserId,
+        referredUserId: user.id,
+        referredEmail: user.email,
+        inviteId: invite.id,
+        status: resolveReferralStatusAfterInviteAcceptance(),
+      });
+    }
   }
-
-  await upsertProfile(user.id, user.email);
-
-  await db
-    .insert(companyMemberships)
-    .values({
-      companyId: invite.companyId,
-      userId: user.id,
-      role: invite.role,
-      storeId: invite.storeId,
-      status: "active",
-    })
-    .onConflictDoUpdate({
-      target: [companyMemberships.companyId, companyMemberships.userId],
-      set: {
-        role: invite.role,
-        status: "active",
-        storeId: invite.storeId,
-        updatedAt: new Date(),
-        deletedAt: null,
-      },
-    });
-
-  await db
-    .update(companyInvites)
-    .set({
-      status: "accepted",
-      acceptedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(companyInvites.id, invite.id));
 
   await recordSecurityAuditLog({
     requestId: c.get("requestId"),

@@ -16,6 +16,13 @@ import {
 export const companyRoleEnum = pgEnum("company_role", ["owner", "admin", "member"]);
 export const membershipStatusEnum = pgEnum("membership_status", ["active", "invited", "disabled"]);
 export const inviteStatusEnum = pgEnum("invite_status", ["pending", "accepted", "revoked", "expired"]);
+export const referralAttributionStatusEnum = pgEnum("referral_attribution_status", [
+  "captured",
+  "registered",
+  "verified",
+  "joined_company",
+  "completed_onboarding",
+]);
 export const leadStatusEnum = pgEnum("lead_status", ["new", "qualified", "proposal", "won", "lost"]);
 export const dealStatusEnum = pgEnum("deal_status", ["open", "won", "lost"]);
 export const taskStatusEnum = pgEnum("task_status", ["todo", "in_progress", "done", "overdue"]);
@@ -304,6 +311,9 @@ export const companyInvites = pgTable(
     role: companyRoleEnum("role").notNull().default("member"),
     storeId: uuid("store_id").references(() => stores.id, { onDelete: "set null" }),
     token: text("token").notNull(),
+    referralCode: varchar("referral_code", { length: 80 }),
+    inviteMessage: text("invite_message"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     status: inviteStatusEnum("status").notNull().default("pending"),
     invitedBy: uuid("invited_by")
       .notNull()
@@ -316,6 +326,58 @@ export const companyInvites = pgTable(
   (table) => ({
     tokenUnique: uniqueIndex("company_invites_token_unique").on(table.token),
     companyEmailIdx: index("company_invites_company_email_idx").on(table.companyId, table.email),
+  }),
+);
+
+export const referralCodes = pgTable(
+  "referral_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "cascade" }),
+    referrerUserId: uuid("referrer_user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    code: varchar("code", { length: 80 }).notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    codeUnique: uniqueIndex("referral_codes_code_unique").on(table.code),
+    companyReferrerIdx: index("referral_codes_company_referrer_idx").on(table.companyId, table.referrerUserId, table.createdAt),
+  }),
+);
+
+export const referralAttributions = pgTable(
+  "referral_attributions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    referralCodeId: uuid("referral_code_id")
+      .notNull()
+      .references(() => referralCodes.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "cascade" }),
+    referrerUserId: uuid("referrer_user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    referredUserId: uuid("referred_user_id").references(() => profiles.id, { onDelete: "set null" }),
+    referredEmail: varchar("referred_email", { length: 320 }),
+    inviteId: uuid("invite_id").references(() => companyInvites.id, { onDelete: "set null" }),
+    status: referralAttributionStatusEnum("status").notNull().default("captured"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).defaultNow().notNull(),
+    registeredAt: timestamp("registered_at", { withTimezone: true }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    joinedCompanyAt: timestamp("joined_company_at", { withTimezone: true }),
+    completedOnboardingAt: timestamp("completed_onboarding_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    codeUserUnique: uniqueIndex("referral_attributions_code_user_unique").on(table.referralCodeId, table.referredUserId),
+    codeEmailUnique: uniqueIndex("referral_attributions_code_email_unique").on(table.referralCodeId, table.referredEmail),
+    companyStatusIdx: index("referral_attributions_company_status_idx").on(table.companyId, table.status, table.createdAt),
+    referrerIdx: index("referral_attributions_referrer_idx").on(table.referrerUserId, table.createdAt),
   }),
 );
 

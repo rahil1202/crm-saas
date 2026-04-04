@@ -5,9 +5,14 @@ export const inviteSchema = z.object({
   role: z.enum(["owner", "admin", "member"]).default("member"),
   storeId: z.string().uuid().nullable().optional(),
   expiresInDays: z.number().int().min(1).max(30).default(7),
+  inviteMessage: z.string().trim().max(2000).nullable().optional(),
 });
 
 export const acceptInviteSchema = z.object({
+  token: z.string().min(1),
+});
+
+export const inviteLookupSchema = z.object({
   token: z.string().min(1),
 });
 
@@ -22,6 +27,8 @@ export const registerSchema = z
     email: z.string().email(),
     password: z.string().min(8),
     confirmPassword: z.string().min(8),
+    inviteToken: z.string().trim().min(1).optional(),
+    referralCode: z.string().trim().min(1).optional(),
   })
   .refine((value) => value.password === value.confirmPassword, {
     message: "Passwords do not match",
@@ -30,6 +37,12 @@ export const registerSchema = z
 
 export const exchangeSupabaseSchema = z.object({
   supabaseAccessToken: z.string().min(1),
+  inviteToken: z.string().trim().min(1).optional(),
+  referralCode: z.string().trim().min(1).optional(),
+});
+
+export const createReferralSchema = z.object({
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const forgotPasswordSchema = z.object({
@@ -76,9 +89,11 @@ export const onboardingSchema = z.object({
 
 export type InviteInput = z.infer<typeof inviteSchema>;
 export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
+export type InviteLookupInput = z.infer<typeof inviteLookupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type ExchangeSupabaseInput = z.infer<typeof exchangeSupabaseSchema>;
+export type CreateReferralInput = z.infer<typeof createReferralSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

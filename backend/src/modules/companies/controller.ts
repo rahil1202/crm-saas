@@ -1,10 +1,11 @@
-import { and, asc, eq, gt, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { companies, companyInvites, companyMemberships, companyPlans, profiles, stores } from "@/db/schema";
+import { companies, companyInvites, companyMemberships, companyPlans, profiles, referralAttributions, referralCodes, stores } from "@/db/schema";
 import { ok } from "@/lib/api";
+import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { companyParamSchema, storeParamSchema } from "@/modules/companies/schema";
 import type { CreateStoreInput, UpdateCompanyInput, UpdateCompanyPlanInput, UpdateStoreInput } from "@/modules/companies/schema";
@@ -52,13 +53,65 @@ async function loadCompanySnapshot(companyId: string) {
       status: companyInvites.status,
       storeId: companyInvites.storeId,
       storeName: stores.name,
+      referralCode: companyInvites.referralCode,
+      inviteMessage: companyInvites.inviteMessage,
+      metadata: companyInvites.metadata,
+      token: companyInvites.token,
+      invitedBy: companyInvites.invitedBy,
+      inviterName: profiles.fullName,
+      inviterEmail: profiles.email,
       expiresAt: companyInvites.expiresAt,
+      acceptedAt: companyInvites.acceptedAt,
       createdAt: companyInvites.createdAt,
     })
     .from(companyInvites)
+    .leftJoin(profiles, eq(profiles.id, companyInvites.invitedBy))
     .leftJoin(stores, eq(stores.id, companyInvites.storeId))
-    .where(and(eq(companyInvites.companyId, companyId), gt(companyInvites.expiresAt, new Date())))
-    .orderBy(asc(companyInvites.createdAt));
+    .where(eq(companyInvites.companyId, companyId))
+    .orderBy(desc(companyInvites.createdAt));
+
+  const referralCodeRows = await db
+    .select({
+      id: referralCodes.id,
+      code: referralCodes.code,
+      isActive: referralCodes.isActive,
+      metadata: referralCodes.metadata,
+      createdAt: referralCodes.createdAt,
+      updatedAt: referralCodes.updatedAt,
+      referrerUserId: referralCodes.referrerUserId,
+      referrerName: profiles.fullName,
+      referrerEmail: profiles.email,
+    })
+    .from(referralCodes)
+    .leftJoin(profiles, eq(profiles.id, referralCodes.referrerUserId))
+    .where(eq(referralCodes.companyId, companyId))
+    .orderBy(desc(referralCodes.createdAt));
+
+  const referralAttributionRows = await db
+    .select({
+      id: referralAttributions.id,
+      referralCodeId: referralAttributions.referralCodeId,
+      referralCode: referralCodes.code,
+      status: referralAttributions.status,
+      referrerUserId: referralAttributions.referrerUserId,
+      referrerName: profiles.fullName,
+      referrerEmail: profiles.email,
+      referredUserId: referralAttributions.referredUserId,
+      referredEmail: referralAttributions.referredEmail,
+      inviteId: referralAttributions.inviteId,
+      capturedAt: referralAttributions.capturedAt,
+      registeredAt: referralAttributions.registeredAt,
+      verifiedAt: referralAttributions.verifiedAt,
+      joinedCompanyAt: referralAttributions.joinedCompanyAt,
+      completedOnboardingAt: referralAttributions.completedOnboardingAt,
+      createdAt: referralAttributions.createdAt,
+      updatedAt: referralAttributions.updatedAt,
+    })
+    .from(referralAttributions)
+    .leftJoin(referralCodes, eq(referralCodes.id, referralAttributions.referralCodeId))
+    .leftJoin(profiles, eq(profiles.id, referralAttributions.referrerUserId))
+    .where(eq(referralAttributions.companyId, companyId))
+    .orderBy(desc(referralAttributions.createdAt));
 
   const [plan] = await db.select().from(companyPlans).where(eq(companyPlans.companyId, companyId)).limit(1);
 
@@ -75,7 +128,15 @@ async function loadCompanySnapshot(companyId: string) {
     plan: plan ?? null,
     stores: storeRows,
     members: memberRows,
-    invites: inviteRows,
+    invites: inviteRows.map((invite) => ({
+      ...invite,
+      inviteUrl: `${env.FRONTEND_URL}/register?inviteToken=${encodeURIComponent(invite.token)}${invite.referralCode ? `&referralCode=${encodeURIComponent(invite.referralCode)}` : ""}`,
+    })),
+    referralCodes: referralCodeRows.map((item) => ({
+      ...item,
+      referralUrl: `${env.FRONTEND_URL}/register?referralCode=${encodeURIComponent(item.code)}`,
+    })),
+    referralAttributions: referralAttributionRows,
   };
 }
 
