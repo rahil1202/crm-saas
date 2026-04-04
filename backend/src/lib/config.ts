@@ -37,6 +37,7 @@ const envSchema = z.object({
   SUPABASE_JWT_AUDIENCE: z.string().default("authenticated"),
   ACCESS_TOKEN_SECRET: z.string().min(32).default("dev-access-secret-dev-access-secret-123"),
   REFRESH_TOKEN_SECRET: z.string().min(32).default("dev-refresh-secret-dev-refresh-secret-123"),
+  INTEGRATION_CRYPTO_SECRET: z.string().min(32).optional(),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).default(900),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(3600).default(60 * 60 * 24 * 30),
   FILE_STORAGE_DIR: z.string().default("storage/uploads"),

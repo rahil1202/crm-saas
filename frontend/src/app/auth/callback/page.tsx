@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAuthMe } from "@/lib/auth-client";
 import { getFrontendEnv } from "@/lib/env";
+import { clearPendingIntegrationOauthContext, readPendingIntegrationOauthContext } from "@/lib/integration-oauth";
 import { clearPendingInviteReferralContext, readPendingInviteReferralContext, savePendingInviteReferralContext } from "@/lib/invite-referral";
 import { supabase } from "@/lib/supabase";
 
@@ -75,8 +76,59 @@ function AuthCallbackContent() {
 
         const { data } = await supabase.auth.getSession();
         const accessToken = data.session?.access_token;
+        const pendingIntegrationOauth = readPendingIntegrationOauthContext();
+        const providerAccessToken = data.session?.provider_token;
+        const providerRefreshToken = data.session?.provider_refresh_token;
         if (!accessToken) {
           throw new Error("No verified Supabase session found");
+        }
+        const session = data.session;
+        if (!session) {
+          throw new Error("No verified Supabase session found");
+        }
+
+        if (pendingIntegrationOauth) {
+          if (!providerAccessToken) {
+            throw new Error("OAuth provider token was not returned by Supabase");
+          }
+
+          const linkResponse = await fetch(`${env.apiUrl}/api/v1/settings/integrations/oauth/link`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              channel: pendingIntegrationOauth.channel,
+              provider: pendingIntegrationOauth.provider,
+              scopes: pendingIntegrationOauth.scopes,
+              providerAccessToken,
+              providerRefreshToken: providerRefreshToken ?? null,
+              account: {
+                email: session.user.email ?? null,
+                name:
+                  (typeof session.user.user_metadata?.full_name === "string" && session.user.user_metadata.full_name) ||
+                  (typeof session.user.user_metadata?.name === "string" && session.user.user_metadata.name) ||
+                  null,
+                handle:
+                  (typeof session.user.user_metadata?.user_name === "string" && session.user.user_metadata.user_name) ||
+                  (typeof session.user.user_metadata?.preferred_username === "string" && session.user.user_metadata.preferred_username) ||
+                  null,
+                providerUserId: session.user.id,
+              },
+            }),
+          });
+
+          if (!linkResponse.ok) {
+            throw new Error("Failed to link OAuth integration to the current workspace");
+          }
+
+          await supabase.auth.signOut();
+          clearPendingIntegrationOauthContext();
+          if (!disposed) {
+            router.replace(`${pendingIntegrationOauth.returnPath}?oauth=success&provider=${pendingIntegrationOauth.provider}`);
+          }
+          return;
         }
 
         const exchangeResponse = await fetch(`${env.apiUrl}/api/v1/auth/exchange-supabase`, {
@@ -97,6 +149,7 @@ function AuthCallbackContent() {
         }
 
         await supabase.auth.signOut();
+        clearPendingIntegrationOauthContext();
         clearPendingInviteReferralContext();
 
         const me = await fetchAuthMe();
@@ -104,6 +157,7 @@ function AuthCallbackContent() {
           router.replace(me?.needsOnboarding ? "/onboarding" : "/dashboard");
         }
       } catch (caughtError) {
+        clearPendingIntegrationOauthContext();
         if (!disposed) {
           setError(caughtError instanceof Error ? caughtError.message : "Authentication callback failed");
         }

@@ -5,12 +5,17 @@ import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { companySettings, emailAccounts, socialAccounts } from "@/db/schema";
 import { ok } from "@/lib/api";
-import { getCompanySettings } from "@/lib/company-settings";
+import { getCompanySettings, mergeIntegrationSettings, normalizeIntegrationSettings } from "@/lib/company-settings";
 import { env } from "@/lib/config";
+import { ensureEmailAccount } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
+import { encryptIntegrationSecret } from "@/lib/integration-crypto";
+import { getIntegrationHub } from "@/lib/integration-hub";
 import type {
   UpdateCompanyPreferencesInput,
   UpdateCustomFieldsInput,
+  DisconnectIntegrationOauthInput,
+  LinkIntegrationOauthInput,
   UpdateIntegrationsInput,
   UpdateLeadSourcesInput,
   UpdateNotificationRulesInput,
@@ -144,7 +149,7 @@ export async function getRuntimeReadiness(c: Context<AppEnv>) {
 
   return ok(c, {
     email: {
-      provider: settings.integrations.emailProvider,
+      provider: settings.integrations.email.provider ?? settings.integrations.emailProvider,
       envReady: Boolean(env.RESEND_API_KEY && env.RESEND_WEBHOOK_SECRET),
       apiKeyConfigured: Boolean(env.RESEND_API_KEY),
       webhookSecretConfigured: Boolean(env.RESEND_WEBHOOK_SECRET),
@@ -154,7 +159,7 @@ export async function getRuntimeReadiness(c: Context<AppEnv>) {
       webhookUrl: `${env.BACKEND_URL}/api/v1/public/email/resend/webhook`,
     },
     whatsapp: {
-      provider: settings.integrations.whatsappProvider,
+      provider: settings.integrations.whatsapp.provider ?? settings.integrations.whatsappProvider,
       envReady: Boolean(env.WHATSAPP_WEBHOOK_VERIFY_TOKEN && env.WHATSAPP_APP_SECRET && (env.WHATSAPP_ACCESS_TOKEN || whatsappConfiguredAccounts.length > 0)),
       verifyTokenConfigured: Boolean(env.WHATSAPP_WEBHOOK_VERIFY_TOKEN),
       appSecretConfigured: Boolean(env.WHATSAPP_APP_SECRET),
@@ -269,33 +274,260 @@ export async function getIntegrations(c: Context<AppEnv>) {
   const settings = await getCompanySettings(tenant.companyId);
 
   return ok(c, {
-    integrations: settings.integrations,
+    integrations: normalizeIntegrationSettings(settings.integrations),
   });
+}
+
+export async function getIntegrationsHub(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  return ok(c, await getIntegrationHub(tenant.companyId));
 }
 
 export async function updateIntegrations(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const body = c.get("validatedBody") as UpdateIntegrationsInput;
 
-  await getCompanySettings(tenant.companyId);
+  const currentSettings = await getCompanySettings(tenant.companyId);
+  const mergedIntegrations = mergeIntegrationSettings(currentSettings.integrations, body.integrations);
 
   const [updated] = await db
     .update(companySettings)
     .set({
-      integrations: {
-        slackWebhookUrl: body.integrations.slackWebhookUrl ?? null,
-        whatsappProvider: body.integrations.whatsappProvider ?? null,
-        emailProvider: body.integrations.emailProvider ?? null,
-        webhookUrl: body.integrations.webhookUrl ?? null,
-      },
+      integrations: mergedIntegrations,
       updatedAt: new Date(),
     })
     .where(eq(companySettings.companyId, tenant.companyId))
     .returning();
 
   return ok(c, {
-    integrations: updated.integrations,
+    integrations: normalizeIntegrationSettings(updated.integrations),
   });
+}
+
+export async function linkIntegrationOauth(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const body = c.get("validatedBody") as LinkIntegrationOauthInput;
+  const currentSettings = await getCompanySettings(tenant.companyId);
+
+  if (body.channel === "email") {
+    if (body.provider !== "google" && body.provider !== "azure") {
+      throw AppError.badRequest("Email OAuth supports Google or Azure providers");
+    }
+
+    const fromEmail = body.account.email ?? user.email;
+    if (!fromEmail) {
+      throw AppError.badRequest("OAuth-linked email accounts require a verified email address");
+    }
+
+    const account = await ensureEmailAccount({
+      companyId: tenant.companyId,
+      userId: user.id,
+      createdBy: user.id,
+      label: body.provider === "google" ? "Google Workspace OAuth" : "Microsoft 365 OAuth",
+      fromEmail,
+      fromName: body.account.name ?? null,
+      provider: body.provider,
+      isDefault: true,
+      credentials: {
+        authType: "oauth",
+        accessToken: encryptIntegrationSecret(body.providerAccessToken),
+        refreshToken: body.providerRefreshToken ? encryptIntegrationSecret(body.providerRefreshToken) : null,
+        scopes: body.scopes,
+        providerUserId: body.account.providerUserId ?? null,
+        linkedAt: new Date().toISOString(),
+      },
+      metadata: {
+        connectedVia: "supabase_oauth",
+      },
+    });
+
+    const mergedIntegrations = mergeIntegrationSettings(currentSettings.integrations, {
+      emailProvider: body.provider,
+      email: {
+        provider: body.provider,
+        deliveryMethod: "api",
+        oauthScopes: body.scopes,
+        fromEmail,
+      },
+    });
+
+    await db
+      .update(companySettings)
+      .set({
+        integrations: mergedIntegrations,
+        updatedAt: new Date(),
+      })
+      .where(eq(companySettings.companyId, tenant.companyId));
+
+    return ok(c, {
+      linked: true,
+      channel: body.channel,
+      provider: body.provider,
+      accountId: account.id,
+    });
+  }
+
+  if (body.channel === "linkedin") {
+    if (body.provider !== "linkedin_oidc") {
+      throw AppError.badRequest("LinkedIn integrations require the linkedin_oidc provider");
+    }
+
+    const handle = body.account.handle ?? body.account.email ?? body.account.providerUserId ?? `linkedin-${user.id}`;
+
+    const [existing] = await db
+      .select()
+      .from(socialAccounts)
+      .where(and(eq(socialAccounts.companyId, tenant.companyId), eq(socialAccounts.platform, "linkedin"), eq(socialAccounts.handle, handle), isNull(socialAccounts.deletedAt)))
+      .limit(1);
+
+    const metadata = {
+      ...(existing?.metadata ?? {}),
+      oauth: {
+        provider: body.provider,
+        accessToken: encryptIntegrationSecret(body.providerAccessToken),
+        refreshToken: body.providerRefreshToken ? encryptIntegrationSecret(body.providerRefreshToken) : null,
+        scopes: body.scopes,
+        providerUserId: body.account.providerUserId ?? null,
+        email: body.account.email ?? null,
+        linkedAt: new Date().toISOString(),
+      },
+    };
+
+    const [account] = existing
+      ? await db
+          .update(socialAccounts)
+          .set({
+            accountName: body.account.name ?? existing.accountName,
+            status: "connected",
+            accessMode: "oauth",
+            metadata,
+            updatedAt: new Date(),
+          })
+          .where(eq(socialAccounts.id, existing.id))
+          .returning()
+      : await db
+          .insert(socialAccounts)
+          .values({
+            companyId: tenant.companyId,
+            platform: "linkedin",
+            accountName: body.account.name ?? "LinkedIn",
+            handle,
+            status: "connected",
+            accessMode: "oauth",
+            metadata,
+            createdBy: user.id,
+          })
+          .returning();
+
+    const mergedIntegrations = mergeIntegrationSettings(currentSettings.integrations, {
+      linkedin: {
+        provider: "linkedin_oidc",
+        scopes: body.scopes,
+      },
+    });
+
+    await db
+      .update(companySettings)
+      .set({
+        integrations: mergedIntegrations,
+        updatedAt: new Date(),
+      })
+      .where(eq(companySettings.companyId, tenant.companyId));
+
+    return ok(c, {
+      linked: true,
+      channel: body.channel,
+      provider: body.provider,
+      accountId: account.id,
+    });
+  }
+
+  throw AppError.badRequest("Unsupported OAuth integration channel");
+}
+
+export async function disconnectIntegrationOauth(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as DisconnectIntegrationOauthInput;
+  const currentSettings = await getCompanySettings(tenant.companyId);
+
+  if (body.channel === "email") {
+    await db
+      .update(emailAccounts)
+      .set({
+        status: "disconnected",
+        credentials: {},
+        metadata: {
+          disconnectedAt: new Date().toISOString(),
+          disconnectedProvider: body.provider,
+        },
+        updatedAt: new Date(),
+      })
+      .where(and(eq(emailAccounts.companyId, tenant.companyId), eq(emailAccounts.provider, body.provider), isNull(emailAccounts.deletedAt)));
+
+    const mergedIntegrations = mergeIntegrationSettings(currentSettings.integrations, {
+      email: {
+        provider: null,
+        oauthScopes: [],
+      },
+    });
+
+    await db
+      .update(companySettings)
+      .set({
+        integrations: mergedIntegrations,
+        updatedAt: new Date(),
+      })
+      .where(eq(companySettings.companyId, tenant.companyId));
+
+    return ok(c, { disconnected: true, channel: body.channel, provider: body.provider });
+  }
+
+  if (body.channel === "linkedin") {
+    const rows = await db
+      .select()
+      .from(socialAccounts)
+      .where(and(eq(socialAccounts.companyId, tenant.companyId), eq(socialAccounts.platform, "linkedin"), isNull(socialAccounts.deletedAt)));
+
+    for (const row of rows) {
+      await db
+        .update(socialAccounts)
+        .set({
+          status: "disconnected",
+          metadata: {
+            ...(row.metadata ?? {}),
+            oauth: {
+              provider: body.provider,
+              accessToken: null,
+              refreshToken: null,
+              scopes: [],
+              disconnectedAt: new Date().toISOString(),
+            },
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(socialAccounts.id, row.id));
+    }
+
+    const mergedIntegrations = mergeIntegrationSettings(currentSettings.integrations, {
+      linkedin: {
+        provider: null,
+        scopes: [],
+      },
+    });
+
+    await db
+      .update(companySettings)
+      .set({
+        integrations: mergedIntegrations,
+        updatedAt: new Date(),
+      })
+      .where(eq(companySettings.companyId, tenant.companyId));
+
+    return ok(c, { disconnected: true, channel: body.channel, provider: body.provider });
+  }
+
+  throw AppError.badRequest("Unsupported OAuth integration channel");
 }
 
 export async function updateCompanyPreferences(c: Context<AppEnv>) {

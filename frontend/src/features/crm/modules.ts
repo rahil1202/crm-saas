@@ -67,6 +67,12 @@ export const crmModules: CrmModuleDefinition[] = [
     capabilities: ["Lead reports", "Deal reports", "Forecast", "Partner performance"],
   },
   {
+    slug: "integrations",
+    title: "Integrations",
+    summary: "Guided provider setup for email, MTA, WhatsApp, LinkedIn, document intake, and shared webhook policy.",
+    capabilities: ["Readiness", "Provider policy", "Docs links", "Rollout notes"],
+  },
+  {
     slug: "social",
     title: "Social",
     summary: "Connected social handles, captured conversations, inbox assignment, and lead conversion workflows.",

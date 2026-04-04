@@ -58,6 +58,67 @@ export const integrationsSchema = z.object({
   whatsappProvider: z.string().trim().max(80).nullable().optional(),
   emailProvider: z.string().trim().max(80).nullable().optional(),
   webhookUrl: z.string().url().nullable().optional(),
+  workspaceMode: z.enum(["guided", "legacy"]).optional(),
+  email: z
+    .object({
+      provider: z.string().trim().max(80).nullable().optional(),
+      deliveryMethod: z.enum(["api", "smtp", "hybrid"]).optional(),
+      oauthScopes: z.array(z.string().trim().min(1).max(255)).max(20).optional(),
+      fromEmail: z.string().email().nullable().optional(),
+      fromName: z.string().trim().max(180).nullable().optional(),
+      replyToEmail: z.string().email().nullable().optional(),
+      domain: z.string().trim().max(180).nullable().optional(),
+      webhookUrl: z.string().url().nullable().optional(),
+      smtpHost: z.string().trim().max(180).nullable().optional(),
+      smtpPort: z.coerce.number().int().min(1).max(65535).nullable().optional(),
+      notes: z.string().trim().max(4000).nullable().optional(),
+    })
+    .optional(),
+  whatsapp: z
+    .object({
+      provider: z.string().trim().max(80).nullable().optional(),
+      onboardingMethod: z.enum(["cloud_api", "embedded_signup", "manual_token"]).optional(),
+      workspaceId: z.string().uuid().nullable().optional(),
+      phoneNumberId: z.string().trim().max(120).nullable().optional(),
+      businessAccountId: z.string().trim().max(120).nullable().optional(),
+      verifyToken: z.string().trim().max(240).nullable().optional(),
+      appSecret: z.string().trim().max(240).nullable().optional(),
+      webhookUrl: z.string().url().nullable().optional(),
+      notes: z.string().trim().max(4000).nullable().optional(),
+    })
+    .optional(),
+  linkedin: z
+    .object({
+      provider: z.string().trim().max(80).nullable().optional(),
+      syncMode: z.enum(["oauth_pull", "oauth_push", "hybrid"]).optional(),
+      organizationUrn: z.string().trim().max(255).nullable().optional(),
+      adAccountUrns: z.array(z.string().trim().min(1).max(255)).max(50).optional(),
+      webhookUrl: z.string().url().nullable().optional(),
+      scopes: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
+      features: z
+        .object({
+          leadSync: z.boolean().optional(),
+          orgPosting: z.boolean().optional(),
+        })
+        .optional(),
+      notes: z.string().trim().max(4000).nullable().optional(),
+    })
+    .optional(),
+  documents: z
+    .object({
+      intakeEmail: z.string().email().nullable().optional(),
+      autoAttachToRecords: z.boolean().optional(),
+      storageFolder: z.string().trim().max(255).nullable().optional(),
+      notes: z.string().trim().max(4000).nullable().optional(),
+    })
+    .optional(),
+  genericWebhooks: z
+    .object({
+      inboundUrl: z.string().url().nullable().optional(),
+      outboundUrl: z.string().url().nullable().optional(),
+      signingSecretHint: z.string().trim().max(240).nullable().optional(),
+    })
+    .optional(),
 });
 
 export const updatePipelineSettingsSchema = z.object({
@@ -90,6 +151,25 @@ export const updateIntegrationsSchema = z.object({
   integrations: integrationsSchema,
 });
 
+export const linkIntegrationOauthSchema = z.object({
+  channel: z.enum(["email", "linkedin"]),
+  provider: z.enum(["google", "azure", "linkedin_oidc"]),
+  scopes: z.array(z.string().trim().min(1).max(255)).max(20),
+  providerAccessToken: z.string().min(1),
+  providerRefreshToken: z.string().min(1).nullable().optional(),
+  account: z.object({
+    email: z.string().email().nullable().optional(),
+    name: z.string().trim().max(180).nullable().optional(),
+    handle: z.string().trim().max(180).nullable().optional(),
+    providerUserId: z.string().trim().max(255).nullable().optional(),
+  }),
+});
+
+export const disconnectIntegrationOauthSchema = z.object({
+  channel: z.enum(["email", "linkedin"]),
+  provider: z.enum(["google", "azure", "linkedin_oidc"]),
+});
+
 export type UpdatePipelineSettingsInput = z.infer<typeof updatePipelineSettingsSchema>;
 export type UpdateLeadSourcesInput = z.infer<typeof updateLeadSourcesSchema>;
 export type UpdateCompanyPreferencesInput = z.infer<typeof updateCompanyPreferencesSchema>;
@@ -97,3 +177,5 @@ export type UpdateCustomFieldsInput = z.infer<typeof updateCustomFieldsSchema>;
 export type UpdateTagsInput = z.infer<typeof updateTagsSchema>;
 export type UpdateNotificationRulesInput = z.infer<typeof updateNotificationRulesSchema>;
 export type UpdateIntegrationsInput = z.infer<typeof updateIntegrationsSchema>;
+export type LinkIntegrationOauthInput = z.infer<typeof linkIntegrationOauthSchema>;
+export type DisconnectIntegrationOauthInput = z.infer<typeof disconnectIntegrationOauthSchema>;

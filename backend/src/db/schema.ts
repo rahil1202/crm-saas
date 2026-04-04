@@ -215,6 +215,55 @@ export const companySettings = pgTable(
         whatsappProvider: string | null;
         emailProvider: string | null;
         webhookUrl: string | null;
+        workspaceMode?: "guided" | "legacy";
+        email?: {
+          provider: string | null;
+          deliveryMethod: "api" | "smtp" | "hybrid";
+          oauthScopes: string[];
+          fromEmail: string | null;
+          fromName: string | null;
+          replyToEmail: string | null;
+          domain: string | null;
+          webhookUrl: string | null;
+          smtpHost: string | null;
+          smtpPort: number | null;
+          notes: string | null;
+        };
+        whatsapp?: {
+          provider: string | null;
+          onboardingMethod: "cloud_api" | "embedded_signup" | "manual_token";
+          workspaceId: string | null;
+          phoneNumberId: string | null;
+          businessAccountId: string | null;
+          verifyToken: string | null;
+          appSecret: string | null;
+          webhookUrl: string | null;
+          notes: string | null;
+        };
+        linkedin?: {
+          provider: string | null;
+          syncMode: "oauth_pull" | "oauth_push" | "hybrid";
+          organizationUrn: string | null;
+          adAccountUrns: string[];
+          webhookUrl: string | null;
+          scopes: string[];
+          features: {
+            leadSync: boolean;
+            orgPosting: boolean;
+          };
+          notes: string | null;
+        };
+        documents?: {
+          intakeEmail: string | null;
+          autoAttachToRecords: boolean;
+          storageFolder: string | null;
+          notes: string | null;
+        };
+        genericWebhooks?: {
+          inboundUrl: string | null;
+          outboundUrl: string | null;
+          signingSecretHint: string | null;
+        };
       }>()
       .notNull()
       .default({
@@ -222,6 +271,55 @@ export const companySettings = pgTable(
         whatsappProvider: null,
         emailProvider: null,
         webhookUrl: null,
+        workspaceMode: "guided",
+        email: {
+          provider: null,
+          deliveryMethod: "api",
+          oauthScopes: [],
+          fromEmail: null,
+          fromName: null,
+          replyToEmail: null,
+          domain: null,
+          webhookUrl: null,
+          smtpHost: null,
+          smtpPort: null,
+          notes: null,
+        },
+        whatsapp: {
+          provider: null,
+          onboardingMethod: "cloud_api",
+          workspaceId: null,
+          phoneNumberId: null,
+          businessAccountId: null,
+          verifyToken: null,
+          appSecret: null,
+          webhookUrl: null,
+          notes: null,
+        },
+        linkedin: {
+          provider: null,
+          syncMode: "oauth_pull",
+          organizationUrn: null,
+          adAccountUrns: [],
+          webhookUrl: null,
+          scopes: [],
+          features: {
+            leadSync: true,
+            orgPosting: false,
+          },
+          notes: null,
+        },
+        documents: {
+          intakeEmail: null,
+          autoAttachToRecords: true,
+          storageFolder: null,
+          notes: null,
+        },
+        genericWebhooks: {
+          inboundUrl: null,
+          outboundUrl: null,
+          signingSecretHint: null,
+        },
       }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
+import Link from "next/link";
 
 type SocialPlatform = "instagram" | "facebook" | "whatsapp" | "linkedin";
 type SocialConversationStatus = "open" | "assigned" | "closed";
@@ -373,6 +374,17 @@ export default function SocialPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
+
+        <Alert>
+          <AlertTitle>Provider setup moved into Integration Hub</AlertTitle>
+          <AlertDescription>
+            Use the new guided setup flow for email, WhatsApp, LinkedIn, and webhook policy before managing live social runtime here.{" "}
+            <Link href="/dashboard/integrations" className="font-medium underline underline-offset-4">
+              Open Integration Hub
+            </Link>
+            .
+          </AlertDescription>
+        </Alert>
 
         <div className="grid gap-3 md:grid-cols-4">
           <Card size="sm">

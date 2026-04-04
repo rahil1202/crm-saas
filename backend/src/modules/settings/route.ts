@@ -2,10 +2,13 @@ import { Hono } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import {
+  disconnectIntegrationOauth,
   getCompanyPreferences,
   getCustomFields,
+  getIntegrationsHub,
   getIntegrations,
   getLeadSources,
+  linkIntegrationOauth,
   getNotificationRules,
   getPipelines,
   getRuntimeReadiness,
@@ -20,8 +23,10 @@ import {
   updateTags,
 } from "@/modules/settings/controller";
 import {
+  disconnectIntegrationOauthSchema,
   updateCompanyPreferencesSchema,
   updateCustomFieldsSchema,
+  linkIntegrationOauthSchema,
   updateIntegrationsSchema,
   updateLeadSourcesSchema,
   updateNotificationRulesSchema,
@@ -61,5 +66,8 @@ settingRoutes.patch(
   updateNotificationRules,
 );
 settingRoutes.get("/integrations", requireAuth, requireTenant, getIntegrations);
+settingRoutes.get("/integration-hub", requireAuth, requireTenant, getIntegrationsHub);
 settingRoutes.get("/runtime-readiness", requireAuth, requireTenant, getRuntimeReadiness);
 settingRoutes.patch("/integrations", requireAuth, requireTenant, requireRole("admin"), validateJson(updateIntegrationsSchema), updateIntegrations);
+settingRoutes.post("/integrations/oauth/link", requireAuth, requireTenant, requireRole("admin"), validateJson(linkIntegrationOauthSchema), linkIntegrationOauth);
+settingRoutes.post("/integrations/oauth/disconnect", requireAuth, requireTenant, requireRole("admin"), validateJson(disconnectIntegrationOauthSchema), disconnectIntegrationOauth);

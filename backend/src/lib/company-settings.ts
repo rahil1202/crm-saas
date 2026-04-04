@@ -55,11 +55,62 @@ export interface CompanySettingsPayload {
     dealStageAlerts: boolean;
     campaignAlerts: boolean;
   };
-  integrations: {
-    slackWebhookUrl: string | null;
-    whatsappProvider: string | null;
-    emailProvider: string | null;
+  integrations: IntegrationSettingsPayload;
+}
+
+export interface IntegrationSettingsPayload {
+  slackWebhookUrl: string | null;
+  whatsappProvider: string | null;
+  emailProvider: string | null;
+  webhookUrl: string | null;
+  workspaceMode: "guided" | "legacy";
+  email: {
+    provider: string | null;
+    deliveryMethod: "api" | "smtp" | "hybrid";
+    oauthScopes: string[];
+    fromEmail: string | null;
+    fromName: string | null;
+    replyToEmail: string | null;
+    domain: string | null;
     webhookUrl: string | null;
+    smtpHost: string | null;
+    smtpPort: number | null;
+    notes: string | null;
+  };
+  whatsapp: {
+    provider: string | null;
+    onboardingMethod: "cloud_api" | "embedded_signup" | "manual_token";
+    workspaceId: string | null;
+    phoneNumberId: string | null;
+    businessAccountId: string | null;
+    verifyToken: string | null;
+    appSecret: string | null;
+    webhookUrl: string | null;
+    notes: string | null;
+  };
+  linkedin: {
+    provider: string | null;
+    syncMode: "oauth_pull" | "oauth_push" | "hybrid";
+    organizationUrn: string | null;
+    adAccountUrns: string[];
+    webhookUrl: string | null;
+    scopes: string[];
+    features: {
+      leadSync: boolean;
+      orgPosting: boolean;
+    };
+    notes: string | null;
+  };
+  documents: {
+    intakeEmail: string | null;
+    autoAttachToRecords: boolean;
+    storageFolder: string | null;
+    notes: string | null;
+  };
+  genericWebhooks: {
+    inboundUrl: string | null;
+    outboundUrl: string | null;
+    signingSecretHint: string | null;
   };
 }
 
@@ -115,7 +166,186 @@ const defaultIntegrations: CompanySettingsPayload["integrations"] = {
   whatsappProvider: null,
   emailProvider: null,
   webhookUrl: null,
+  workspaceMode: "guided",
+  email: {
+    provider: null,
+    deliveryMethod: "api",
+    oauthScopes: [],
+    fromEmail: null,
+    fromName: null,
+    replyToEmail: null,
+    domain: null,
+    webhookUrl: null,
+    smtpHost: null,
+    smtpPort: null,
+    notes: null,
+  },
+  whatsapp: {
+    provider: null,
+    onboardingMethod: "cloud_api",
+    workspaceId: null,
+    phoneNumberId: null,
+    businessAccountId: null,
+    verifyToken: null,
+    appSecret: null,
+    webhookUrl: null,
+    notes: null,
+  },
+  linkedin: {
+    provider: null,
+    syncMode: "oauth_pull",
+    organizationUrn: null,
+    adAccountUrns: [],
+    webhookUrl: null,
+    scopes: [],
+    features: {
+      leadSync: true,
+      orgPosting: false,
+    },
+    notes: null,
+  },
+  documents: {
+    intakeEmail: null,
+    autoAttachToRecords: true,
+    storageFolder: null,
+    notes: null,
+  },
+  genericWebhooks: {
+    inboundUrl: null,
+    outboundUrl: null,
+    signingSecretHint: null,
+  },
 };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function asNullableString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function asStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim()) : [];
+}
+
+function asNullableNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function asBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+export function normalizeIntegrationSettings(value: unknown): IntegrationSettingsPayload {
+  const source = asRecord(value);
+  const email = asRecord(source.email);
+  const whatsapp = asRecord(source.whatsapp);
+  const linkedin = asRecord(source.linkedin);
+  const linkedinFeatures = asRecord(linkedin.features);
+  const documents = asRecord(source.documents);
+  const genericWebhooks = asRecord(source.genericWebhooks);
+
+  const emailProvider = asNullableString(source.emailProvider) ?? asNullableString(email.provider);
+  const whatsappProvider = asNullableString(source.whatsappProvider) ?? asNullableString(whatsapp.provider);
+  const webhookUrl = asNullableString(source.webhookUrl);
+
+  return {
+    slackWebhookUrl: asNullableString(source.slackWebhookUrl),
+    whatsappProvider,
+    emailProvider,
+    webhookUrl,
+    workspaceMode: source.workspaceMode === "legacy" ? "legacy" : "guided",
+    email: {
+      provider: emailProvider,
+      deliveryMethod: email.deliveryMethod === "smtp" || email.deliveryMethod === "hybrid" ? email.deliveryMethod : "api",
+      oauthScopes: asStringArray(email.oauthScopes),
+      fromEmail: asNullableString(email.fromEmail),
+      fromName: asNullableString(email.fromName),
+      replyToEmail: asNullableString(email.replyToEmail),
+      domain: asNullableString(email.domain),
+      webhookUrl: asNullableString(email.webhookUrl) ?? webhookUrl,
+      smtpHost: asNullableString(email.smtpHost),
+      smtpPort: asNullableNumber(email.smtpPort),
+      notes: asNullableString(email.notes),
+    },
+    whatsapp: {
+      provider: whatsappProvider,
+      onboardingMethod:
+        whatsapp.onboardingMethod === "embedded_signup" || whatsapp.onboardingMethod === "manual_token"
+          ? whatsapp.onboardingMethod
+          : "cloud_api",
+      workspaceId: asNullableString(whatsapp.workspaceId),
+      phoneNumberId: asNullableString(whatsapp.phoneNumberId),
+      businessAccountId: asNullableString(whatsapp.businessAccountId),
+      verifyToken: asNullableString(whatsapp.verifyToken),
+      appSecret: asNullableString(whatsapp.appSecret),
+      webhookUrl: asNullableString(whatsapp.webhookUrl) ?? webhookUrl,
+      notes: asNullableString(whatsapp.notes),
+    },
+    linkedin: {
+      provider: asNullableString(linkedin.provider),
+      syncMode:
+        linkedin.syncMode === "oauth_push" || linkedin.syncMode === "hybrid"
+          ? linkedin.syncMode
+          : "oauth_pull",
+      organizationUrn: asNullableString(linkedin.organizationUrn),
+      adAccountUrns: asStringArray(linkedin.adAccountUrns),
+      webhookUrl: asNullableString(linkedin.webhookUrl),
+      scopes: asStringArray(linkedin.scopes),
+      features: {
+        leadSync: asBoolean(linkedinFeatures.leadSync, true),
+        orgPosting: asBoolean(linkedinFeatures.orgPosting, false),
+      },
+      notes: asNullableString(linkedin.notes),
+    },
+    documents: {
+      intakeEmail: asNullableString(documents.intakeEmail),
+      autoAttachToRecords: asBoolean(documents.autoAttachToRecords, true),
+      storageFolder: asNullableString(documents.storageFolder),
+      notes: asNullableString(documents.notes),
+    },
+    genericWebhooks: {
+      inboundUrl: asNullableString(genericWebhooks.inboundUrl),
+      outboundUrl: asNullableString(genericWebhooks.outboundUrl),
+      signingSecretHint: asNullableString(genericWebhooks.signingSecretHint),
+    },
+  };
+}
+
+export function mergeIntegrationSettings(currentValue: unknown, patchValue: unknown): IntegrationSettingsPayload {
+  const current = normalizeIntegrationSettings(currentValue);
+  const patch = asRecord(patchValue);
+
+  return normalizeIntegrationSettings({
+    ...current,
+    ...patch,
+    email: {
+      ...current.email,
+      ...asRecord(patch.email),
+    },
+    whatsapp: {
+      ...current.whatsapp,
+      ...asRecord(patch.whatsapp),
+    },
+    linkedin: {
+      ...current.linkedin,
+      ...asRecord(patch.linkedin),
+      features: {
+        ...current.linkedin.features,
+        ...asRecord(asRecord(patch.linkedin).features),
+      },
+    },
+    documents: {
+      ...current.documents,
+      ...asRecord(patch.documents),
+    },
+    genericWebhooks: {
+      ...current.genericWebhooks,
+      ...asRecord(patch.genericWebhooks),
+    },
+  });
+}
 
 export function getDefaultCompanySettings(): CompanySettingsPayload {
   return {
@@ -172,6 +402,6 @@ export async function getCompanySettings(companyId: string): Promise<CompanySett
     customFields: settings?.customFields ?? defaultCustomFields,
     tags: settings?.tags ?? defaultTags,
     notificationRules: settings?.notificationRules ?? defaultNotificationRules,
-    integrations: settings?.integrations ?? defaultIntegrations,
+    integrations: normalizeIntegrationSettings(settings?.integrations ?? defaultIntegrations),
   };
 }
