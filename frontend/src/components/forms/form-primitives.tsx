@@ -21,8 +21,8 @@ export function FormSection({
     <section className={cn("grid gap-4", className)}>
       {title || description ? (
         <header className="grid gap-1">
-          {title ? <h3 className="text-base font-medium tracking-tight">{title}</h3> : null}
-          {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
+          {title ? <h3 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h3> : null}
+          {description ? <p className="text-sm leading-6 text-muted-foreground">{description}</p> : null}
         </header>
       ) : null}
       {children}

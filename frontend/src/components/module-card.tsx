@@ -12,9 +12,9 @@ export function ModuleCard({
   children?: ReactNode;
 }) {
   return (
-    <Card className="border-border/70 bg-card/95 shadow-sm">
+    <Card className="border-border/70 bg-card/95">
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle className="text-lg">{title}</CardTitle>
         <CardDescription>{summary}</CardDescription>
       </CardHeader>
       {children ? <CardContent>{children}</CardContent> : null}

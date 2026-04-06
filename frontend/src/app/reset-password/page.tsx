@@ -3,12 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, KeyRound, ShieldCheck } from "lucide-react";
+import { AlertCircle, CheckCircle2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -167,31 +166,15 @@ export default function ResetPasswordPage() {
             </Field>
           </FieldGroup>
 
-          <Card className="border-border/60 bg-muted/20">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <ShieldCheck />
-                <CardTitle className="text-base">Recovery password checks</CardTitle>
-              </div>
-              <CardDescription>The backend validates the exact requirements below before accepting the reset.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <Progress value={password.length === 0 ? 0 : passwordStrength.score}>
-                <ProgressLabel>{passwordStrength.label}</ProgressLabel>
-                <span className="ml-auto text-sm text-muted-foreground tabular-nums">
-                  {password.length === 0 ? "0%" : `${passwordStrength.score}%`}
-                </span>
-              </Progress>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {passwordStrength.requirements.map((requirement) => (
-                  <div key={requirement.key} className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/80 px-3 py-2">
-                    <Badge variant={requirement.passed ? "secondary" : "outline"}>{requirement.passed ? "Pass" : "Need"}</Badge>
-                    <span className="text-sm text-muted-foreground">{requirement.label}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <div className="rounded-[1.6rem] border border-border/70 bg-secondary/35 p-4">
+            <div className="mb-4 text-sm font-medium text-slate-900">Password strength</div>
+            <Progress value={password.length === 0 ? 0 : passwordStrength.score}>
+              <ProgressLabel>{passwordStrength.label}</ProgressLabel>
+              <span className="ml-auto text-sm text-muted-foreground tabular-nums">
+                {password.length === 0 ? "0%" : `${passwordStrength.score}%`}
+              </span>
+            </Progress>
+          </div>
 
           <Button type="submit" size="lg" disabled={submitting || loadingSession || !supabaseAccessToken}>
             <KeyRound data-icon="inline-start" />

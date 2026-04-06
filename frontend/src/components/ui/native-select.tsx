@@ -8,7 +8,7 @@ export function NativeSelect({ className, children, ...props }: SelectHTMLAttrib
   return (
     <select
       className={cn(
-        "h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
+        "h-11 w-full rounded-2xl border border-input/80 bg-white/75 px-4 text-sm text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] outline-none transition-[border-color,box-shadow,background-color] focus-visible:border-primary/35 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}

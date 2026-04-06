@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowRight, Globe, KeyRound, MailCheck, ShieldCheck } from "lucide-react";
+import { ArrowRight, Globe, KeyRound, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
 import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -21,12 +20,6 @@ import { useAsyncForm } from "@/hooks/use-async-form";
 import { apiRequest } from "@/lib/api";
 import { getFrontendEnv } from "@/lib/env";
 import { supabase } from "@/lib/supabase";
-
-const loginBenefits = [
-  "Return to onboarding automatically if the account has not created a workspace yet.",
-  "Use Google sign-in for the same verified identity without creating a duplicate route.",
-  "Request verification or recovery from this same entry point when needed.",
-];
 
 function LoginPageContent() {
   const router = useRouter();
@@ -196,7 +189,7 @@ function LoginPageContent() {
       </div>
 
       {bootstrapping ? (
-        <Card className="border-border/60 bg-muted/25">
+        <Card className="border-border/60 bg-secondary/35">
           <CardHeader>
             <CardTitle className="text-base">Checking existing access</CardTitle>
             <CardDescription>Looking for an active session before rendering the login form.</CardDescription>
@@ -209,7 +202,7 @@ function LoginPageContent() {
         </Card>
       ) : (
         <>
-          <div className="flex flex-col gap-4">
+          <div className="grid gap-4">
             <Button type="button" variant="outline" size="lg" disabled={googleLoading} onClick={() => void handleGoogleLogin()}>
               <Globe data-icon="inline-start" />
               {googleLoading ? "Redirecting to Google..." : "Continue with Google"}
@@ -276,22 +269,6 @@ function LoginPageContent() {
             </div>
           </form>
 
-          <Card className="border-border/60 bg-muted/20">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <ShieldCheck />
-                <CardTitle className="text-base">What this sign-in unlocks</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              {loginBenefits.map((benefit) => (
-                <div key={benefit} className="flex items-start gap-3 rounded-xl border border-border/60 bg-background/80 px-4 py-3">
-                  <Badge variant="secondary">Flow</Badge>
-                  <p className="text-sm leading-6 text-muted-foreground">{benefit}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
         </>
       )}
 

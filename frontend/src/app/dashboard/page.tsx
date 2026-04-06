@@ -91,6 +91,57 @@ export default function DashboardPage() {
           </Alert>
         ) : null}
 
+        <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+          <Card className="overflow-hidden bg-linear-to-br from-primary via-sky-500 to-cyan-400 text-white">
+            <CardHeader className="gap-4">
+              <Badge className="w-fit border-white/20 bg-white/14 text-white">Pipeline command</Badge>
+              <CardTitle className="max-w-xl text-4xl leading-tight text-white">
+                Clean daily visibility for revenue, follow-ups, and campaign momentum.
+              </CardTitle>
+              <CardDescription className="max-w-2xl text-white/80">
+                Use this workspace as the operating surface for pipeline health, task pressure, and the modules that need attention next.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-3">
+              {[
+                { label: "Total leads", value: report?.dashboard.totalLeads ?? 0 },
+                { label: "Customers with deals", value: report?.dashboard.customersWithDeals ?? 0 },
+                { label: "Won revenue", value: formatCurrency(report?.dashboard.wonValue ?? 0) },
+              ].map((item) => (
+                <div key={item.label} className="rounded-[1.4rem] border border-white/16 bg-white/12 p-4 backdrop-blur-sm">
+                  <div className="text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-white/68">{item.label}</div>
+                  <div className="mt-3 text-3xl font-semibold">{item.value}</div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white/82">
+            <CardHeader>
+              <CardTitle>Attention now</CardTitle>
+              <CardDescription>Work that needs immediate follow-up in the active company.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <div className="flex items-center justify-between rounded-[1.4rem] border border-border/70 bg-secondary/45 px-4 py-4">
+                <span className="text-sm text-muted-foreground">Due today</span>
+                <Badge variant={(report?.dashboard.dueTodayTasks ?? 0) > 0 ? "secondary" : "outline"}>
+                  {report?.dashboard.dueTodayTasks ?? 0}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between rounded-[1.4rem] border border-border/70 bg-secondary/45 px-4 py-4">
+                <span className="text-sm text-muted-foreground">Overdue tasks</span>
+                <Badge variant={(report?.dashboard.overdueTasks ?? 0) > 0 ? "destructive" : "outline"}>
+                  {report?.dashboard.overdueTasks ?? 0}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between rounded-[1.4rem] border border-border/70 bg-secondary/45 px-4 py-4">
+                <span className="text-sm text-muted-foreground">Active campaigns</span>
+                <Badge variant="default">{report?.dashboard.activeCampaigns ?? 0}</Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
         <PageSection>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {[
@@ -116,7 +167,7 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent className="grid gap-3 md:grid-cols-2">
                 {report.revenueForecast.months.map((bucket) => (
-                  <div key={bucket.month} className="rounded-xl border bg-muted/10 p-4">
+                  <div key={bucket.month} className="rounded-[1.4rem] border border-border/70 bg-secondary/45 p-4">
                     <div className="text-sm text-muted-foreground">{bucket.label}</div>
                     <div className="mt-2 text-xl font-semibold">{formatCurrency(bucket.totalValue)}</div>
                     <div className="mt-1 text-sm text-muted-foreground">{bucket.dealCount} forecast deals</div>
@@ -128,37 +179,12 @@ export default function DashboardPage() {
             <div className="grid gap-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>Attention now</CardTitle>
-                  <CardDescription>Work that needs immediate follow-up in the active company.</CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-3">
-                  <div className="flex items-center justify-between rounded-xl border px-4 py-3">
-                    <span className="text-sm text-muted-foreground">Due today</span>
-                    <Badge variant={(report.dashboard.dueTodayTasks ?? 0) > 0 ? "secondary" : "outline"}>
-                      {report.dashboard.dueTodayTasks}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between rounded-xl border px-4 py-3">
-                    <span className="text-sm text-muted-foreground">Overdue tasks</span>
-                    <Badge variant={(report.dashboard.overdueTasks ?? 0) > 0 ? "destructive" : "outline"}>
-                      {report.dashboard.overdueTasks}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between rounded-xl border px-4 py-3">
-                    <span className="text-sm text-muted-foreground">Won revenue</span>
-                    <Badge variant="default">{formatCurrency(report.dashboard.wonValue)}</Badge>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
                   <CardTitle>Top performers</CardTitle>
                   <CardDescription>Current leaders across partners and campaigns.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3">
                   {report.partnerPerformance[0] ? (
-                    <div className="rounded-xl border px-4 py-3">
+                    <div className="rounded-[1.4rem] border border-border/70 bg-secondary/45 px-4 py-4">
                       <div className="text-sm text-muted-foreground">Top partner</div>
                       <div className="mt-1 font-medium">{report.partnerPerformance[0].name}</div>
                       <div className="mt-1 text-sm text-muted-foreground">
@@ -167,7 +193,7 @@ export default function DashboardPage() {
                     </div>
                   ) : null}
                   {report.campaignPerformance[0] ? (
-                    <div className="rounded-xl border px-4 py-3">
+                    <div className="rounded-[1.4rem] border border-border/70 bg-secondary/45 px-4 py-4">
                       <div className="text-sm text-muted-foreground">Top campaign</div>
                       <div className="mt-1 flex flex-wrap items-center gap-2">
                         <span className="font-medium">{report.campaignPerformance[0].name}</span>
@@ -188,7 +214,7 @@ export default function DashboardPage() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {crmModules.map((module) => (
             <ModuleCard key={module.slug} title={module.title} summary={module.summary}>
-              <ul className="m-0 list-disc pl-5">
+              <ul className="m-0 list-disc pl-5 text-sm leading-7 text-muted-foreground">
                 {module.capabilities.map((capability) => (
                   <li key={capability}>{capability}</li>
                 ))}

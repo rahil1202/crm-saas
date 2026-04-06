@@ -1,11 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRight, Building2, ShieldCheck, Sparkles, Waypoints } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 
 interface AuthShellProps {
   badge: string;
@@ -15,117 +13,96 @@ interface AuthShellProps {
   footer?: ReactNode;
 }
 
-const authSignals = [
-  {
-    title: "Session security",
-    description: "The backend rotates access and refresh tokens and only keeps the browser on signed cookie sessions.",
-    icon: ShieldCheck,
-  },
-  {
-    title: "Workspace-aware onboarding",
-    description: "Verified users go straight into first-company setup instead of landing in a dead-end auth state.",
-    icon: Building2,
-  },
-  {
-    title: "Recovery continuity",
-    description: "Verification, reset, and sign-in all feed into the same callback path so recovery does not branch off.",
-    icon: Waypoints,
-  },
-];
-
-const authJourney = [
-  "Create the operator account and confirm the inbox.",
-  "Complete the first company and branch setup.",
-  "Return later with email, Google, or recovery without losing the route.",
-];
-
 export function AuthShell({ badge, title, description, children, footer }: AuthShellProps) {
   return (
-    <main className="relative overflow-hidden bg-background">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,var(--color-primary)_0%,transparent_32%),radial-gradient(circle_at_bottom_right,var(--color-secondary)_0%,transparent_42%)] opacity-15" />
-      <div className="absolute inset-x-0 top-0 h-80 bg-linear-to-b from-muted/60 via-background to-background" />
-      <div className="relative mx-auto flex min-h-screen w-full max-w-7xl items-center px-6 py-10 lg:px-10">
-        <div className="grid w-full gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-          <Card className="hidden border-border/60 bg-card/90 shadow-sm lg:flex">
-            <CardHeader className="gap-5">
-              <div className="flex items-center gap-3">
-                <Avatar size="lg">
-                  <AvatarFallback>CR</AvatarFallback>
-                </Avatar>
-                <div className="flex flex-col gap-1">
-                  <Badge variant="secondary" className="w-fit">
-                    CRM SaaS Access
-                  </Badge>
-                  <CardTitle className="text-3xl leading-tight">Auth that matches the actual product lifecycle.</CardTitle>
-                </div>
-              </div>
-              <CardDescription className="max-w-xl text-sm leading-6">
-                Email verification, recovery, backend session issuance, and workspace onboarding are handled as one connected flow instead of scattered screens.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-5">
-              <div className="grid gap-4">
-                {authSignals.map((signal) => {
-                  const Icon = signal.icon;
+    <main className="relative min-h-screen overflow-hidden px-4 py-4 lg:px-5 lg:py-5">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(70,146,255,0.18),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(164,220,255,0.26),transparent_30%)]" />
 
-                  return (
-                    <Card key={signal.title} size="sm" className="border-border/60 bg-background/80">
-                      <CardHeader className="gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="rounded-xl bg-primary/10 p-2 text-primary">
-                            <Icon />
-                          </div>
-                          <CardTitle>{signal.title}</CardTitle>
-                        </div>
-                        <CardDescription className="leading-6">{signal.description}</CardDescription>
-                      </CardHeader>
-                    </Card>
-                  );
-                })}
-              </div>
-              <Separator />
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <Sparkles />
-                  <span>Default operator journey</span>
-                </div>
-                <div className="grid gap-3">
-                  {authJourney.map((step, index) => (
-                    <div key={step} className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/40 px-4 py-3">
-                      <Badge variant="secondary">{index + 1}</Badge>
-                      <p className="text-sm leading-6 text-muted-foreground">{step}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="justify-between gap-3">
-              <span className="text-sm text-muted-foreground">Need a different auth action?</span>
-              <Link href="/login" className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-primary">
-                Return to sign in
-                <ArrowRight />
-              </Link>
-            </CardFooter>
-          </Card>
-
-          <Card className="border-border/70 bg-card/95 shadow-xl shadow-primary/5">
-            <CardHeader className="gap-4">
+      <div className="relative mx-auto grid min-h-[calc(100vh-2rem)] max-w-[1540px] overflow-hidden rounded-[2.4rem] border border-white/70 bg-white/58 shadow-[0_32px_95px_-58px_rgba(34,92,191,0.45)] backdrop-blur-xl lg:grid-cols-[0.92fr_1.08fr]">
+        <section className="flex items-center border-b border-white/70 bg-white/82 p-5 lg:border-r lg:border-b-0 lg:p-10 xl:p-14">
+          <Card className="w-full border-0 bg-transparent shadow-none">
+            <CardHeader className="px-0">
               <Badge variant="secondary" className="w-fit">
                 {badge}
               </Badge>
-              <div className="flex flex-col gap-2">
-                <CardTitle className="text-3xl leading-tight">{title}</CardTitle>
-                <CardDescription className="text-sm leading-6">{description}</CardDescription>
+              <div className="mt-2 flex flex-col gap-2">
+                <CardTitle className="text-4xl leading-tight">{title}</CardTitle>
+                <CardDescription className="max-w-lg text-sm leading-7">{description}</CardDescription>
               </div>
             </CardHeader>
-            <CardContent className="flex flex-col gap-6">{children}</CardContent>
+            <CardContent className="flex flex-col gap-6 px-0 pt-2">{children}</CardContent>
             {footer ? (
-              <CardFooter className="flex-col items-start gap-3 border-t bg-muted/30">
+              <CardFooter className="mt-6 flex-col items-start gap-3 rounded-[1.6rem] border border-border/70 bg-secondary/35 px-4 py-4">
                 <div className="text-sm text-muted-foreground">{footer}</div>
               </CardFooter>
             ) : null}
+            <div className="pt-5 text-sm text-muted-foreground lg:hidden">
+              <Link href="/login" className="inline-flex items-center gap-2 font-medium text-foreground transition-colors hover:text-primary">
+                Return to sign in
+                <ArrowRight className="size-4" />
+              </Link>
+            </div>
           </Card>
-        </div>
+        </section>
+
+        <section className="relative hidden min-h-[720px] overflow-hidden bg-linear-to-br from-primary via-sky-500 to-cyan-300 lg:block">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(255,255,255,0.24),transparent_22%),radial-gradient(circle_at_82%_28%,rgba(255,255,255,0.18),transparent_18%),radial-gradient(circle_at_50%_78%,rgba(255,255,255,0.16),transparent_26%)]" />
+          <div className="absolute left-10 top-10 h-28 w-28 rounded-full border border-white/20 bg-white/10 blur-sm" />
+          <div className="absolute bottom-10 right-10 h-36 w-36 rounded-full border border-white/20 bg-white/10 blur-sm" />
+
+          <div className="relative flex h-full items-center justify-center p-12">
+            <div className="relative w-full max-w-2xl">
+              <div className="absolute -left-6 top-16 h-28 w-28 rounded-[2rem] border border-white/18 bg-white/12 backdrop-blur-md" />
+              <div className="absolute -right-4 top-0 h-24 w-24 rounded-[1.7rem] border border-white/18 bg-white/10 backdrop-blur-md" />
+              <div className="absolute bottom-8 left-6 h-20 w-20 rounded-[1.5rem] border border-white/18 bg-white/10 backdrop-blur-md" />
+
+              <div className="relative overflow-hidden rounded-[2.2rem] border border-white/18 bg-white/12 p-6 shadow-[0_30px_80px_-50px_rgba(0,0,0,0.35)] backdrop-blur-md">
+                <div className="rounded-[1.6rem] border border-white/16 bg-slate-950/10 p-5">
+                  <div className="mb-5 flex items-center justify-between">
+                    <div>
+                      <div className="text-[0.72rem] font-semibold uppercase tracking-[0.22em] text-white/68">Workspace Preview</div>
+                      <div className="mt-2 text-2xl font-semibold text-white">Blue CRM Interface</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="size-3 rounded-full bg-white/55" />
+                      <span className="size-3 rounded-full bg-white/35" />
+                      <span className="size-3 rounded-full bg-white/25" />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4">
+                    <div className="grid gap-3 rounded-[1.4rem] border border-white/16 bg-white/12 p-4">
+                      <div className="h-3 w-24 rounded-full bg-white/40" />
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="rounded-[1.2rem] bg-white/14 p-4">
+                          <div className="h-2 w-14 rounded-full bg-white/40" />
+                          <div className="mt-4 h-7 w-16 rounded-full bg-white/70" />
+                        </div>
+                        <div className="rounded-[1.2rem] bg-white/14 p-4">
+                          <div className="h-2 w-12 rounded-full bg-white/40" />
+                          <div className="mt-4 h-7 w-20 rounded-full bg-white/55" />
+                        </div>
+                        <div className="rounded-[1.2rem] bg-white/14 p-4">
+                          <div className="h-2 w-16 rounded-full bg-white/40" />
+                          <div className="mt-4 h-7 w-12 rounded-full bg-white/65" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[1.4rem] border border-white/16 bg-white/12 p-4">
+                      <div className="mb-4 h-11 rounded-2xl bg-white/78" />
+                      <div className="grid gap-3">
+                        <div className="h-14 rounded-[1.2rem] bg-white/20" />
+                        <div className="h-14 rounded-[1.2rem] bg-white/16" />
+                        <div className="h-14 rounded-[1.2rem] bg-white/12" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   );

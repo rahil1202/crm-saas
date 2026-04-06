@@ -197,26 +197,6 @@ function RegisterPageContent() {
               </AlertDescription>
             </Alert>
           ) : null}
-          <Card className="border-border/60 bg-muted/20">
-            <CardHeader>
-              <CardTitle className="text-base">Next steps</CardTitle>
-              <CardDescription>Keep this flow moving by finishing verification first.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-background/80 px-4 py-3">
-                <Badge variant="secondary">1</Badge>
-                <p className="text-sm leading-6 text-muted-foreground">Confirm the inbox from the verification link.</p>
-              </div>
-              <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-background/80 px-4 py-3">
-                <Badge variant="secondary">2</Badge>
-                <p className="text-sm leading-6 text-muted-foreground">Return here if the browser opened a separate verification session.</p>
-              </div>
-              <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-background/80 px-4 py-3">
-                <Badge variant="secondary">3</Badge>
-                <p className="text-sm leading-6 text-muted-foreground">Finish company onboarding before reaching the dashboard.</p>
-              </div>
-            </CardContent>
-          </Card>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button type="button" variant="outline" onClick={() => void handleResendVerification()} disabled={resendingVerification}>
               <MailCheck data-icon="inline-start" />
@@ -331,26 +311,13 @@ function RegisterPageContent() {
             </FieldGroup>
           </FormSection>
 
-          <Card className="border-border/60 bg-muted/20">
-            <CardHeader>
-              <CardTitle className="text-base">Password strength</CardTitle>
-              <CardDescription>Use a password the backend will accept immediately.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <Progress value={password.length === 0 ? 0 : passwordStrength.score}>
-                <ProgressLabel>{passwordStrength.label}</ProgressLabel>
-                <span className="ml-auto text-sm text-muted-foreground tabular-nums">{password.length === 0 ? "0%" : `${passwordStrength.score}%`}</span>
-              </Progress>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {passwordStrength.requirements.map((requirement) => (
-                  <div key={requirement.key} className="flex items-center gap-2 rounded-xl border border-border/60 bg-background/80 px-3 py-2">
-                    <Badge variant={requirement.passed ? "secondary" : "outline"}>{requirement.passed ? "Pass" : "Need"}</Badge>
-                    <span className="text-sm text-muted-foreground">{requirement.label}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <div className="rounded-[1.6rem] border border-border/70 bg-secondary/35 p-4">
+            <div className="mb-4 text-sm font-medium text-slate-900">Password strength</div>
+            <Progress value={password.length === 0 ? 0 : passwordStrength.score}>
+              <ProgressLabel>{passwordStrength.label}</ProgressLabel>
+              <span className="ml-auto text-sm text-muted-foreground tabular-nums">{password.length === 0 ? "0%" : `${passwordStrength.score}%`}</span>
+            </Progress>
+          </div>
 
           <Button type="submit" size="lg" disabled={submitting}>
             <UserPlus data-icon="inline-start" />
