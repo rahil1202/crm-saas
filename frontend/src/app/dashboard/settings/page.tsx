@@ -5,7 +5,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Building2, Clock3, KeyRound, LifeBuoy, MailCheck, MapPinned, Palette, ShieldCheck, UserPlus, Users, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -937,10 +936,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <AppShell
-      title="Settings"
-      description="Manage operator security, company profile, branches, and team access for the active CRM workspace."
-    >
+    <>
       <div className="flex flex-col gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -1810,6 +1806,7 @@ export default function SettingsPage() {
           </TabsContent>
         </Tabs>
       </div>
-    </AppShell>
+    </>
   );
 }
+

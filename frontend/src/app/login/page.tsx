@@ -24,7 +24,7 @@ import { supabase } from "@/lib/supabase";
 
 function LoginPageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams();xd-
   const env = getFrontendEnv();
 
   const [email, setEmail] = useState("");
@@ -215,7 +215,7 @@ function LoginPageContent() {
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-            <FormSection title="Email login">
+            <FormSection>
               <FieldGroup>
                 <Field>
                   <FieldLabel htmlFor="email">Email</FieldLabel>

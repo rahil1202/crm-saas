@@ -2,7 +2,6 @@
 
 import { FormEvent, PointerEvent as ReactPointerEvent, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -949,7 +948,7 @@ export default function ChatbotFlowsPage() {
   };
 
   return (
-    <AppShell title="Chatbot Flows" description="Build WhatsApp chatbot flows visually, validate them against the backend, and test execution without leaving the canvas.">
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -1111,6 +1110,7 @@ export default function ChatbotFlowsPage() {
           )}
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
+

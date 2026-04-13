@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -192,10 +191,7 @@ export default function AutomationPage() {
   };
 
   return (
-    <AppShell
-      title="Automation"
-      description="Trigger-based workflows with multi-step actions and recent execution logs."
-    >
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -368,6 +364,7 @@ export default function AutomationPage() {
           </Card>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
+

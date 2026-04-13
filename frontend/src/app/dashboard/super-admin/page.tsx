@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -145,10 +144,7 @@ export default function SuperAdminPage() {
   };
 
   return (
-    <AppShell
-      title="Super Admin"
-      description="Cross-tenant workspace oversight for company inventory, subscription plans, and platform administration."
-    >
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -279,6 +275,7 @@ export default function SuperAdminPage() {
           </Card>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
+

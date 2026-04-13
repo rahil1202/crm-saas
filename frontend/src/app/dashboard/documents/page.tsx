@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -135,10 +134,7 @@ export default function DocumentsPage() {
   };
 
   return (
-    <AppShell
-      title="Files and documents"
-      description="Search uploaded files, manage shared folders, and keep lead and deal attachments in one company-scoped index."
-    >
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -246,6 +242,7 @@ export default function DocumentsPage() {
           </Card>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
+

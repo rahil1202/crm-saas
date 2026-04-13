@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -106,10 +105,7 @@ export default function NotificationsPage() {
   };
 
   return (
-    <AppShell
-      title="Notifications"
-      description="Company-scoped alert inbox for lead, deal, task, and campaign activity with read state management."
-    >
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -218,6 +214,7 @@ export default function NotificationsPage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </>
   );
 }
+

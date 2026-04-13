@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -185,10 +184,7 @@ export default function PartnersPage() {
   };
 
   return (
-    <AppShell
-      title="Partners"
-      description="Manage partner companies that can receive assigned leads and deals."
-    >
+    <>
       <div className="grid gap-6 xl:grid-cols-[1fr_1.1fr]">
         {error ? (
           <Alert variant="destructive" className="xl:col-span-2">
@@ -401,6 +397,7 @@ export default function PartnersPage() {
           </CardContent>
         </Card>
       </div>
-    </AppShell>
+    </>
   );
 }
+

@@ -45,31 +45,10 @@ import {
   setCompanyCookie,
   setStoreCookie,
 } from "@/lib/cookies";
+import { clearCachedMe, getCachedMe, loadMe as loadCachedMe, type MeResponse } from "@/lib/me-cache";
 import { cn } from "@/lib/utils";
 
 type CompanyRole = "owner" | "admin" | "member";
-
-interface Membership {
-  membershipId: string;
-  companyId: string;
-  role: CompanyRole;
-  status: string;
-  storeId: string | null;
-  companyName: string;
-  storeName: string | null;
-}
-
-interface MeResponse {
-  isSuperAdmin: boolean;
-  user: {
-    id: string;
-    email: string | null;
-    fullName: string | null;
-    isSuperAdmin?: boolean;
-  };
-  memberships: Membership[];
-  needsOnboarding: boolean;
-}
 
 type NavItem = {
   href: string;
@@ -221,11 +200,36 @@ export function AppShell({
   }, [activeTab, pathname, title]);
 
   useEffect(() => {
-    let disposed = false;
+    if (typeof window === "undefined") {
+      return;
+    }
 
-    const loadMe = async () => {
+    const stored = window.localStorage.getItem("crm.sidebarExpanded");
+    if (stored !== null) {
+      setSidebarExpanded(stored === "true");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem("crm.sidebarExpanded", String(sidebarExpanded));
+  }, [sidebarExpanded]);
+
+  useEffect(() => {
+    let disposed = false;
+    const cached = getCachedMe();
+
+    if (cached) {
+      setMe(cached);
+      setLoading(false);
+    }
+
+    const loadWorkspace = async () => {
       try {
-        const response = await apiRequest<MeResponse>("/auth/me");
+        const response = await loadCachedMe();
         if (disposed) {
           return;
         }
@@ -255,6 +259,7 @@ export function AppShell({
       } catch (error) {
         const fallbackMessage = "Failed to load workspace context.";
         if (error instanceof ApiError && error.status === 401) {
+          clearCachedMe();
           clearCompanyCookie();
           clearStoreCookie();
           router.replace("/login");
@@ -269,7 +274,7 @@ export function AppShell({
       }
     };
 
-    void loadMe();
+    void loadWorkspace();
 
     return () => {
       disposed = true;
@@ -331,6 +336,7 @@ export function AppShell({
     }
     clearCompanyCookie();
     clearStoreCookie();
+    clearCachedMe();
     router.replace("/login");
   };
 
@@ -363,19 +369,19 @@ export function AppShell({
       >
         <aside
           className={cn(
-            "z-40 mb-4 w-full rounded-[2rem] border border-sky-200/70 bg-sky-50/80 p-3 shadow-[0_28px_80px_-42px_rgba(34,92,191,0.35)] backdrop-blur-xl transition-[width] duration-200 lg:fixed lg:bottom-4 lg:left-4 lg:top-4 lg:mb-0 lg:overflow-y-auto lg:rounded-[2rem] lg:border lg:p-3",
+            "z-40 mb-4 w-full rounded-[2rem] border border-sky-200/60 bg-sky-200 p-3 shadow-[0_28px_80px_-42px_rgba(56,122,199,0.4)] transition-[width] duration-200 lg:fixed lg:bottom-4 lg:left-4 lg:top-4 lg:mb-0 lg:overflow-y-auto lg:rounded-[2rem] lg:border lg:p-3",
             sidebarExpanded ? "lg:w-[280px]" : "lg:w-[84px]",
           )}
         >
           <div className="flex h-full flex-col gap-4 lg:min-h-0">
-            <div className={cn("flex items-center gap-3 rounded-[1.5rem] border border-sky-200/70 bg-sky-100/70 p-3", sidebarExpanded ? "justify-between" : "justify-center")}>
+            <div className={cn("flex items-center gap-3 rounded-[1.5rem] border border-sky-300/50 bg-sky-300/80 p-3 text-sky-900", sidebarExpanded ? "justify-between" : "justify-center")}>
               <div className={cn("flex items-center gap-3 overflow-hidden", !sidebarExpanded && "justify-center")}>
-                <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-200/70 text-sky-700">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/50 text-sky-700">
                   <Sparkles className="size-5" />
                 </div>
                 {sidebarExpanded ? (
                   <div className="min-w-0">
-                    <div className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-sky-600">Software</div>
+                    <div className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-sky-700/90">Software</div>
                     <div className="truncate font-heading text-lg font-semibold text-sky-950">CRM SaaS</div>
                   </div>
                 ) : null}
@@ -393,8 +399,8 @@ export function AppShell({
             </div>
 
             {sidebarExpanded ? (
-              <div className="rounded-[1.5rem] border border-sky-200/70 bg-sky-100/70 p-3">
-                <label htmlFor="workspace-picker" className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-sky-600">
+              <div className="rounded-[1.5rem] border border-sky-300/50 bg-sky-300/80 p-3">
+                <label htmlFor="workspace-picker" className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-sky-700/90">
                   Active company
                 </label>
                 <NativeSelect
@@ -414,9 +420,9 @@ export function AppShell({
             <div className="min-h-0 flex-1 overflow-hidden">
               <nav className="hide-scrollbar flex h-full min-h-0 flex-col gap-5 overflow-y-auto pr-1">
                 {visibleNavGroups.map((group) => (
-                  <div key={group.id} className="grid gap-2 border-t border-sky-200/70 pt-4 first:border-t-0 first:pt-0">
+                  <div key={group.id} className="grid gap-2 border-t border-sky-300/50 pt-4 first:border-t-0 first:pt-0">
                     {sidebarExpanded ? (
-                      <div className="px-2 text-[0.74rem] font-semibold uppercase tracking-[0.1em] text-sky-500">
+                      <div className="px-2 text-[0.74rem] font-semibold uppercase tracking-[0.1em] text-sky-700/90">
                         {group.label}
                       </div>
                     ) : null}
@@ -430,27 +436,24 @@ export function AppShell({
                           href={item.href}
                           title={!sidebarExpanded ? item.label : undefined}
                           className={cn(
-                            "group relative flex items-center rounded-xl text-sm font-medium transition-all",
+                            "group relative flex items-center rounded-xl text-sm font-medium transition-all text-sky-900",
                             sidebarExpanded ? "gap-2 px-2 py-2" : "justify-center px-0 py-2",
                             isActive
-                              ? "bg-sky-200/80 text-sky-800"
-                              : "border border-transparent text-sky-700 hover:bg-sky-100/80 hover:text-sky-950",
+                              ? "bg-white/70 text-sky-900"
+                              : "border border-transparent text-sky-800/90 hover:bg-white/60 hover:text-sky-950",
                           )}
                         >
-                          {isActive && sidebarExpanded ? (
-                            <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-sky-500" />
-                          ) : null}
                           <span
                             className={cn(
-                              "flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors",
-                              isActive ? "text-sky-700" : "text-sky-600",
+                              "flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors text-sky-700",
+                              isActive ? "text-sky-900" : "text-sky-700",
                             )}
                           >
                             <Icon className="size-4" />
                           </span>
                           {sidebarExpanded ? <span className="truncate">{item.label}</span> : null}
                           {!sidebarExpanded ? (
-                            <span className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-20 -translate-y-1/2 rounded-xl border border-white/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 opacity-0 shadow-[0_14px_34px_-20px_rgba(35,86,166,0.35)] transition-opacity group-hover:opacity-100">
+                            <span className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-20 -translate-y-1/2 rounded-xl border border-sky-200/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 opacity-0 shadow-[0_14px_34px_-20px_rgba(35,86,166,0.35)] transition-opacity group-hover:opacity-100">
                               {item.label}
                             </span>
                           ) : null}
@@ -465,7 +468,7 @@ export function AppShell({
             <div className="relative">
               <div
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-[1.5rem] border border-sky-200/70 bg-sky-100/70 p-3 text-left",
+                  "flex w-full items-center gap-3 rounded-[1.5rem] border border-sky-300/50 bg-sky-300/80 p-3 text-left text-sky-900",
                   !sidebarExpanded && "justify-center px-2",
                 )}
               >
@@ -475,7 +478,7 @@ export function AppShell({
                 {sidebarExpanded ? (
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-sky-950">{me?.user.fullName ?? "CRM Operator"}</div>
-                    <div className="truncate text-sm text-sky-600">{activeMembership?.companyName ?? "Workspace"}</div>
+                    <div className="truncate text-sm text-sky-700/90">{activeMembership?.companyName ?? "Workspace"}</div>
                   </div>
                 ) : null}
               </div>
@@ -484,16 +487,16 @@ export function AppShell({
         </aside>
 
         <div className="flex min-h-0 flex-col lg:h-full">
-          <header className="z-30 mb-4 shrink-0 rounded-[1.4rem] border border-sky-200/70 bg-sky-50/85 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl lg:sticky lg:top-4 lg:mb-4 lg:rounded-[1.4rem] lg:border lg:px-4">
+          <header className="z-30 mb-4 shrink-0 rounded-[1.4rem] border border-sky-200/60 bg-sky-200 px-3 py-2 shadow-[0_18px_45px_-32px_rgba(56,122,199,0.35)] lg:sticky lg:top-4 lg:mb-4 lg:rounded-[1.4rem] lg:border lg:px-4">
             <div className="flex gap-3 lg:items-start lg:justify-between">
               <div className="min-w-0 flex-1">
-                <nav className="flex flex-wrap items-center gap-1 text-xs text-sky-600 lg:text-sm">
+                <nav className="flex flex-wrap items-center gap-1 text-xs text-sky-700 lg:text-sm">
                   {breadcrumbItems.map((item, index) => {
                     const isLast = index === breadcrumbItems.length - 1;
 
                     return (
                       <div key={`${item.href}-${item.label}`} className="flex items-center gap-1">
-                        {index > 0 ? <ChevronRight className="size-3.5 text-sky-500/80" /> : null}
+                        {index > 0 ? <ChevronRight className="size-3.5 text-sky-600/80" /> : null}
                         {isLast ? (
                           <span className="font-medium text-sky-950">{item.label}</span>
                         ) : (
@@ -505,14 +508,14 @@ export function AppShell({
                     );
                   })}
                 </nav>
-                <p className="mt-0.5 text-xs text-sky-600">{description}</p>
+                <p className="mt-0.5 text-xs text-sky-700">{description}</p>
                 <h1 className="mt-0.5 text-base font-semibold tracking-tight text-sky-950 lg:text-lg">{title}</h1>
               </div>
 
               <div className="relative shrink-0 self-start">
                 <button
                   type="button"
-                  className="flex items-center gap-2 rounded-xl border border-sky-200/70 bg-sky-100/70 px-2.5 py-1.5 transition-colors hover:bg-sky-100"
+                  className="flex items-center gap-2 rounded-xl border border-sky-300/60 bg-sky-300/80 px-2.5 py-1.5 text-sky-900 transition-colors hover:bg-sky-300"
                   onClick={() => setProfileMenuOpen((current) => !current)}
                 >
                   <Avatar>
@@ -520,9 +523,9 @@ export function AppShell({
                   </Avatar>
                   <div className="hidden min-w-0 text-left lg:block">
                     <div className="max-w-44 truncate text-sm font-semibold text-sky-950">{me?.user.fullName ?? "CRM Operator"}</div>
-                    <div className="text-xs text-sky-600">{activeMembership?.role ?? "member"}</div>
+                    <div className="text-xs text-sky-700">{activeMembership?.role ?? "member"}</div>
                   </div>
-                  <ChevronDown className="size-4 text-sky-500" />
+                  <ChevronDown className="size-4 text-sky-600/80" />
                 </button>
 
                 {profileMenuOpen ? (

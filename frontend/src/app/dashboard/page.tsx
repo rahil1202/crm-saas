@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { ModuleCard } from "@/components/module-card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -79,10 +78,7 @@ export default function DashboardPage() {
   }, [loadDashboard]);
 
   return (
-    <AppShell
-      title="CRM Dashboard"
-      description="Operational overview for pipeline, follow-ups, campaigns, and partner-driven revenue."
-    >
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -210,6 +206,7 @@ export default function DashboardPage() {
           </div>
         ) : null}
       </div>
-    </AppShell>
+    </>
   );
 }
+

@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -338,10 +337,7 @@ export default function TasksPage() {
   };
 
   return (
-    <AppShell
-      title="Tasks & Follow-ups"
-      description="Task execution workspace with overdue visibility, due-date planning, and month calendar coverage."
-    >
+    <>
       <div className="grid gap-6">
         <FormErrorSummary title="Task request failed" error={error ?? taskForm.formError ?? followUpForm.formError} />
 
@@ -727,6 +723,7 @@ export default function TasksPage() {
           </CrudPanel>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }
+

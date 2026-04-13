@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -184,10 +183,7 @@ export default function ReportsPage() {
   }, [loadReport]);
 
   return (
-    <AppShell
-      title="Reports"
-      description="Lead, deal, forecast, partner, and campaign reporting for the active company workspace."
-    >
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -460,6 +456,7 @@ export default function ReportsPage() {
           </TabsContent>
         </Tabs>
       </div>
-    </AppShell>
+    </>
   );
 }
+

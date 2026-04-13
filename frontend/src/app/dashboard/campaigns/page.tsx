@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -390,7 +389,7 @@ export default function CampaignsPage() {
   };
 
   return (
-    <AppShell title="Campaigns & Templates" description="Manage outbound campaigns, template rendering, sender identities, and runtime delivery hooks.">
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -704,6 +703,7 @@ export default function CampaignsPage() {
           </TabsContent>
         </Tabs>
       </div>
-    </AppShell>
+    </>
   );
 }
+

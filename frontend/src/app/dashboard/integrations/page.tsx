@@ -5,7 +5,6 @@ import { FormEvent, useEffect, useState } from "react";
 import { ArrowUpRight, Mail, MessageSquareText, BookOpenText, FileText, Globe, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
-import { AppShell } from "@/components/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -280,7 +279,7 @@ export default function IntegrationsPage() {
   };
 
   return (
-    <AppShell title="Integrations" description="Centralize provider setup, readiness, and rollout notes for every external channel.">
+    <>
       <div className="grid gap-6">
         {error ? (
           <Alert variant="destructive">
@@ -558,6 +557,7 @@ export default function IntegrationsPage() {
 
         {loading ? <p className="text-sm text-muted-foreground">Loading integrations workspace...</p> : null}
       </div>
-    </AppShell>
+    </>
   );
 }
+

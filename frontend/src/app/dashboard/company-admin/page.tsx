@@ -4,7 +4,6 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Copy, Link2, Send, Users } from "lucide-react";
 import { toast } from "sonner";
 
-import { AppShell } from "@/components/app-shell";
 import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -269,7 +268,7 @@ export default function CompanyAdminPage() {
   };
 
   return (
-    <AppShell title="Company Admin" description="Manage workspace footprint, teammate invites, and referral attribution from one admin surface.">
+    <>
       <div className="grid gap-6">
         <FormErrorSummary title="Company admin request failed" error={formError} />
 
@@ -514,6 +513,7 @@ export default function CompanyAdminPage() {
           </PageSection>
         ) : null}
       </div>
-    </AppShell>
+    </>
   );
 }
+

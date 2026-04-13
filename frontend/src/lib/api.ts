@@ -35,14 +35,33 @@ export async function apiRequest<T>(
   init?: Omit<RequestInit, "headers"> & {
     headers?: Record<string, string>;
     skipRefresh?: boolean;
+    skipCache?: boolean;
+    cacheTtlMs?: number;
   },
 ): Promise<T> {
   const env = getFrontendEnv();
   const companyId = getCompanyCookie();
   const storeId = getStoreCookie();
   const hasFormDataBody = typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const method = (init?.method ?? "GET").toUpperCase();
 
-  const response = await fetch(`${env.apiUrl}/api/v1${path}`, {
+  const cacheKey = `${env.apiUrl}/api/v1${path}|${companyId ?? ""}|${storeId ?? ""}`;
+  const shouldCache = method === "GET" && !init?.skipCache && !hasFormDataBody;
+  const pathKey = path.split("?")[0];
+  const ttlMs = init?.cacheTtlMs ?? cacheTtlByPath[pathKey] ?? 10_000;
+
+  if (shouldCache) {
+    const cached = apiCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data as T;
+    }
+    const inFlight = apiInFlight.get(cacheKey);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
+  }
+
+  const requestPromise = fetch(`${env.apiUrl}/api/v1${path}`, {
     ...init,
     credentials: "include",
     headers: {
@@ -51,31 +70,47 @@ export async function apiRequest<T>(
       ...(storeId ? { "x-store-id": storeId } : {}),
       ...(init?.headers ?? {}),
     },
+  }).then(async (response) => {
+    const payload = (await response.json()) as ApiSuccess<T> | ApiFailure;
+
+    if (response.status === 401 && !init?.skipRefresh && path !== "/auth/refresh") {
+      const refreshResponse = await fetch(`${env.apiUrl}/api/v1/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (refreshResponse.ok) {
+        return apiRequest<T>(path, { ...init, skipRefresh: true, skipCache: true });
+      }
+    }
+
+    if (!response.ok || payload.success === false) {
+      const error = payload.success === false ? payload.error : { code: "UNKNOWN", message: "Unknown API error" };
+      throw new ApiError(response.status, error);
+    }
+
+    return payload.data;
   });
 
-  const payload = (await response.json()) as ApiSuccess<T> | ApiFailure;
+  if (shouldCache) {
+    apiInFlight.set(cacheKey, requestPromise);
+  }
 
-  if (response.status === 401 && !init?.skipRefresh && path !== "/auth/refresh") {
-    const refreshResponse = await fetch(`${env.apiUrl}/api/v1/auth/refresh`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({}),
-    });
-
-    if (refreshResponse.ok) {
-      return apiRequest<T>(path, { ...init, skipRefresh: true });
+  try {
+    const data = await requestPromise;
+    if (shouldCache) {
+      apiCache.set(cacheKey, { data, expiresAt: Date.now() + ttlMs });
+    }
+    return data;
+  } finally {
+    if (shouldCache) {
+      apiInFlight.delete(cacheKey);
     }
   }
-
-  if (!response.ok || payload.success === false) {
-    const error = payload.success === false ? payload.error : { code: "UNKNOWN", message: "Unknown API error" };
-    throw new ApiError(response.status, error);
-  }
-
-  return payload.data;
 }
 
 export function buildApiUrl(path: string, query?: Record<string, string | null | undefined>) {
@@ -91,3 +126,38 @@ export function buildApiUrl(path: string, query?: Record<string, string | null |
   const suffix = params.toString();
   return `${env.apiUrl}/api/v1${path}${suffix ? `?${suffix}` : ""}`;
 }
+
+const apiCache = new Map<string, { data: unknown; expiresAt: number }>();
+const apiInFlight = new Map<string, Promise<unknown>>();
+
+const cacheTtlByPath: Record<string, number> = {
+  "/reports/summary": 30_000,
+  "/deals/forecast": 30_000,
+  "/tasks/summary": 20_000,
+  "/tasks/reminders": 20_000,
+  "/tasks/follow-ups": 20_000,
+  "/leads": 15_000,
+  "/customers": 20_000,
+  "/partners": 30_000,
+  "/partners/users": 30_000,
+  "/campaigns/email-accounts": 20_000,
+  "/campaigns/delivery-log": 20_000,
+  "/chatbot-flows/list": 30_000,
+  "/settings/integration-hub": 30_000,
+  "/settings/integrations": 30_000,
+  "/settings/pipelines": 30_000,
+  "/settings/lead-sources": 30_000,
+  "/settings/company-preferences": 30_000,
+  "/settings/custom-fields": 30_000,
+  "/settings/tags": 30_000,
+  "/settings/notification-rules": 30_000,
+  "/settings/runtime-readiness": 30_000,
+  "/companies/current": 30_000,
+  "/companies/current/plan": 30_000,
+  "/admin/summary": 30_000,
+  "/social/accounts": 20_000,
+  "/social/whatsapp/log": 20_000,
+  "/users/current-company": 30_000,
+  "/notifications": 10_000,
+  "/documents": 20_000,
+};

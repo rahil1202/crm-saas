@@ -3,7 +3,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import { AppShell } from "@/components/app-shell";
 import { buildApiUrl, ApiError, apiRequest } from "@/lib/api";
 import { getCompanyCookie } from "@/lib/cookies";
 
@@ -388,10 +387,7 @@ export default function DealsPage() {
   };
 
   return (
-    <AppShell
-      title="Deals"
-      description="Tenant-scoped deals workspace with timeline tracking for lifecycle changes."
-    >
+    <>
       <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16, marginBottom: 16}}>
         <h2 style={{ marginTop: 0 }}>Create deal</h2>
         <form onSubmit={handleCreate} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -650,6 +646,7 @@ export default function DealsPage() {
           </TabsContent>
         </Tabs>
       </section>
-    </AppShell>
+    </>
   );
 }
+

@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
-import { AppShell } from "@/components/app-shell";
 import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -462,10 +461,7 @@ export default function LeadsPage() {
   };
 
   return (
-    <AppShell
-      title="Leads"
-      description="Import, triage, and convert tenant-scoped leads from one workspace."
-    >
+    <>
       <div className="grid gap-6">
         <FormErrorSummary title="Request failed" error={error ?? createLeadForm.formError ?? importLeadForm.formError} />
 
@@ -894,6 +890,7 @@ export default function LeadsPage() {
             </Tabs>
         </CrudPanel>
       </div>
-    </AppShell>
+    </>
   );
 }
+
