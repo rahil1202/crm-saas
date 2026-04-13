@@ -43,9 +43,7 @@ export default function ForgotPasswordPage() {
 
   return (
     <AuthShell
-      badge="Recover access"
       title="Send a password reset link"
-      description="The recovery email returns to this frontend callback and then routes the user into the dedicated reset-password screen."
       footer={
         <Link href="/login" className="inline-flex items-center gap-2 font-medium text-foreground underline underline-offset-4">
           <ArrowLeft />
@@ -68,8 +66,8 @@ export default function ForgotPasswordPage() {
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="email">Account email</FieldLabel>
-              <Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => { clearFieldError("email"); setEmail(event.target.value); }} required />
-              <FieldDescription>The recovery email is only usable if this address belongs to an account.</FieldDescription>
+              <Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => { clearFieldError("email"); setEmail(event.target.value); }} required className="border-sky-200/90 focus-visible:border-sky-400 focus-visible:ring-sky-100" />
+            
               <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
             </Field>
           </FieldGroup>

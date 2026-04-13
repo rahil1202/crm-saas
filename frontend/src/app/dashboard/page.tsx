@@ -95,10 +95,10 @@ export default function DashboardPage() {
           <Card className="overflow-hidden bg-linear-to-br from-primary via-sky-500 to-cyan-400 text-white">
             <CardHeader className="gap-4">
               <Badge className="w-fit border-white/20 bg-white/14 text-white">Pipeline command</Badge>
-              <CardTitle className="max-w-xl text-4xl leading-tight text-white">
+              <CardTitle className="max-w-6xl text-3xl leading-tight text-white">
                 Clean daily visibility for revenue, follow-ups, and campaign momentum.
               </CardTitle>
-              <CardDescription className="max-w-2xl text-white/80">
+              <CardDescription className="max-w-6xl text-white/80">
                 Use this workspace as the operating surface for pipeline health, task pressure, and the modules that need attention next.
               </CardDescription>
             </CardHeader>
@@ -209,20 +209,6 @@ export default function DashboardPage() {
             </div>
           </div>
         ) : null}
-
-        <PageSection title="Modules" description="Workspace modules exposed through the shared CRM shell.">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {crmModules.map((module) => (
-            <ModuleCard key={module.slug} title={module.title} summary={module.summary}>
-              <ul className="m-0 list-disc pl-5 text-sm leading-7 text-muted-foreground">
-                {module.capabilities.map((capability) => (
-                  <li key={capability}>{capability}</li>
-                ))}
-              </ul>
-            </ModuleCard>
-          ))}
-          </div>
-        </PageSection>
       </div>
     </AppShell>
   );

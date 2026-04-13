@@ -6,9 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface AuthShellProps {
-  badge: string;
+  badge?: string;
   title: string;
-  description: string;
+  description?: string;
   children: ReactNode;
   footer?: ReactNode;
 }
@@ -37,7 +37,7 @@ export function AuthShell({ badge, title, description, children, footer }: AuthS
               </CardFooter>
             ) : null}
             <div className="pt-5 text-sm text-muted-foreground lg:hidden">
-              <Link href="/login" className="inline-flex items-center gap-2 font-medium text-foreground transition-colors hover:text-primary">
+              <Link href="/login" className="inline-flex items-center gap-2 font-medium text-foreground transition-colors hover:text-prima0ry">
                 Return to sign in
                 <ArrowRight className="size-4" />
               </Link>

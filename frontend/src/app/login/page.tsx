@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Globe, KeyRound, MailCheck } from "lucide-react";
+import { ArrowRight, KeyRound, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
@@ -11,7 +11,8 @@ import { FormErrorSummary, FormSection } from "@/components/forms/form-primitive
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { GoogleIcon } from "@/components/ui/google-icon";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -156,9 +157,8 @@ function LoginPageContent() {
 
   return (
     <AuthShell
-      badge="Sign in"
       title="Access your CRM workspace"
-      description="Use your verified email credentials or Google to continue into onboarding or the dashboard."
+      description="Sign in to manage your sales pipeline, track customer interactions, and grow your business."
       footer={
         <div className="flex flex-wrap items-center gap-2">
           <span>Need an account?</span>
@@ -204,7 +204,7 @@ function LoginPageContent() {
         <>
           <div className="grid gap-4">
             <Button type="button" variant="outline" size="lg" disabled={googleLoading} onClick={() => void handleGoogleLogin()}>
-              <Globe data-icon="inline-start" />
+              <GoogleIcon className="size-4.5 shrink-0" />
               {googleLoading ? "Redirecting to Google..." : "Continue with Google"}
             </Button>
             <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">
@@ -215,10 +215,10 @@ function LoginPageContent() {
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-            <FormSection title="Email login" description="Use the verified operator identity for this workspace.">
+            <FormSection title="Email login">
               <FieldGroup>
                 <Field>
-                  <FieldLabel htmlFor="email">Work email</FieldLabel>
+                  <FieldLabel htmlFor="email">Email</FieldLabel>
                   <Input
                     id="email"
                     type="email"
@@ -229,8 +229,8 @@ function LoginPageContent() {
                       setEmail(event.target.value);
                     }}
                     required
+                    className="border-sky-200/90 focus-visible:border-sky-400 focus-visible:ring-sky-100"
                   />
-                  <FieldDescription>Use the email address you verified with Supabase.</FieldDescription>
                   <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
                 </Field>
                 <Field>
@@ -250,8 +250,8 @@ function LoginPageContent() {
                       setPassword(event.target.value);
                     }}
                     required
+                    className="border-blue-200/90 focus-visible:border-blue-400 focus-visible:ring-blue-100"
                   />
-                  <FieldDescription>Your local CRM session is issued after the backend validates this password.</FieldDescription>
                   <FieldError errors={fieldErrors.password?.map((message) => ({ message }))} />
                 </Field>
               </FieldGroup>
@@ -262,23 +262,19 @@ function LoginPageContent() {
                 <KeyRound data-icon="inline-start" />
                 {submitting ? "Signing in..." : "Sign in"}
               </Button>
-              <Button type="button" variant="ghost" disabled={resendingVerification} onClick={() => void handleResendVerification()}>
-                <MailCheck data-icon="inline-start" />
-                {resendingVerification ? "Sending verification..." : "Resend verification email"}
-              </Button>
             </div>
           </form>
 
         </>
       )}
 
-      <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+      {/* <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
         <span>Need first-time access instead?</span>
         <Link href="/register" className="inline-flex items-center gap-2 font-medium text-foreground underline underline-offset-4">
           Register
           <ArrowRight />
         </Link>
-      </div>
+      </div> */}
     </AuthShell>
   );
 }

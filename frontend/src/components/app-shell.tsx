@@ -348,7 +348,7 @@ export function AppShell({
   }, [me?.user.fullName]);
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-slate-50">
+    <main className="relative min-h-screen bg-slate-50 lg:h-screen lg:overflow-hidden">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute inset-[-12%] opacity-100 [background:radial-gradient(circle_at_18%_22%,rgba(73,148,255,0.32),transparent_24%),radial-gradient(circle_at_82%_18%,rgba(126,210,255,0.3),transparent_22%),radial-gradient(circle_at_54%_78%,rgba(48,120,255,0.22),transparent_28%)] [animation:ambient-blue-orb-a_16s_ease-in-out_infinite_alternate]" />
         <div className="absolute inset-[-16%] opacity-95 [background:radial-gradient(circle_at_22%_76%,rgba(158,223,255,0.34),transparent_24%),radial-gradient(circle_at_76%_64%,rgba(70,145,255,0.24),transparent_26%),radial-gradient(circle_at_52%_18%,rgba(97,184,255,0.22),transparent_20%)] [animation:ambient-blue-orb-b_20s_ease-in-out_infinite_alternate]" />
@@ -357,26 +357,26 @@ export function AppShell({
 
       <div
         className={cn(
-          "relative min-h-screen px-4 py-4 transition-[padding] duration-200 lg:px-5 lg:py-4",
-          sidebarExpanded ? "lg:pl-[309px]" : "lg:pl-[121px]",
+          "relative min-h-screen px-4 py-4 transition-[padding] duration-200 lg:h-full lg:min-h-0 lg:px-4 lg:py-4",
+          sidebarExpanded ? "lg:pl-[316px]" : "lg:pl-[120px]",
         )}
       >
         <aside
           className={cn(
-            "z-40 mb-4 w-full rounded-[2rem] border border-white/75 bg-sidebar/92 p-3 shadow-[0_28px_80px_-42px_rgba(34,92,191,0.35)] backdrop-blur-xl transition-[width] duration-200 lg:fixed lg:bottom-4 lg:left-4 lg:top-4 lg:mb-0 lg:overflow-hidden lg:p-4",
-            sidebarExpanded ? "lg:w-[280px]" : "lg:w-[92px]",
+            "z-40 mb-4 w-full rounded-[2rem] border border-sky-200/70 bg-sky-50/80 p-3 shadow-[0_28px_80px_-42px_rgba(34,92,191,0.35)] backdrop-blur-xl transition-[width] duration-200 lg:fixed lg:bottom-4 lg:left-4 lg:top-4 lg:mb-0 lg:overflow-y-auto lg:rounded-[2rem] lg:border lg:p-3",
+            sidebarExpanded ? "lg:w-[280px]" : "lg:w-[84px]",
           )}
         >
           <div className="flex h-full flex-col gap-4 lg:min-h-0">
-            <div className={cn("flex items-center gap-3 rounded-[1.5rem] border border-white/80 bg-white/72 p-3", sidebarExpanded ? "justify-between" : "justify-center")}>
+            <div className={cn("flex items-center gap-3 rounded-[1.5rem] border border-sky-200/70 bg-sky-100/70 p-3", sidebarExpanded ? "justify-between" : "justify-center")}>
               <div className={cn("flex items-center gap-3 overflow-hidden", !sidebarExpanded && "justify-center")}>
-                <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-200/70 text-sky-700">
                   <Sparkles className="size-5" />
                 </div>
                 {sidebarExpanded ? (
                   <div className="min-w-0">
-                    <div className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-primary/75">Software</div>
-                    <div className="truncate font-heading text-lg font-semibold text-slate-900">CRM SaaS</div>
+                    <div className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-sky-600">Software</div>
+                    <div className="truncate font-heading text-lg font-semibold text-sky-950">CRM SaaS</div>
                   </div>
                 ) : null}
               </div>
@@ -393,8 +393,8 @@ export function AppShell({
             </div>
 
             {sidebarExpanded ? (
-              <div className="rounded-[1.5rem] border border-white/80 bg-white/72 p-3">
-                <label htmlFor="workspace-picker" className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <div className="rounded-[1.5rem] border border-sky-200/70 bg-sky-100/70 p-3">
+                <label htmlFor="workspace-picker" className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-sky-600">
                   Active company
                 </label>
                 <NativeSelect
@@ -414,9 +414,9 @@ export function AppShell({
             <div className="min-h-0 flex-1 overflow-hidden">
               <nav className="hide-scrollbar flex h-full min-h-0 flex-col gap-5 overflow-y-auto pr-1">
                 {visibleNavGroups.map((group) => (
-                  <div key={group.id} className="grid gap-2 border-t border-slate-200/80 pt-4 first:border-t-0 first:pt-0">
+                  <div key={group.id} className="grid gap-2 border-t border-sky-200/70 pt-4 first:border-t-0 first:pt-0">
                     {sidebarExpanded ? (
-                      <div className="px-3 text-[0.78rem] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                      <div className="px-2 text-[0.74rem] font-semibold uppercase tracking-[0.1em] text-sky-500">
                         {group.label}
                       </div>
                     ) : null}
@@ -431,10 +431,10 @@ export function AppShell({
                           title={!sidebarExpanded ? item.label : undefined}
                           className={cn(
                             "group relative flex items-center rounded-xl text-sm font-medium transition-all",
-                            sidebarExpanded ? "gap-3 px-3 py-2.5" : "justify-center px-0 py-2.5",
+                            sidebarExpanded ? "gap-2 px-2 py-2" : "justify-center px-0 py-2",
                             isActive
-                              ? "bg-sky-100 text-sky-500"
-                              : "border border-transparent text-slate-500 hover:bg-white/75 hover:text-slate-900",
+                              ? "bg-sky-200/80 text-sky-800"
+                              : "border border-transparent text-sky-700 hover:bg-sky-100/80 hover:text-sky-950",
                           )}
                         >
                           {isActive && sidebarExpanded ? (
@@ -442,11 +442,11 @@ export function AppShell({
                           ) : null}
                           <span
                             className={cn(
-                              "flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
-                              isActive ? "text-sky-500" : "text-slate-500",
+                              "flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+                              isActive ? "text-sky-700" : "text-sky-600",
                             )}
                           >
-                            <Icon className="size-4.5" />
+                            <Icon className="size-4" />
                           </span>
                           {sidebarExpanded ? <span className="truncate">{item.label}</span> : null}
                           {!sidebarExpanded ? (
@@ -465,7 +465,7 @@ export function AppShell({
             <div className="relative">
               <div
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-[1.5rem] border border-white/75 bg-white/75 p-3 text-left",
+                  "flex w-full items-center gap-3 rounded-[1.5rem] border border-sky-200/70 bg-sky-100/70 p-3 text-left",
                   !sidebarExpanded && "justify-center px-2",
                 )}
               >
@@ -474,8 +474,8 @@ export function AppShell({
                 </Avatar>
                 {sidebarExpanded ? (
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-slate-900">{me?.user.fullName ?? "CRM Operator"}</div>
-                    <div className="truncate text-sm text-muted-foreground">{activeMembership?.companyName ?? "Workspace"}</div>
+                    <div className="truncate font-medium text-sky-950">{me?.user.fullName ?? "CRM Operator"}</div>
+                    <div className="truncate text-sm text-sky-600">{activeMembership?.companyName ?? "Workspace"}</div>
                   </div>
                 ) : null}
               </div>
@@ -483,91 +483,88 @@ export function AppShell({
           </div>
         </aside>
 
-        <header
-          className={cn(
-            "z-30 mb-4 rounded-[1.6rem] border border-white/80 bg-white/82 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl lg:fixed lg:right-5 lg:top-4 lg:mb-0 lg:px-5",
-            sidebarExpanded ? "lg:left-[309px]" : "lg:left-[121px]",
-          )}
-        >
-          <div className="flex gap-4 lg:items-start lg:justify-between">
-            <div className="min-w-0 flex-1">
-              <nav className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
-                {breadcrumbItems.map((item, index) => {
-                  const isLast = index === breadcrumbItems.length - 1;
+        <div className="flex min-h-0 flex-col lg:h-full">
+          <header className="z-30 mb-4 shrink-0 rounded-[1.4rem] border border-sky-200/70 bg-sky-50/85 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-xl lg:sticky lg:top-4 lg:mb-4 lg:rounded-[1.4rem] lg:border lg:px-4">
+            <div className="flex gap-3 lg:items-start lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <nav className="flex flex-wrap items-center gap-1 text-xs text-sky-600 lg:text-sm">
+                  {breadcrumbItems.map((item, index) => {
+                    const isLast = index === breadcrumbItems.length - 1;
 
-                  return (
-                    <div key={`${item.href}-${item.label}`} className="flex items-center gap-1">
-                      {index > 0 ? <ChevronRight className="size-3.5 text-muted-foreground/70" /> : null}
-                      {isLast ? (
-                        <span className="font-medium text-slate-900">{item.label}</span>
-                      ) : (
-                        <Link href={item.href} className="transition-colors hover:text-slate-900">
-                          {item.label}
-                        </Link>
-                      )}
-                    </div>
-                  );
-                })}
-              </nav>
-              <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-              <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900">{title}</h1>
-            </div>
+                    return (
+                      <div key={`${item.href}-${item.label}`} className="flex items-center gap-1">
+                        {index > 0 ? <ChevronRight className="size-3.5 text-sky-500/80" /> : null}
+                        {isLast ? (
+                          <span className="font-medium text-sky-950">{item.label}</span>
+                        ) : (
+                          <Link href={item.href} className="transition-colors hover:text-sky-950">
+                            {item.label}
+                          </Link>
+                        )}
+                      </div>
+                    );
+                  })}
+                </nav>
+                <p className="mt-0.5 text-xs text-sky-600">{description}</p>
+                <h1 className="mt-0.5 text-base font-semibold tracking-tight text-sky-950 lg:text-lg">{title}</h1>
+              </div>
 
-            <div className="relative shrink-0 self-start">
-              <button
-                type="button"
-                className="flex items-center gap-3 rounded-2xl border border-white/85 bg-secondary/55 px-3 py-2 transition-colors hover:bg-secondary/75"
-                onClick={() => setProfileMenuOpen((current) => !current)}
-              >
-                <Avatar>
-                  <AvatarFallback>{userInitials}</AvatarFallback>
-                </Avatar>
-                <div className="hidden min-w-0 text-left lg:block">
-                  <div className="max-w-44 truncate text-sm font-semibold text-slate-900">{me?.user.fullName ?? "CRM Operator"}</div>
-                  <div className="text-xs text-muted-foreground">{activeMembership?.role ?? "member"}</div>
-                </div>
-                <ChevronDown className="size-4 text-muted-foreground" />
-              </button>
-
-              {profileMenuOpen ? (
-                <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 min-w-72 rounded-2xl border border-white/80 bg-white/96 p-2 shadow-[0_22px_60px_-30px_rgba(35,86,166,0.38)] backdrop-blur-xl">
-                  <div className="rounded-xl border border-border/70 bg-secondary/30 px-3 py-3">
-                    <div className="truncate text-sm font-semibold text-slate-900">{me?.user.fullName ?? "CRM Operator"}</div>
-                    <div className="mt-1 text-xs uppercase tracking-[0.16em] text-primary/70">{activeMembership?.role ?? "member"}</div>
-                    <div className="mt-2 truncate text-sm text-slate-700">{activeMembership?.companyName ?? "Workspace"}</div>
-                    <div className="truncate text-sm text-muted-foreground">{me?.user.email ?? "No email loaded"}</div>
+              <div className="relative shrink-0 self-start">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-xl border border-sky-200/70 bg-sky-100/70 px-2.5 py-1.5 transition-colors hover:bg-sky-100"
+                  onClick={() => setProfileMenuOpen((current) => !current)}
+                >
+                  <Avatar>
+                    <AvatarFallback>{userInitials}</AvatarFallback>
+                  </Avatar>
+                  <div className="hidden min-w-0 text-left lg:block">
+                    <div className="max-w-44 truncate text-sm font-semibold text-sky-950">{me?.user.fullName ?? "CRM Operator"}</div>
+                    <div className="text-xs text-sky-600">{activeMembership?.role ?? "member"}</div>
                   </div>
-                  <Link
-                    href="/dashboard/settings"
-                    className="mt-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-secondary/65"
-                  >
-                    <Settings2 className="size-4 text-primary" />
-                    Settings
-                  </Link>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/8"
-                    onClick={() => {
-                      setProfileMenuOpen(false);
-                      setConfirmLogoutOpen(true);
-                    }}
-                  >
-                    <LogOut className="size-4" />
-                    Logout
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </header>
+                  <ChevronDown className="size-4 text-sky-500" />
+                </button>
 
-        <section className="min-w-0 pt-0 lg:pt-[6.25rem]">
-          <div className="grid gap-5">
-            {loading ? <div className="rounded-2xl border border-dashed border-border/80 bg-white/55 px-4 py-3 text-sm text-muted-foreground">Loading workspace...</div> : null}
-            {loadError ? <div className="rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-3 text-sm text-destructive">{loadError}</div> : null}
-            {!loading && !loadError ? <div className="grid gap-6">{children}</div> : null}
-          </div>
-        </section>
+                {profileMenuOpen ? (
+                  <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 min-w-72 rounded-2xl border border-white/80 bg-white/96 p-2 shadow-[0_22px_60px_-30px_rgba(35,86,166,0.38)] backdrop-blur-xl">
+                    <div className="rounded-xl border border-border/70 bg-secondary/30 px-3 py-3">
+                      <div className="truncate text-sm font-semibold text-slate-900">{me?.user.fullName ?? "CRM Operator"}</div>
+                      <div className="mt-1 text-xs uppercase tracking-[0.16em] text-primary/70">{activeMembership?.role ?? "member"}</div>
+                      <div className="mt-2 truncate text-sm text-slate-700">{activeMembership?.companyName ?? "Workspace"}</div>
+                      <div className="truncate text-sm text-muted-foreground">{me?.user.email ?? "No email loaded"}</div>
+                    </div>
+                    <Link
+                      href="/dashboard/settings"
+                      className="mt-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-secondary/65"
+                    >
+                      <Settings2 className="size-4 text-primary" />
+                      Settings
+                    </Link>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/8"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        setConfirmLogoutOpen(true);
+                      }}
+                    >
+                      <LogOut className="size-4" />
+                      Logout
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </header>
+
+          <section className="min-w-0 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+            <div className="grid gap-5">
+              {loading ? <div className="rounded-2xl border border-dashed border-border/80 bg-white/55 px-4 py-3 text-sm text-muted-foreground">Loading workspace...</div> : null}
+              {loadError ? <div className="rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-3 text-sm text-destructive">{loadError}</div> : null}
+              {!loading && !loadError ? <div className="grid gap-6">{children}</div> : null}
+            </div>
+          </section>
+        </div>
       </div>
 
       {confirmLogoutOpen ? (

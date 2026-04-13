@@ -392,7 +392,7 @@ export default function DealsPage() {
       title="Deals"
       description="Tenant-scoped deals workspace with timeline tracking for lifecycle changes."
     >
-      <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+      <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16, marginBottom: 16}}>
         <h2 style={{ marginTop: 0 }}>Create deal</h2>
         <form onSubmit={handleCreate} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Deal title" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />

@@ -104,7 +104,6 @@ export default function ResetPasswordPage() {
 
   return (
     <AuthShell
-      badge="Reset password"
       title="Choose a new password"
       description="This screen only works after a verified recovery callback. Once saved, the temporary session is cleared and sign-in starts fresh."
       footer={
@@ -154,12 +153,11 @@ export default function ResetPasswordPage() {
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="password">New password</FieldLabel>
-              <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
-              <FieldDescription>Use a password that passes the same backend rules used during registration.</FieldDescription>
+              <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required className="border-blue-200/90 focus-visible:border-blue-400 focus-visible:ring-blue-100" />
             </Field>
             <Field>
               <FieldLabel htmlFor="confirmPassword">Confirm new password</FieldLabel>
-              <Input id="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+              <Input id="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required className="border-blue-200/90 focus-visible:border-blue-400 focus-visible:ring-blue-100" />
               <FieldDescription>
                 {confirmPassword.length === 0 ? "Re-enter the password to confirm the reset." : password === confirmPassword ? "Passwords match." : "Passwords do not match yet."}
               </FieldDescription>

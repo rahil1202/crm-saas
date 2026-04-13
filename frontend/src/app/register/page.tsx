@@ -14,11 +14,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { GoogleIcon } from "@/components/ui/google-icon";
 import { Input } from "@/components/ui/input";
 import { Progress, ProgressLabel } from "@/components/ui/progress";
 import { apiRequest } from "@/lib/api";
 import { evaluatePasswordStrength } from "@/lib/auth-ui";
 import { savePendingInviteReferralContext } from "@/lib/invite-referral";
+import { supabase } from "@/lib/supabase";
 import { useAsyncForm } from "@/hooks/use-async-form";
 
 interface InviteLookupResponse {
@@ -43,6 +45,7 @@ function RegisterPageContent() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
   const [inviteLookup, setInviteLookup] = useState<InviteLookupResponse["invite"] | null>(null);
@@ -161,11 +164,31 @@ function RegisterPageContent() {
     setResendingVerification(false);
   };
 
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    savePendingInviteReferralContext({
+      inviteToken,
+      referralCode,
+    });
+
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+
+    if (oauthError) {
+      toast.error("Google sign-in could not be started.");
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <AuthShell
-      badge="Register"
+      // badge="Register"
       title="Create the first operator account"
-      description="Registration is email-first. After verification, the callback sends the user into workspace onboarding automatically."
+      // description="Registration is email-first. After verification, the callback sends the user into workspace onboarding automatically."
       footer={
         <div className="flex flex-wrap items-center gap-2">
           <span>Already registered?</span>
@@ -209,121 +232,131 @@ function RegisterPageContent() {
           </div>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-          {inviteLookup ? (
-            <Alert>
-              <CheckCircle2 />
-              <AlertTitle>Invite recognized</AlertTitle>
-              <AlertDescription>
-                {inviteLookup.email} is invited as <strong>{inviteLookup.role}</strong>.
-                {inviteLookup.inviteMessage ? ` Message: ${inviteLookup.inviteMessage}` : ""}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          {inviteWarning ? (
-            <Alert>
-              <AlertCircle />
-              <AlertTitle>Invite warning</AlertTitle>
-              <AlertDescription>{inviteWarning}</AlertDescription>
-            </Alert>
-          ) : null}
-          {referralCode ? (
-            <Alert>
-              <CheckCircle2 />
-              <AlertTitle>Referral captured</AlertTitle>
-              <AlertDescription>
-                Referral code <strong>{referralCode}</strong> will be attached to this registration.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          <FormSection title="Owner account" description="This account becomes the first workspace owner after onboarding.">
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="fullName">Full name</FieldLabel>
-                <Input
-                  id="fullName"
-                  value={fullName}
-                  onChange={(event) => {
-                    clearFieldError("fullName");
-                    setFullName(event.target.value);
-                  }}
-                  required
-                />
-                <FieldDescription>This becomes the owner profile name used during onboarding.</FieldDescription>
-                <FieldError errors={fieldErrors.fullName?.map((message) => ({ message }))} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
-                <Input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => {
-                    clearFieldError("email");
-                    setEmail(event.target.value);
-                  }}
-                  required
-                />
-                <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="password">Password</FieldLabel>
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(event) => {
-                    clearFieldError("password");
-                    setPassword(event.target.value);
-                  }}
-                  required
-                />
-                <FieldDescription>The backend enforces the same strength rules shown below.</FieldDescription>
-                <FieldError errors={fieldErrors.password?.map((message) => ({ message }))} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="confirmPassword">Confirm password</FieldLabel>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(event) => {
-                    clearFieldError("confirmPassword");
-                    setConfirmPassword(event.target.value);
-                  }}
-                  required
-                />
-                <FieldDescription>
-                  {confirmPassword.length === 0 ? "Re-enter the password to avoid setup mistakes." : passwordsMatch ? "Passwords match." : "Passwords do not match yet."}
-                </FieldDescription>
-                <FieldError errors={fieldErrors.confirmPassword?.map((message) => ({ message }))} />
-              </Field>
-              <Field orientation="horizontal">
-                <Checkbox checked={acknowledged} onCheckedChange={(checked) => setAcknowledged(checked === true)} aria-label="Acknowledge onboarding requirements" />
-                <FieldContent>
-                  <FieldLabel>I understand this owner account creates the first CRM workspace.</FieldLabel>
-                  <FieldDescription>The next step after verification is workspace onboarding, not the dashboard.</FieldDescription>
-                </FieldContent>
-              </Field>
-            </FieldGroup>
-          </FormSection>
-
-          <div className="rounded-[1.6rem] border border-border/70 bg-secondary/35 p-4">
-            <div className="mb-4 text-sm font-medium text-slate-900">Password strength</div>
-            <Progress value={password.length === 0 ? 0 : passwordStrength.score}>
-              <ProgressLabel>{passwordStrength.label}</ProgressLabel>
-              <span className="ml-auto text-sm text-muted-foreground tabular-nums">{password.length === 0 ? "0%" : `${passwordStrength.score}%`}</span>
-            </Progress>
+        <>
+          <div className="grid gap-4">
+            <Button type="button" variant="outline" size="lg" disabled={googleLoading} onClick={() => void handleGoogleLogin()}>
+              <GoogleIcon className="size-4.5 shrink-0" />
+              {googleLoading ? "Redirecting to Google..." : "Continue with Google"}
+            </Button>
           </div>
 
-          <Button type="submit" size="lg" disabled={submitting}>
-            <UserPlus data-icon="inline-start" />
-            {submitting ? "Creating account..." : "Create account"}
-          </Button>
-        </form>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+            {inviteLookup ? (
+              <Alert>
+                <CheckCircle2 />
+                <AlertTitle>Invite recognized</AlertTitle>
+                <AlertDescription>
+                  {inviteLookup.email} is invited as <strong>{inviteLookup.role}</strong>.
+                  {inviteLookup.inviteMessage ? ` Message: ${inviteLookup.inviteMessage}` : ""}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {inviteWarning ? (
+              <Alert>
+                <AlertCircle />
+                <AlertTitle>Invite warning</AlertTitle>
+                <AlertDescription>{inviteWarning}</AlertDescription>
+              </Alert>
+            ) : null}
+            {referralCode ? (
+              <Alert>
+                <CheckCircle2 />
+                <AlertTitle>Referral captured</AlertTitle>
+                <AlertDescription>
+                  Referral code <strong>{referralCode}</strong> will be attached to this registration.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            <FormSection>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="fullName">Full name</FieldLabel>
+                  <Input
+                    id="fullName"
+                    value={fullName}
+                    onChange={(event) => {
+                      clearFieldError("fullName");
+                      setFullName(event.target.value);
+                    }}
+                    required
+                  />
+                  <FieldError errors={fieldErrors.fullName?.map((message) => ({ message }))} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="email">Email</FieldLabel>
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(event) => {
+                      clearFieldError("email");
+                      setEmail(event.target.value);
+                    }}
+                    required
+                    className="border-sky-200/90 focus-visible:border-sky-400 focus-visible:ring-sky-100"
+                  />
+                  <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="password">Password</FieldLabel>
+                  <Input
+                    id="password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(event) => {
+                      clearFieldError("password");
+                      setPassword(event.target.value);
+                    }}
+                    required
+                    className="border-blue-200/90 focus-visible:border-blue-400 focus-visible:ring-blue-100"
+                  />
+                  <FieldError errors={fieldErrors.password?.map((message) => ({ message }))} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="confirmPassword">Confirm password</FieldLabel>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(event) => {
+                      clearFieldError("confirmPassword");
+                      setConfirmPassword(event.target.value);
+                    }}
+                    required
+                    className="border-blue-200/90 focus-visible:border-blue-400 focus-visible:ring-blue-100"
+                  />
+                  <FieldDescription>
+                    {confirmPassword.length === 0 ? "Re-enter the password to avoid setup mistakes." : passwordsMatch ? "Passwords match." : "Passwords do not match yet."}
+                  </FieldDescription>
+                  <FieldError errors={fieldErrors.confirmPassword?.map((message) => ({ message }))} />
+                </Field>
+                <Field orientation="horizontal">
+                  <Checkbox checked={acknowledged} onCheckedChange={(checked) => setAcknowledged(checked === true)} aria-label="Acknowledge onboarding requirements" />
+                  <FieldContent>
+                    <FieldLabel>I understand this owner account creates the first CRM workspace.</FieldLabel>
+                    <FieldDescription>The next step after verification is workspace onboarding, not the dashboard.</FieldDescription>
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
+            </FormSection>
+
+            <div className="rounded-[1.6rem] border border-border/70 bg-secondary/35 p-4">
+              <div className="mb-4 text-sm font-medium text-slate-900">Password strength</div>
+              <Progress value={password.length === 0 ? 0 : passwordStrength.score}>
+                <ProgressLabel>{passwordStrength.label}</ProgressLabel>
+                <span className="ml-auto text-sm text-muted-foreground tabular-nums">{password.length === 0 ? "0%" : `${passwordStrength.score}%`}</span>
+              </Progress>
+            </div>
+
+            <Button type="submit" size="lg" disabled={submitting}>
+              <UserPlus data-icon="inline-start" />
+              {submitting ? "Creating account..." : "Create account"}
+            </Button>
+          </form>
+        </>
       )}
     </AuthShell>
   );
