@@ -493,7 +493,7 @@ export default function DealsPage() {
       </section>
 
       <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16 }}>
-        <Tabs defaultValue="list">
+        <Tabs defaultValue="list" queryKey="tab">
           <TabsList>
             <TabsTrigger value="list">List</TabsTrigger>
             <TabsTrigger value="board">Board</TabsTrigger>

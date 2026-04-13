@@ -238,7 +238,7 @@ export default function ReportsPage() {
           ))}
         </div>
 
-        <Tabs defaultValue="leads" className="grid gap-4">
+        <Tabs defaultValue="leads" queryKey="tab" className="grid gap-4">
           <TabsList className="w-fit">
             <TabsTrigger value="leads">Leads</TabsTrigger>
             <TabsTrigger value="deals">Deals</TabsTrigger>

@@ -398,7 +398,7 @@ export default function CampaignsPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
-        <Tabs defaultValue="campaigns" className="grid gap-6">
+        <Tabs defaultValue="campaigns" queryKey="tab" className="grid gap-6">
           <TabsList className="w-fit">
             <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
             <TabsTrigger value="templates">Templates</TabsTrigger>

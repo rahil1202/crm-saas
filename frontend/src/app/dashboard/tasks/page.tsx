@@ -426,7 +426,7 @@ export default function TasksPage() {
 
           <CrudPanel title="Task planning" description="Switch between operational list view and calendar-based due-date planning.">
             <div className="grid gap-4">
-              <Tabs defaultValue="list" className="grid gap-4">
+              <Tabs defaultValue="list" queryKey="tab" className="grid gap-4">
                 <TabsList className="w-fit">
                   <TabsTrigger value="list">List</TabsTrigger>
                   <TabsTrigger value="reminders">Reminders</TabsTrigger>

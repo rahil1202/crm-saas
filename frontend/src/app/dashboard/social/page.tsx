@@ -413,7 +413,7 @@ export default function SocialPage() {
           </Card>
         </div>
 
-        <Tabs defaultValue="accounts" className="grid gap-4">
+        <Tabs defaultValue="accounts" queryKey="tab" className="grid gap-4">
           <TabsList className="w-fit">
             <TabsTrigger value="accounts">Accounts</TabsTrigger>
             <TabsTrigger value="capture">Capture</TabsTrigger>

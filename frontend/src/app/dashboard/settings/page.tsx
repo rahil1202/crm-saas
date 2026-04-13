@@ -950,7 +950,7 @@ export default function SettingsPage() {
           </Alert>
         ) : null}
 
-        <Tabs defaultValue="company" className="flex flex-col gap-6">
+        <Tabs defaultValue="company" queryKey="tab" className="flex flex-col gap-6">
           <TabsList>
             <TabsTrigger value="company">Company</TabsTrigger>
             <TabsTrigger value="preferences">Preferences</TabsTrigger>

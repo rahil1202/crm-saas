@@ -609,7 +609,7 @@ export default function LeadsPage() {
         </PageSection>
 
         <CrudPanel title="Lead workspace" description="Use list mode for bulk actions and board mode for status distribution.">
-            <Tabs defaultValue="list" className="grid gap-4">
+            <Tabs defaultValue="list" queryKey="tab" className="grid gap-4">
               <TabsList className="w-fit">
                 <TabsTrigger value="list">List</TabsTrigger>
                 <TabsTrigger value="board">Board</TabsTrigger>

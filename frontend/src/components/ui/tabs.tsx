@@ -1,5 +1,7 @@
 "use client"
 
+import { usePathname, useRouter } from "next/navigation"
+import { useMemo } from "react"
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -8,8 +10,47 @@ import { cn } from "@/lib/utils"
 function Tabs({
   className,
   orientation = "horizontal",
+  queryKey,
+  defaultValue,
+  value,
+  onValueChange,
   ...props
-}: TabsPrimitive.Root.Props) {
+}: TabsPrimitive.Root.Props & { queryKey?: string }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const urlValue =
+    queryKey && typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get(queryKey)
+      : null
+  const resolvedValue = useMemo(() => {
+    if (value !== undefined) {
+      return value
+    }
+
+    return urlValue ?? defaultValue
+  }, [defaultValue, urlValue, value])
+
+  const handleValueChange: NonNullable<TabsPrimitive.Root.Props["onValueChange"]> = (nextValue, eventDetails) => {
+    onValueChange?.(nextValue, eventDetails)
+
+    if (!queryKey) {
+      return
+    }
+
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "")
+    if (!nextValue || nextValue === defaultValue) {
+      params.delete(queryKey)
+    } else {
+      params.set(queryKey, nextValue)
+    }
+
+    const nextQuery = params.toString()
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false })
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("app-tab-change"))
+    }
+  }
+
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
@@ -18,6 +59,9 @@ function Tabs({
         "group/tabs flex gap-2 data-horizontal:flex-col",
         className
       )}
+      defaultValue={queryKey ? undefined : defaultValue}
+      onValueChange={handleValueChange}
+      value={resolvedValue}
       {...props}
     />
   )
