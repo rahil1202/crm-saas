@@ -22,9 +22,11 @@ export function AuthShell({ badge, title, description, children, footer }: AuthS
         <section className="flex items-center border-b border-white/70 bg-white/82 p-5 lg:border-r lg:border-b-0 lg:p-10 xl:p-14">
           <Card className="w-full border-0 bg-transparent shadow-none">
             <CardHeader className="px-0">
-              <Badge variant="secondary" className="w-fit">
-                {badge}
-              </Badge>
+              {badge ? (
+                <Badge variant="secondary" className="w-fit">
+                  {badge}
+                </Badge>
+              ) : null}
               <div className="mt-2 flex flex-col gap-2">
                 <CardTitle className="text-4xl leading-tight">{title}</CardTitle>
                 <CardDescription className="max-w-lg text-sm leading-7">{description}</CardDescription>

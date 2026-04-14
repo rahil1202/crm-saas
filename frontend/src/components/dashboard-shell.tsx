@@ -25,9 +25,9 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Company Admin",
     description: "Manage workspace footprint, teammate invites, and referral attribution from one admin surface.",
   },
-  "/dashboard/customers": {
-    title: "Customers",
-    description: "Customer directory with linked lead, deal, task, and campaign history.",
+  "/dashboard/contacts": {
+    title: "Contact Directory",
+    description: "Sort, search, and filter contact records with linked lead, deal, task, and campaign history.",
   },
   "/dashboard/deals": {
     title: "Deals",
@@ -39,7 +39,27 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
   },
   "/dashboard/integrations": {
     title: "Integrations",
-    description: "Centralize provider setup, readiness, and rollout notes for every external channel.",
+    description: "Configure supported integrations from one clean workspace.",
+  },
+  "/dashboard/integrations/email": {
+    title: "Email Integration",
+    description: "Set up sender identity, OAuth provider link, and event webhook.",
+  },
+  "/dashboard/integrations/whatsapp": {
+    title: "WhatsApp Integration",
+    description: "Configure WhatsApp provider, business IDs, and webhook verification.",
+  },
+  "/dashboard/integrations/linkedin": {
+    title: "LinkedIn Integration",
+    description: "Connect LinkedIn OAuth and configure lead sync settings.",
+  },
+  "/dashboard/integrations/documents": {
+    title: "Documents Integration",
+    description: "Configure intake email, storage path, and auto-attach behavior.",
+  },
+  "/dashboard/integrations/webhooks": {
+    title: "Webhooks Integration",
+    description: "Configure inbound/outbound endpoints and signing hints.",
   },
   "/dashboard/leads": {
     title: "Leads",
@@ -61,6 +81,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Settings",
     description: "Manage operator security, company profile, branches, and team access for the active CRM workspace.",
   },
+  "/dashboard/team": {
+    title: "Team Management",
+    description: "Manage workspace members, roles, and invites in one clean view.",
+  },
   "/dashboard/social": {
     title: "Social",
     description: "Manage connected social accounts, capture inbound conversations, assign ownership, and convert them into leads.",
@@ -77,7 +101,13 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const meta = dashboardMeta[pathname] ?? {
+  const meta =
+    (pathname.startsWith("/dashboard/contacts/") && pathname !== "/dashboard/contacts"
+      ? {
+          title: "Contact Profile",
+          description: "Detailed contact record with activity, company context, notes, and deal visibility.",
+        }
+      : dashboardMeta[pathname]) ?? {
     title: "Dashboard",
     description: "Workspace overview for the active CRM company.",
   };

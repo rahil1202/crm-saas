@@ -24,7 +24,7 @@ import { supabase } from "@/lib/supabase";
 
 function LoginPageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();xd-
+  const searchParams = useSearchParams();
   const env = getFrontendEnv();
 
   const [email, setEmail] = useState("");

@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-html-link-for-pages */
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -47,6 +48,7 @@ import {
 } from "@/lib/cookies";
 import { clearCachedMe, getCachedMe, loadMe as loadCachedMe, type MeResponse } from "@/lib/me-cache";
 import { cn } from "@/lib/utils";
+import websiteLogo from "@/assets/logo-png.png";
 
 type CompanyRole = "owner" | "admin" | "member";
 
@@ -62,7 +64,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, minRole: "member" },
   { href: "/dashboard/leads", label: "Leads", icon: Target, minRole: "member" },
   { href: "/dashboard/deals", label: "Deals", icon: BriefcaseBusiness, minRole: "member" },
-  { href: "/dashboard/customers", label: "Contacts", icon: Users, minRole: "member" },
+  { href: "/dashboard/contacts", label: "Contacts", icon: Users, minRole: "member" },
   { href: "/dashboard/documents", label: "Files", icon: FileText, minRole: "member" },
   { href: "/dashboard/tasks", label: "Tasks", icon: PanelsTopLeft, minRole: "member" },
   { href: "/dashboard/partners", label: "Partners", icon: Building2, minRole: "admin" },
@@ -73,6 +75,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard/integrations", label: "Integrations", icon: Link2, minRole: "admin" },
   { href: "/dashboard/social", label: "Social", icon: MessageSquareShare, minRole: "admin" },
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell, minRole: "admin" },
+  { href: "/dashboard/team", label: "Team", icon: Users, minRole: "admin" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings2, minRole: "admin" },
   { href: "/dashboard/company-admin", label: "Company Admin", icon: Building2, minRole: "admin" },
   { href: "/dashboard/super-admin", label: "Super Admin", icon: Shield, minRole: "member", superAdminOnly: true },
@@ -81,9 +84,9 @@ const navItems: NavItem[] = [
 const navGroups = [
   { id: "home", label: "Home", hrefs: ["/dashboard"] },
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
-  { id: "crm", label: "CRM", hrefs: ["/dashboard/customers", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks", "/dashboard/company-admin"] },
+  { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks", "/dashboard/company-admin"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
-  { id: "users", label: "Users", hrefs: ["/dashboard/settings", "/dashboard/partners"] },
+  { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/settings", "/dashboard/partners"] },
   { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
 ];
 
@@ -102,7 +105,8 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
     "/dashboard/social": { label: "Meta", icon: MessageSquareShare },
   },
   users: {
-    "/dashboard/settings": { label: "Teams", icon: Users },
+    "/dashboard/team": { label: "Teams", icon: Users },
+    "/dashboard/settings": { label: "Settings", icon: Settings2 },
     "/dashboard/partners": { label: "Partners", icon: HeartHandshake },
   },
   addons: {
@@ -182,7 +186,10 @@ export function AppShell({
     const itemMap = new Map(navItems.map((item) => [item.href, item.label]));
     const items = [{ href: "/dashboard", label: "Home" }];
 
-    if (pathname !== "/dashboard") {
+    if (pathname.startsWith("/dashboard/contacts/")) {
+      items.push({ href: "/dashboard/contacts", label: "Contact" });
+      items.push({ href: pathname, label: title });
+    } else if (pathname !== "/dashboard") {
       items.push({
         href: pathname,
         label: itemMap.get(pathname) ?? formatBreadcrumbLabel(pathname.split("/").filter(Boolean).at(-1) ?? title),
@@ -356,9 +363,9 @@ export function AppShell({
   return (
     <main className="relative min-h-screen bg-slate-50 lg:h-screen lg:overflow-hidden">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-[-12%] opacity-100 [background:radial-gradient(circle_at_18%_22%,rgba(73,148,255,0.32),transparent_24%),radial-gradient(circle_at_82%_18%,rgba(126,210,255,0.3),transparent_22%),radial-gradient(circle_at_54%_78%,rgba(48,120,255,0.22),transparent_28%)] [animation:ambient-blue-orb-a_16s_ease-in-out_infinite_alternate]" />
-        <div className="absolute inset-[-16%] opacity-95 [background:radial-gradient(circle_at_22%_76%,rgba(158,223,255,0.34),transparent_24%),radial-gradient(circle_at_76%_64%,rgba(70,145,255,0.24),transparent_26%),radial-gradient(circle_at_52%_18%,rgba(97,184,255,0.22),transparent_20%)] [animation:ambient-blue-orb-b_20s_ease-in-out_infinite_alternate]" />
-        <div className="absolute inset-[-18%] opacity-80 [background:conic-gradient(from_180deg_at_50%_50%,rgba(255,255,255,0)_0deg,rgba(104,177,255,0.14)_110deg,rgba(210,241,255,0.08)_220deg,rgba(255,255,255,0)_360deg)] [animation:ambient-blue-wash_18s_ease-in-out_infinite_alternate]" />
+        <div className="absolute inset-[-12%] opacity-70 [background:radial-gradient(circle_at_18%_22%,rgba(73,148,255,0.18),transparent_24%),radial-gradient(circle_at_82%_18%,rgba(126,210,255,0.16),transparent_22%),radial-gradient(circle_at_54%_78%,rgba(48,120,255,0.12),transparent_28%)] [animation:ambient-blue-orb-a_16s_ease-in-out_infinite_alternate]" />
+        <div className="absolute inset-[-16%] opacity-60 [background:radial-gradient(circle_at_22%_76%,rgba(158,223,255,0.16),transparent_24%),radial-gradient(circle_at_76%_64%,rgba(70,145,255,0.13),transparent_26%),radial-gradient(circle_at_52%_18%,rgba(97,184,255,0.12),transparent_20%)] [animation:ambient-blue-orb-b_20s_ease-in-out_infinite_alternate]" />
+        <div className="absolute inset-[-18%] opacity-50 [background:conic-gradient(from_180deg_at_50%_50%,rgba(255,255,255,0)_0deg,rgba(104,177,255,0.08)_110deg,rgba(210,241,255,0.05)_220deg,rgba(255,255,255,0)_360deg)] [animation:ambient-blue-wash_18s_ease-in-out_infinite_alternate]" />
       </div>
 
       <div
@@ -369,20 +376,22 @@ export function AppShell({
       >
         <aside
           className={cn(
-            "z-40 mb-4 w-full rounded-[2rem] border border-sky-200/60 bg-sky-200 p-3 shadow-[0_28px_80px_-42px_rgba(56,122,199,0.4)] transition-[width] duration-200 lg:fixed lg:bottom-4 lg:left-4 lg:top-4 lg:mb-0 lg:overflow-y-auto lg:rounded-[2rem] lg:border lg:p-3",
+            "z-40 mb-4 w-full rounded-[2rem] border border-sky-200/70 bg-white p-3 shadow-[0_28px_80px_-42px_rgba(56,122,199,0.26)] transition-[width] duration-200 lg:fixed lg:bottom-4 lg:left-4 lg:top-4 lg:mb-0 lg:overflow-y-auto lg:rounded-[2rem] lg:border lg:p-3",
             sidebarExpanded ? "lg:w-[280px]" : "lg:w-[84px]",
           )}
         >
           <div className="flex h-full flex-col gap-4 lg:min-h-0">
-            <div className={cn("flex items-center gap-3 rounded-[1.5rem] border border-sky-300/50 bg-sky-300/80 p-3 text-sky-900", sidebarExpanded ? "justify-between" : "justify-center")}>
+            <div className={cn("flex items-center gap-3 rounded-[1.5rem] border border-sky-200/70 bg-white p-3 text-sky-900", sidebarExpanded ? "justify-between" : "justify-center")}>
               <div className={cn("flex items-center gap-3 overflow-hidden", !sidebarExpanded && "justify-center")}>
-                <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/50 text-sky-700">
-                  <Sparkles className="size-5" />
-                </div>
+                <Link href="/dashboard" aria-label="Go to dashboard home" className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-sky-200/70 bg-white shadow-[0_14px_30px_-20px_rgba(56,122,199,0.32)] transition-transform hover:scale-[1.02]">
+                  <Image src={websiteLogo} alt="The One CRM logo" className="h-8 w-8 object-contain" priority />
+                </Link>
                 {sidebarExpanded ? (
                   <div className="min-w-0">
-                    <div className="text-[0.68rem] font-semibold uppercase tracking-[0.2em] text-sky-700/90">Software</div>
-                    <div className="truncate font-heading text-lg font-semibold text-sky-950">CRM SaaS</div>
+                    <Link href="/dashboard" className="truncate font-heading text-lg font-semibold text-sky-950 transition-colors hover:text-sky-700">
+                      The One CRM
+                    </Link>
+                    <div className="truncate text-[0.72rem] uppercase tracking-[0.18em] text-sky-700/80">CRM Workspace</div>
                   </div>
                 ) : null}
               </div>
@@ -399,12 +408,13 @@ export function AppShell({
             </div>
 
             {sidebarExpanded ? (
-              <div className="rounded-[1.5rem] border border-sky-300/50 bg-sky-300/80 p-3">
-                <label htmlFor="workspace-picker" className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-sky-700/90">
+              <div className="rounded-[1.5rem] border border-sky-200/70 bg-white p-2.5">
+                <label htmlFor="workspace-picker" className="mb-1.5 block text-[0.64rem] font-semibold uppercase tracking-[0.14em] text-sky-700/90">
                   Active company
                 </label>
                 <NativeSelect
                   id="workspace-picker"
+                  className="h-9 rounded-xl px-3 text-xs"
                   value={activeMembershipId ?? ""}
                   onChange={(event) => handleWorkspaceChange(event.target.value)}
                 >
@@ -420,7 +430,7 @@ export function AppShell({
             <div className="min-h-0 flex-1 overflow-hidden">
               <nav className="hide-scrollbar flex h-full min-h-0 flex-col gap-5 overflow-y-auto pr-1">
                 {visibleNavGroups.map((group) => (
-                  <div key={group.id} className="grid gap-2 border-t border-sky-300/50 pt-4 first:border-t-0 first:pt-0">
+                  <div key={group.id} className="grid gap-2 border-t border-sky-200/70 pt-4 first:border-t-0 first:pt-0">
                     {sidebarExpanded ? (
                       <div className="px-2 text-[0.74rem] font-semibold uppercase tracking-[0.1em] text-sky-700/90">
                         {group.label}
@@ -428,7 +438,7 @@ export function AppShell({
                     ) : null}
                     {group.items.map((item) => {
                       const Icon = item.icon;
-                      const isActive = pathname === item.href;
+                      const isActive = pathname === item.href || (item.href === "/dashboard/contacts" && pathname.startsWith("/dashboard/contacts/"));
 
                       return (
                         <Link
@@ -439,8 +449,8 @@ export function AppShell({
                             "group relative flex items-center rounded-xl text-sm font-medium transition-all text-sky-900",
                             sidebarExpanded ? "gap-2 px-2 py-2" : "justify-center px-0 py-2",
                             isActive
-                              ? "bg-white/70 text-sky-900"
-                              : "border border-transparent text-sky-800/90 hover:bg-white/60 hover:text-sky-950",
+                              ? "bg-sky-100/90 text-sky-900"
+                              : "border border-transparent text-sky-800/90 hover:bg-sky-50 hover:text-sky-950",
                           )}
                         >
                           <span
@@ -468,17 +478,17 @@ export function AppShell({
             <div className="relative">
               <div
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-[1.5rem] border border-sky-300/50 bg-sky-300/80 p-3 text-left text-sky-900",
+                  "flex w-full items-center gap-2.5 rounded-[1.5rem] border border-sky-200/70 bg-white p-2.5 text-left text-sky-900",
                   !sidebarExpanded && "justify-center px-2",
                 )}
               >
-                <Avatar size="lg">
+                <Avatar size="sm">
                   <AvatarFallback>{userInitials}</AvatarFallback>
                 </Avatar>
                 {sidebarExpanded ? (
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-sky-950">{me?.user.fullName ?? "CRM Operator"}</div>
-                    <div className="truncate text-sm text-sky-700/90">{activeMembership?.companyName ?? "Workspace"}</div>
+                    <div className="truncate text-sm font-medium text-sky-950">{me?.user.fullName ?? "CRM Operator"}</div>
+                    <div className="truncate text-xs text-sky-700/90">{activeMembership?.companyName ?? "Workspace"}</div>
                   </div>
                 ) : null}
               </div>
@@ -487,9 +497,15 @@ export function AppShell({
         </aside>
 
         <div className="flex min-h-0 flex-col lg:h-full">
-          <header className="z-30 mb-4 shrink-0 rounded-[1.4rem] border border-sky-200/60 bg-sky-200 px-3 py-2 shadow-[0_18px_45px_-32px_rgba(56,122,199,0.35)] lg:sticky lg:top-4 lg:mb-4 lg:rounded-[1.4rem] lg:border lg:px-4">
+          <header className="z-30 mb-4 shrink-0 rounded-[1.4rem] border border-sky-200/70 bg-white px-3 py-2 shadow-[0_18px_45px_-32px_rgba(56,122,199,0.22)] lg:sticky lg:top-4 lg:mb-4 lg:rounded-[1.4rem] lg:border lg:px-4">
             <div className="flex gap-3 lg:items-start lg:justify-between">
               <div className="min-w-0 flex-1">
+                <Link href="/dashboard" className="mb-1 flex w-fit items-center gap-2 rounded-xl transition-colors hover:text-sky-950">
+                  <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-sky-200/70 bg-white shadow-[0_12px_26px_-18px_rgba(56,122,199,0.28)]">
+                    <Image src={websiteLogo} alt="The One CRM logo" className="h-5 w-5 object-contain" />
+                  </div>
+                  <span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-sky-700/80">The One CRM</span>
+                </Link>
                 <nav className="flex flex-wrap items-center gap-1 text-xs text-sky-700 lg:text-sm">
                   {breadcrumbItems.map((item, index) => {
                     const isLast = index === breadcrumbItems.length - 1;
@@ -498,7 +514,7 @@ export function AppShell({
                       <div key={`${item.href}-${item.label}`} className="flex items-center gap-1">
                         {index > 0 ? <ChevronRight className="size-3.5 text-sky-600/80" /> : null}
                         {isLast ? (
-                          <span className="font-medium text-sky-950">{item.label}</span>
+                          <span className="font-bold text-sky-950">{item.label}</span>
                         ) : (
                           <Link href={item.href} className="transition-colors hover:text-sky-950">
                             {item.label}
@@ -508,14 +524,13 @@ export function AppShell({
                     );
                   })}
                 </nav>
-                <p className="mt-0.5 text-xs text-sky-700">{description}</p>
-                <h1 className="mt-0.5 text-base font-semibold tracking-tight text-sky-950 lg:text-lg">{title}</h1>
+                <p className="mt-0.5 text-sm text-sky-700">{description}</p>
               </div>
 
               <div className="relative shrink-0 self-start">
                 <button
                   type="button"
-                  className="flex items-center gap-2 rounded-xl border border-sky-300/60 bg-sky-300/80 px-2.5 py-1.5 text-sky-900 transition-colors hover:bg-sky-300"
+                  className="flex items-center gap-2 rounded-xl border border-sky-200/70 bg-white px-2.5 py-1.5 text-sky-900 transition-colors hover:bg-sky-50"
                   onClick={() => setProfileMenuOpen((current) => !current)}
                 >
                   <Avatar>
@@ -532,9 +547,10 @@ export function AppShell({
                   <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 min-w-72 rounded-2xl border border-white/80 bg-white/96 p-2 shadow-[0_22px_60px_-30px_rgba(35,86,166,0.38)] backdrop-blur-xl">
                     <div className="rounded-xl border border-border/70 bg-secondary/30 px-3 py-3">
                       <div className="truncate text-sm font-semibold text-slate-900">{me?.user.fullName ?? "CRM Operator"}</div>
-                      <div className="mt-1 text-xs uppercase tracking-[0.16em] text-primary/70">{activeMembership?.role ?? "member"}</div>
-                      <div className="mt-2 truncate text-sm text-slate-700">{activeMembership?.companyName ?? "Workspace"}</div>
-                      <div className="truncate text-sm text-muted-foreground">{me?.user.email ?? "No email loaded"}</div>
+                    <div className="truncate text-sm text-muted-foreground">{me?.user.email ?? "No email loaded"}</div>
+                      <div className="border my-2"></div>
+                      <div className="inline-flex mt-2 mr-2 truncate text-base text-slate-700">{activeMembership?.companyName ?? "Workspace"} </div>
+                      <div className="inline-flex mt-1 text-base uppercase text-primary/70">{activeMembership?.role ?? "member"}</div>
                     </div>
                     <Link
                       href="/dashboard/settings"
@@ -560,7 +576,7 @@ export function AppShell({
             </div>
           </header>
 
-          <section className="min-w-0 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+          <section className="hide-scrollbar min-w-0 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             <div className="grid gap-5">
               {loading ? <div className="rounded-2xl border border-dashed border-border/80 bg-white/55 px-4 py-3 text-sm text-muted-foreground">Loading workspace...</div> : null}
               {loadError ? <div className="rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-3 text-sm text-destructive">{loadError}</div> : null}

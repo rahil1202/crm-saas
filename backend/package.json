@@ -17,8 +17,10 @@
     "drizzle-orm": "^0.44.0",
     "hono": "^4.8.0",
     "jose": "^6.2.2",
+    "pdf-parse": "^2.4.5",
     "postgres": "^3.4.8",
     "svix": "^1.90.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
