@@ -104,6 +104,9 @@ export async function listCampaigns(c: Context<AppEnv>) {
   if (query.status) {
     conditions.push(eq(campaigns.status, query.status));
   }
+  if (query.createdBy) {
+    conditions.push(eq(campaigns.createdBy, query.createdBy));
+  }
 
   const where = and(...conditions);
   const [items, totalRows] = await Promise.all([

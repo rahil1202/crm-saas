@@ -1,0 +1,844 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Download, Import, Play, Plus, Trash2, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
+import {
+  CrmColumnSettings,
+  CrmDataTable,
+  CrmFilterDrawer,
+  CrmListPageHeader,
+  CrmListToolbar,
+  CrmListViewTabs,
+  CrmPaginationBar,
+} from "@/components/crm/crm-list-primitives";
+import type { ColumnDefinition } from "@/components/crm/types";
+import { useCrmListState } from "@/components/crm/use-crm-list-state";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { ApiError, apiRequest } from "@/lib/api";
+import { loadMe } from "@/lib/me-cache";
+
+type CampaignStatus = "draft" | "scheduled" | "active" | "completed" | "paused";
+type CampaignSortKey =
+  | "name"
+  | "type"
+  | "status"
+  | "sourceType"
+  | "timeSpan"
+  | "startDate"
+  | "lastRun"
+  | "listName"
+  | "totalRecipients"
+  | "partner"
+  | "template";
+type CampaignColumnKey = CampaignSortKey;
+type TemplateSortKey = "name" | "type" | "subject" | "updatedAt";
+type TemplateColumnKey = TemplateSortKey;
+
+interface Campaign {
+  id: string;
+  name: string;
+  channel: string;
+  channelMetadata: Record<string, unknown>;
+  status: CampaignStatus;
+  audienceDescription: string | null;
+  scheduledAt: string | null;
+  launchedAt: string | null;
+  completedAt: string | null;
+  sentCount: number;
+  deliveredCount: number;
+  openedCount: number;
+  clickedCount: number;
+  notes: string | null;
+  audienceCount: number;
+  linkedCustomers: Array<{ customerId: string; fullName: string; email: string | null }>;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface CampaignListResponse {
+  items: Campaign[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+interface Template {
+  id: string;
+  name: string;
+  type: "email" | "whatsapp" | "sms" | "task" | "pipeline";
+  subject: string | null;
+  content: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface TemplateListResponse {
+  items: Template[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+type CampaignFilters = {
+  q: string;
+  status: string;
+  templateType: string;
+};
+
+type CampaignFilterKey = keyof CampaignFilters;
+
+type CampaignFilterChip = {
+  key: CampaignFilterKey;
+  label: string;
+  value: string;
+};
+
+const rowsPerPageOptions = [10, 20, 50, 100] as const;
+const campaignColumnStorageKey = "crm-saas-campaign-columns";
+const templateColumnStorageKey = "crm-saas-campaign-template-columns";
+const statuses: CampaignStatus[] = ["draft", "scheduled", "active", "completed", "paused"];
+
+const emptyFilters: CampaignFilters = {
+  q: "",
+  status: "",
+  templateType: "",
+};
+
+const defaultCampaignColumnVisibility: Record<CampaignColumnKey, boolean> = {
+  name: true,
+  type: true,
+  status: true,
+  sourceType: true,
+  timeSpan: true,
+  startDate: true,
+  lastRun: true,
+  listName: true,
+  totalRecipients: true,
+  partner: true,
+  template: true,
+};
+
+const defaultTemplateColumnVisibility: Record<TemplateColumnKey, boolean> = {
+  name: true,
+  type: true,
+  subject: true,
+  updatedAt: true,
+};
+
+const lockedCampaignColumns: CampaignColumnKey[] = ["name"];
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString();
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString();
+}
+
+function parseNoteField(notes: string | null | undefined, label: string) {
+  const raw = notes ?? "";
+  const match = raw.match(new RegExp(`^${label}:\\s*(.+)$`, "im"));
+  return match?.[1]?.trim() ?? "";
+}
+
+function campaignMeta(campaign: Campaign) {
+  const metadata = campaign.channelMetadata ?? {};
+  return {
+    sourceType: typeof metadata.sourceType === "string" ? metadata.sourceType : parseNoteField(campaign.notes, "Source Type") || "-",
+    timeSpan: typeof metadata.timeSpan === "string" ? metadata.timeSpan : parseNoteField(campaign.notes, "Time Span") || "One-time",
+    listName:
+      typeof metadata.listName === "string"
+        ? metadata.listName
+        : parseNoteField(campaign.notes, "List Name") || campaign.audienceDescription || "-",
+    partner: typeof metadata.partner === "string" ? metadata.partner : parseNoteField(campaign.notes, "Partner") || "-",
+    template:
+      typeof metadata.templateName === "string"
+        ? metadata.templateName
+        : parseNoteField(campaign.notes, "Template") || "-",
+  };
+}
+
+function compareValues(left: string | number, right: string | number, direction: "asc" | "desc") {
+  if (typeof left === "number" && typeof right === "number") {
+    return direction === "asc" ? left - right : right - left;
+  }
+
+  const comparison = String(left).localeCompare(String(right), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  return direction === "asc" ? comparison : -comparison;
+}
+
+function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): CampaignFilters {
+  return {
+    q: params.get("q") ?? "",
+    status: params.get("status") ?? "",
+    templateType: params.get("templateType") ?? "",
+  };
+}
+
+function writeFiltersToSearchParams(params: URLSearchParams, filters: CampaignFilters) {
+  if (filters.q.trim()) params.set("q", filters.q.trim());
+  if (filters.status.trim()) params.set("status", filters.status.trim());
+  if (filters.templateType.trim()) params.set("templateType", filters.templateType.trim());
+}
+
+function normalizeCampaignSortKey(value: string | null): CampaignSortKey {
+  const allowed: CampaignSortKey[] = [
+    "name",
+    "type",
+    "status",
+    "sourceType",
+    "timeSpan",
+    "startDate",
+    "lastRun",
+    "listName",
+    "totalRecipients",
+    "partner",
+    "template",
+  ];
+  return allowed.includes(value as CampaignSortKey) ? (value as CampaignSortKey) : "startDate";
+}
+
+function getFilterChips(filters: CampaignFilters) {
+  const chips: CampaignFilterChip[] = [];
+  if (filters.q.trim()) chips.push({ key: "q", label: "Search", value: filters.q.trim() });
+  if (filters.status.trim()) chips.push({ key: "status", label: "Status", value: filters.status.trim() });
+  if (filters.templateType.trim()) chips.push({ key: "templateType", label: "Template Type", value: filters.templateType.trim() });
+  return chips;
+}
+
+function toCsvCell(value: string | null | undefined) {
+  const raw = value ?? "";
+  return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+}
+
+function buildCampaignsCsv(items: Campaign[]) {
+  return [
+    ["campaign_name", "type", "status", "source_type", "time_span", "start_date", "last_run", "list_name", "total_recipients", "partner", "template"],
+    ...items.map((campaign) => {
+      const meta = campaignMeta(campaign);
+      return [
+        campaign.name,
+        campaign.channel,
+        campaign.status,
+        meta.sourceType,
+        meta.timeSpan,
+        campaign.scheduledAt ?? campaign.createdAt,
+        campaign.launchedAt ?? campaign.updatedAt,
+        meta.listName,
+        String(campaign.audienceCount),
+        meta.partner,
+        meta.template,
+      ];
+    }),
+  ]
+    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
+    .join("\n");
+}
+
+function buildTemplatesCsv(items: Template[]) {
+  return [
+    ["name", "type", "subject", "updated_at"],
+    ...items.map((template) => [template.name, template.type, template.subject ?? "", template.updatedAt]),
+  ]
+    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
+    .join("\n");
+}
+
+const statusTone: Record<CampaignStatus, "outline" | "secondary" | "default" | "destructive"> = {
+  draft: "outline",
+  scheduled: "secondary",
+  active: "default",
+  completed: "default",
+  paused: "destructive",
+};
+
+export function CampaignsListPage() {
+  const router = useRouter();
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [templateColumnVisibility, setTemplateColumnVisibility] = useState(defaultTemplateColumnVisibility);
+  const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
+
+  const {
+    tab,
+    setTab,
+    filters,
+    setFilters,
+    filterDraft,
+    setFilterDraft,
+    page,
+    setPage,
+    limit,
+    setLimit,
+    sortBy,
+    sortDir,
+    columnVisibility,
+    applyFilterDraft,
+    clearFilterDraft,
+    clearAllFilters,
+    removeAppliedFilter,
+    toggleColumn,
+    resetColumns,
+    requestSort,
+  } = useCrmListState<CampaignFilters, CampaignSortKey, CampaignColumnKey>({
+    defaultFilters: emptyFilters,
+    defaultSortBy: "startDate",
+    defaultSortDir: "desc",
+    defaultLimit: rowsPerPageOptions[0],
+    rowsPerPageOptions,
+    parseFilters: readFiltersFromSearchParams,
+    writeFilters: writeFiltersToSearchParams,
+    normalizeSortBy: normalizeCampaignSortKey,
+    columnStorageKey: campaignColumnStorageKey,
+    defaultColumnVisibility: defaultCampaignColumnVisibility,
+    lockedColumns: lockedCampaignColumns,
+  });
+
+  const activeFilterChips = useMemo(
+    () =>
+      getFilterChips(filters).filter((chip) =>
+        tab === "documents" ? chip.key === "q" || chip.key === "templateType" : chip.key !== "templateType",
+      ),
+    [filters, tab],
+  );
+
+  useEffect(() => {
+    void loadMe()
+      .then((me) => setMyUserId(me.user.id))
+      .catch(() => setMyUserId(null));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(templateColumnStorageKey);
+    if (!stored) return;
+
+    try {
+      const parsed = JSON.parse(stored) as Partial<Record<TemplateColumnKey, boolean>>;
+      setTemplateColumnVisibility((current) => ({ ...current, ...parsed }));
+    } catch {
+      window.localStorage.removeItem(templateColumnStorageKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(templateColumnStorageKey, JSON.stringify(templateColumnVisibility));
+  }, [templateColumnVisibility]);
+
+  const toggleTemplateColumn = (key: TemplateColumnKey) => {
+    setTemplateColumnVisibility((current) => ({ ...current, [key]: !current[key] }));
+  };
+
+  const resetTemplateColumns = () => {
+    setTemplateColumnVisibility(defaultTemplateColumnVisibility);
+  };
+
+  const loadCampaigns = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("offset", String((page - 1) * limit));
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.status.trim()) params.set("status", filters.status.trim());
+    if (tab === "mine" && myUserId) params.set("createdBy", myUserId);
+
+    try {
+      const response = await apiRequest<CampaignListResponse>(`/campaigns/list?${params.toString()}`);
+      setCampaigns(response.items);
+      setTotal(response.total);
+      setSelectedCampaignIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load campaigns");
+    } finally {
+      setLoading(false);
+    }
+  }, [filters.q, filters.status, limit, myUserId, page, tab]);
+
+  const loadTemplates = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("offset", String((page - 1) * limit));
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.templateType.trim()) params.set("type", filters.templateType.trim());
+
+    try {
+      const response = await apiRequest<TemplateListResponse>(`/templates/list?${params.toString()}`);
+      setTemplates(response.items);
+      setTotal(response.total);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load templates");
+    } finally {
+      setLoading(false);
+    }
+  }, [filters.q, filters.templateType, limit, page]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (tab === "documents") {
+        void loadTemplates();
+        return;
+      }
+      if (tab === "mine" && !myUserId) {
+        return;
+      }
+      void loadCampaigns();
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [loadCampaigns, loadTemplates, myUserId, tab]);
+
+  const sortedCampaigns = useMemo(() => {
+    const next = [...campaigns];
+    next.sort((left, right) => {
+      const leftMeta = campaignMeta(left);
+      const rightMeta = campaignMeta(right);
+      const getValue = (campaign: Campaign, meta: ReturnType<typeof campaignMeta>) => {
+        switch (sortBy) {
+          case "name":
+            return campaign.name;
+          case "type":
+            return campaign.channel;
+          case "status":
+            return campaign.status;
+          case "sourceType":
+            return meta.sourceType;
+          case "timeSpan":
+            return meta.timeSpan;
+          case "startDate":
+            return campaign.scheduledAt ? new Date(campaign.scheduledAt).getTime() : new Date(campaign.createdAt).getTime();
+          case "lastRun":
+            return campaign.launchedAt ? new Date(campaign.launchedAt).getTime() : new Date(campaign.updatedAt).getTime();
+          case "listName":
+            return meta.listName;
+          case "totalRecipients":
+            return campaign.audienceCount;
+          case "partner":
+            return meta.partner;
+          case "template":
+            return meta.template;
+          default:
+            return campaign.name;
+        }
+      };
+      return compareValues(getValue(left, leftMeta), getValue(right, rightMeta), sortDir);
+    });
+    return next;
+  }, [campaigns, sortBy, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const toggleCampaignSelection = (campaignId: string, checked: boolean) => {
+    setSelectedCampaignIds((current) => (checked ? [...new Set([...current, campaignId])] : current.filter((id) => id !== campaignId)));
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedCampaignIds(checked ? sortedCampaigns.map((campaign) => campaign.id) : []);
+  };
+
+  const campaignColumns: Array<ColumnDefinition<Campaign, CampaignColumnKey, CampaignSortKey>> = [
+    { key: "name", label: "Campaign Name", sortable: true, sortKey: "name", widthClassName: "min-w-[220px]", renderCell: (campaign) => <div className="font-medium text-slate-900">{campaign.name}</div> },
+    { key: "type", label: "Type", sortable: true, sortKey: "type", renderCell: (campaign) => <Badge variant="outline" className="capitalize">{campaign.channel}</Badge> },
+    { key: "status", label: "Status", sortable: true, sortKey: "status", renderCell: (campaign) => <Badge variant={statusTone[campaign.status]} className="capitalize">{campaign.status}</Badge> },
+    { key: "sourceType", label: "Source Type", sortable: true, sortKey: "sourceType", renderCell: (campaign) => <span>{campaignMeta(campaign).sourceType}</span> },
+    { key: "timeSpan", label: "Time Span", sortable: true, sortKey: "timeSpan", renderCell: (campaign) => <span>{campaignMeta(campaign).timeSpan}</span> },
+    { key: "startDate", label: "Start Date", sortable: true, sortKey: "startDate", renderCell: (campaign) => <span>{formatDate(campaign.scheduledAt ?? campaign.createdAt)}</span> },
+    { key: "lastRun", label: "Last Run", sortable: true, sortKey: "lastRun", renderCell: (campaign) => <span>{formatDateTime(campaign.launchedAt ?? campaign.updatedAt)}</span> },
+    { key: "listName", label: "List Name", sortable: true, sortKey: "listName", renderCell: (campaign) => <span>{campaignMeta(campaign).listName}</span> },
+    { key: "totalRecipients", label: "Total Recipients", sortable: true, sortKey: "totalRecipients", renderCell: (campaign) => <span>{campaign.audienceCount}</span> },
+    { key: "partner", label: "Partner", sortable: true, sortKey: "partner", renderCell: (campaign) => <span>{campaignMeta(campaign).partner}</span> },
+    { key: "template", label: "Template", sortable: true, sortKey: "template", renderCell: (campaign) => <span>{campaignMeta(campaign).template}</span> },
+  ];
+
+  const templateColumns: Array<ColumnDefinition<Template, TemplateColumnKey>> = [
+    { key: "name", label: "Template Name", widthClassName: "min-w-[220px]", renderCell: (template) => <div className="font-medium text-slate-900">{template.name}</div> },
+    { key: "type", label: "Type", renderCell: (template) => <Badge variant="outline" className="capitalize">{template.type}</Badge> },
+    { key: "subject", label: "Subject", renderCell: (template) => <span className="text-slate-600">{template.subject || "-"}</span> },
+    { key: "updatedAt", label: "Updated", renderCell: (template) => <span className="text-slate-600">{formatDateTime(template.updatedAt)}</span> },
+  ];
+
+  const updateCampaignStatus = async (campaignId: string, nextStatus: CampaignStatus) => {
+    setError(null);
+    try {
+      await apiRequest(`/campaigns/${campaignId}`, { method: "PATCH", body: JSON.stringify({ status: nextStatus }) });
+      toast.success("Campaign updated");
+      await loadCampaigns();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to update campaign";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const launchCampaign = async (campaignId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/campaigns/${campaignId}/launch`, { method: "POST", body: JSON.stringify({}) });
+      toast.success("Campaign launched");
+      await loadCampaigns();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to launch campaign";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const deleteCampaign = async (campaignId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/campaigns/${campaignId}`, { method: "DELETE", body: JSON.stringify({}) });
+      toast.success("Campaign deleted");
+      await loadCampaigns();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete campaign";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const deleteTemplate = async (templateId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/templates/${templateId}`, { method: "DELETE", body: JSON.stringify({}) });
+      toast.success("Template deleted");
+      await loadTemplates();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete template";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const loadAllCampaignsForExport = useCallback(async () => {
+    const items: Campaign[] = [];
+    let nextOffset = 0;
+    while (true) {
+      const params = new URLSearchParams();
+      params.set("limit", "100");
+      params.set("offset", String(nextOffset));
+      if (filters.q.trim()) params.set("q", filters.q.trim());
+      if (filters.status.trim()) params.set("status", filters.status.trim());
+      if (tab === "mine" && myUserId) params.set("createdBy", myUserId);
+      const response = await apiRequest<CampaignListResponse>(`/campaigns/list?${params.toString()}`, { skipCache: true });
+      items.push(...response.items);
+      nextOffset += response.items.length;
+      if (response.items.length === 0 || nextOffset >= response.total) break;
+    }
+    return items;
+  }, [filters.q, filters.status, myUserId, tab]);
+
+  const loadAllTemplatesForExport = useCallback(async () => {
+    const items: Template[] = [];
+    let nextOffset = 0;
+    while (true) {
+      const params = new URLSearchParams();
+      params.set("limit", "100");
+      params.set("offset", String(nextOffset));
+      if (filters.q.trim()) params.set("q", filters.q.trim());
+      if (filters.templateType.trim()) params.set("type", filters.templateType.trim());
+      const response = await apiRequest<TemplateListResponse>(`/templates/list?${params.toString()}`, { skipCache: true });
+      items.push(...response.items);
+      nextOffset += response.items.length;
+      if (response.items.length === 0 || nextOffset >= response.total) break;
+    }
+    return items;
+  }, [filters.q, filters.templateType]);
+
+  const handleExport = async () => {
+    try {
+      const csv = tab === "documents" ? buildTemplatesCsv(await loadAllTemplatesForExport()) : buildCampaignsCsv(await loadAllCampaignsForExport());
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = tab === "documents" ? "campaign-templates.csv" : "campaigns.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(tab === "documents" ? "Templates exported" : "Campaigns exported");
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to export data";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  return (
+    <div className="grid gap-5">
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Campaign request failed</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <CrmListPageHeader
+        title="Campaigns"
+        actions={
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()}>
+              <Download className="size-4" /> Export
+            </Button>
+            <Button type="button" variant="secondary" size="sm" disabled title="Campaign import is not available yet">
+              <Import className="size-4" /> Import
+            </Button>
+            <Button type="button" size="sm" onClick={() => router.push("/dashboard/campaigns/add")}>
+              <Plus className="size-4" /> Create
+            </Button>
+          </>
+        }
+      />
+
+      <section className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+        <div className="px-4 pt-3">
+          <CrmListViewTabs
+            value={tab}
+            onValueChange={setTab}
+            labels={{ all: "All Campaigns", mine: "My Campaigns", documents: "Templates" }}
+          />
+        </div>
+
+        <CrmListToolbar
+          searchValue={filters.q}
+          searchPlaceholder={tab === "documents" ? "Search templates" : "Search campaigns"}
+          onSearchChange={(value) => {
+            setPage(1);
+            setFilters((current) => ({ ...current, q: value }));
+            setFilterDraft((current) => ({ ...current, q: value }));
+          }}
+          onOpenFilters={() => setFilterOpen(true)}
+          filterCount={activeFilterChips.length}
+          onOpenColumns={() => setColumnSettingsOpen(true)}
+          onRefresh={() => {
+            if (tab === "documents") {
+              void loadTemplates();
+              return;
+            }
+            void loadCampaigns();
+          }}
+          extraContent={
+            tab !== "documents" ? (
+              <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-white px-3 py-2 text-sm text-muted-foreground">
+                <Checkbox
+                  checked={sortedCampaigns.length > 0 && selectedCampaignIds.length === sortedCampaigns.length}
+                  onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+                  aria-label="Select all visible campaigns"
+                />
+                <span>{selectedCampaignIds.length} selected</span>
+              </div>
+            ) : null
+          }
+        />
+
+        <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
+          <div className="flex flex-wrap gap-2">
+            {activeFilterChips.length ? (
+              activeFilterChips.map((chip) => (
+                <button
+                  key={`${chip.key}-${chip.value}`}
+                  type="button"
+                  onClick={() => removeAppliedFilter(chip.key)}
+                  className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-sky-200 hover:text-sky-700"
+                >
+                  <span>{chip.label}: {chip.value}</span>
+                  <X className="size-3.5" />
+                </button>
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground">No active filters.</div>
+            )}
+            {activeFilterChips.length ? (
+              <Button type="button" variant="ghost" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={clearAllFilters}>
+                Clear all
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {tab === "documents" ? (
+          <CrmDataTable
+            columns={templateColumns}
+            rows={templates}
+            rowKey={(template) => template.id}
+            loading={loading}
+            emptyLabel="No templates found."
+            columnVisibility={templateColumnVisibility}
+            actionColumn={{
+              header: "Actions",
+              renderCell: (template) => (
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" size="xs" className="text-rose-600 hover:text-rose-700" onClick={() => void deleteTemplate(template.id)}>
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </div>
+              ),
+            }}
+          />
+        ) : (
+          <CrmDataTable
+            columns={campaignColumns}
+            rows={sortedCampaigns}
+            rowKey={(campaign) => campaign.id}
+            loading={loading}
+            emptyLabel="No campaigns found."
+            columnVisibility={columnVisibility}
+            selectable
+            selectedRowIds={selectedCampaignIds}
+            onToggleRow={toggleCampaignSelection}
+            onToggleAllVisible={toggleSelectAllVisible}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={(key) => requestSort(key, key === "startDate" || key === "lastRun" || key === "totalRecipients" ? "desc" : "asc")}
+            actionColumn={{
+              header: "Actions",
+              renderCell: (campaign) => (
+                <div className="flex flex-wrap justify-end gap-2">
+                  {campaign.status === "active" ? (
+                    <Button type="button" variant="outline" size="xs" onClick={() => void updateCampaignStatus(campaign.id, "paused")}>
+                      Pause
+                    </Button>
+                  ) : campaign.status !== "completed" ? (
+                    <Button type="button" variant="outline" size="xs" onClick={() => void launchCampaign(campaign.id)}>
+                      <Play className="size-3.5" /> Launch
+                    </Button>
+                  ) : null}
+                  <Button type="button" variant="ghost" size="xs" className="text-rose-600 hover:text-rose-700" onClick={() => void deleteCampaign(campaign.id)}>
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </div>
+              ),
+            }}
+          />
+        )}
+
+        <CrmPaginationBar
+          limit={limit}
+          onLimitChange={(value) => {
+            setLimit(value);
+            setPage(1);
+          }}
+          rowsPerPageOptions={rowsPerPageOptions}
+          total={total}
+          page={page}
+          totalPages={totalPages}
+          onPrev={() => setPage((current) => Math.max(1, current - 1))}
+          onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+        />
+      </section>
+
+      <CrmFilterDrawer
+        open={filterOpen}
+        title="Filter"
+        description={tab === "documents" ? "Filter templates by search and type." : "Filter campaigns by search and status."}
+        onClose={() => setFilterOpen(false)}
+        onClear={clearFilterDraft}
+        onApply={() => {
+          applyFilterDraft();
+          setFilterOpen(false);
+        }}
+      >
+        <div className="grid gap-4">
+          <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
+            <div className="text-sm font-semibold text-slate-900">Search</div>
+            <Field>
+              <FieldLabel>Search term</FieldLabel>
+              <Input
+                value={filterDraft.q}
+                onChange={(event) => setFilterDraft((current) => ({ ...current, q: event.target.value }))}
+                className="h-10 text-sm"
+                placeholder={tab === "documents" ? "Template name" : "Campaign name"}
+              />
+            </Field>
+          </div>
+
+          {tab === "documents" ? (
+            <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
+              <div className="text-sm font-semibold text-slate-900">Template details</div>
+              <Field>
+                <FieldLabel>Type</FieldLabel>
+                <NativeSelect
+                  value={filterDraft.templateType}
+                  onChange={(event) => setFilterDraft((current) => ({ ...current, templateType: event.target.value }))}
+                  className="h-10 rounded-xl px-3 text-sm"
+                >
+                  <option value="">All types</option>
+                  <option value="email">Email</option>
+                  <option value="whatsapp">WhatsApp</option>
+                  <option value="sms">SMS</option>
+                  <option value="task">Task</option>
+                  <option value="pipeline">Pipeline</option>
+                </NativeSelect>
+              </Field>
+            </div>
+          ) : (
+            <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
+              <div className="text-sm font-semibold text-slate-900">Campaign details</div>
+              <Field>
+                <FieldLabel>Status</FieldLabel>
+                <NativeSelect
+                  value={filterDraft.status}
+                  onChange={(event) => setFilterDraft((current) => ({ ...current, status: event.target.value }))}
+                  className="h-10 rounded-xl px-3 text-sm"
+                >
+                  <option value="">All statuses</option>
+                  {statuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+            </div>
+          )}
+        </div>
+      </CrmFilterDrawer>
+
+      <CrmColumnSettings
+        open={columnSettingsOpen && tab !== "documents"}
+        description="Choose which campaign columns stay visible in the table."
+        columns={campaignColumns.map((column) => ({ key: column.key, label: column.label }))}
+        columnVisibility={columnVisibility}
+        lockedColumns={lockedCampaignColumns}
+        onToggleColumn={toggleColumn}
+        onReset={resetColumns}
+        onClose={() => setColumnSettingsOpen(false)}
+      />
+
+      <CrmColumnSettings
+        open={columnSettingsOpen && tab === "documents"}
+        description="Choose which template columns stay visible in the table."
+        columns={templateColumns.map((column) => ({ key: column.key, label: column.label }))}
+        columnVisibility={templateColumnVisibility}
+        onToggleColumn={toggleTemplateColumn}
+        onReset={resetTemplateColumns}
+        onClose={() => setColumnSettingsOpen(false)}
+      />
+
+    </div>
+  );
+}

@@ -20,9 +20,9 @@ export function CrmListPageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="grid min-w-0 gap-3 rounded-[1.25rem] border border-border/60 bg-white px-4 py-3 shadow-[0_14px_36px_-28px_rgba(35,86,166,0.16)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+    <div className="grid min-w-0 gap-3 rounded-[1.25rem] border border-border/60 bg-white px-5 py-4 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
+        <h1 className="text-[1.7rem] font-semibold tracking-[-0.03em] text-slate-900">{title}</h1>
       </div>
       {actions ? <div className="flex min-w-0 flex-wrap gap-2 lg:justify-end [&>button]:min-w-[120px] [&>button]:justify-center">{actions}</div> : null}
     </div>
@@ -41,13 +41,13 @@ export function CrmListViewTabs({
   return (
     <Tabs value={value} onValueChange={(next) => onValueChange(next as CrmListTabKey)}>
       <TabsList variant="line" className="border-b border-border/60 p-0">
-        <TabsTrigger value="all" className="rounded-none px-4 py-3">
+        <TabsTrigger value="all" className="rounded-none px-4 py-3 text-sm">
           {labels.all}
         </TabsTrigger>
-        <TabsTrigger value="mine" className="rounded-none px-4 py-3">
+        <TabsTrigger value="mine" className="rounded-none px-4 py-3 text-sm">
           {labels.mine}
         </TabsTrigger>
-        <TabsTrigger value="documents" className="rounded-none px-4 py-3">
+        <TabsTrigger value="documents" className="rounded-none px-4 py-3 text-sm">
           {labels.documents}
         </TabsTrigger>
       </TabsList>
@@ -75,36 +75,41 @@ export function CrmListToolbar({
   onRefresh?: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-4 xl:flex-row xl:items-center xl:justify-between">
-      <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-center">
-        <div className="relative min-w-0 flex-1 lg:max-w-2xl">
+    <div className="grid gap-3 border-b border-border/60 bg-slate-50/45 px-4 py-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={searchValue}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={searchPlaceholder}
-            className="h-10 rounded-xl pl-9 text-sm"
+            className="h-11 rounded-2xl border-border/70 bg-white pl-10 text-sm shadow-sm"
           />
         </div>
-        <div className="flex flex-wrap gap-2 lg:ml-auto">
-          <Button type="button" variant="outline" size="sm" className="h-10 min-w-[112px] justify-center rounded-xl" onClick={onOpenFilters}>
+        <div className="flex flex-wrap gap-2 lg:flex-nowrap">
+          <Button type="button" variant="outline" size="sm" className="h-11 min-w-[112px] justify-center rounded-2xl border-border/70 bg-white" onClick={onOpenFilters}>
             <Filter className="size-4" />
             Filter
             {filterCount > 0 ? <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[0.65rem]">{filterCount}</Badge> : null}
           </Button>
-          <Button type="button" variant="outline" size="sm" className="h-10 min-w-[112px] justify-center rounded-xl" onClick={onOpenColumns}>
-            <Settings2 className="size-4" />
-            Columns
-          </Button>
           {onRefresh ? (
-            <Button type="button" variant="outline" size="sm" className="h-10 min-w-[112px] justify-center rounded-xl" onClick={onRefresh}>
+            <Button type="button" variant="outline" size="sm" className="h-11 min-w-[112px] justify-center rounded-2xl border-border/70 bg-white" onClick={onRefresh}>
               <RefreshCw className="size-4" />
               Refresh
             </Button>
           ) : null}
         </div>
       </div>
-      {extraContent ? <div className="flex flex-wrap items-center gap-2 xl:justify-end">{extraContent}</div> : null}
+
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" className="h-11 min-w-[112px] justify-center rounded-2xl border-border/70 bg-white" onClick={onOpenColumns}>
+            <Settings2 className="size-4" />
+            Columns
+          </Button>
+        </div>
+        {extraContent ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{extraContent}</div> : null}
+      </div>
     </div>
   );
 }
@@ -156,12 +161,13 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
   const colSpan = visibleColumns.length + (selectable ? 1 : 0) + (actionColumn ? 1 : 0);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full border-separate border-spacing-0">
-        <thead className="bg-slate-50/90">
-          <tr className="border-b border-border/70 text-left">
+    <div className="overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)]">
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-separate border-spacing-0">
+          <thead className="bg-slate-50/90">
+            <tr className="text-left">
             {selectable ? (
-              <th className="px-4 py-3">
+              <th className="w-12 border-b border-border/60 px-4 py-3.5">
                 <Checkbox
                   checked={allVisibleSelected}
                   onCheckedChange={(checked) => onToggleAllVisible?.(checked === true)}
@@ -170,67 +176,75 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
               </th>
             ) : null}
             {visibleColumns.map((column) => (
-              <th key={column.key} className={cn("px-4 py-3", column.headerClassName, column.widthClassName)}>
+              <th key={column.key} className={cn("border-b border-border/60 px-4 py-3.5", column.headerClassName, column.widthClassName)}>
                 {column.sortable && column.sortKey && onSort ? (
                   <button
                     type="button"
                     onClick={() => onSort(column.sortKey!)}
-                    className="inline-flex items-center gap-1.5 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-500 transition hover:text-slate-900"
+                    className="inline-flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500 transition hover:text-slate-900"
                   >
                     <span>{column.label}</span>
                     <SortIcon active={sortBy === column.sortKey} direction={sortDir ?? "asc"} />
                   </button>
                 ) : (
-                  <span className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-500">{column.label}</span>
+                  <span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">{column.label}</span>
                 )}
               </th>
             ))}
             {actionColumn ? (
-              <th className={cn("px-4 py-3 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-500", actionColumn.className)}>
+              <th className={cn("border-b border-border/60 px-4 py-3.5 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500", actionColumn.className)}>
                 {actionColumn.header}
               </th>
             ) : null}
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
-            <tr>
-              <td colSpan={colSpan} className="px-4 py-16 text-center text-sm text-muted-foreground">
-                Loading...
-              </td>
             </tr>
-          ) : rows.length === 0 ? (
-            <tr>
-              <td colSpan={colSpan} className="px-4 py-16 text-center text-sm text-muted-foreground">
-                {emptyLabel}
-              </td>
-            </tr>
-          ) : (
-            rows.map((row) => {
-              const id = rowKey(row);
-              return (
-                <tr key={id} className="border-b border-border/50 bg-white text-sm last:border-b-0">
+          </thead>
+          <tbody className="bg-white">
+            {loading ? (
+              <tr>
+                <td colSpan={colSpan} className="px-4 py-20 text-center text-sm text-muted-foreground">
+                  Loading...
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={colSpan} className="px-4 py-20 text-center text-sm text-muted-foreground">
+                  {emptyLabel}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => {
+                const id = rowKey(row);
+                const selected = selectedRowIds.includes(id);
+                return (
+                  <tr
+                    key={id}
+                    className={cn(
+                      "text-sm transition-colors",
+                      selected ? "bg-sky-50/70" : "bg-white hover:bg-slate-50/75",
+                    )}
+                  >
                   {selectable ? (
-                    <td className="px-4 py-3">
+                    <td className="border-b border-border/50 px-4 py-3.5 align-middle">
                       <Checkbox
-                        checked={selectedRowIds.includes(id)}
+                        checked={selected}
                         onCheckedChange={(checked) => onToggleRow?.(id, checked === true)}
                         aria-label={`Select row ${id}`}
                       />
                     </td>
                   ) : null}
                   {visibleColumns.map((column) => (
-                    <td key={column.key} className={cn("px-4 py-3", column.cellClassName, column.widthClassName)}>
+                    <td key={column.key} className={cn("border-b border-border/50 px-4 py-3.5 align-middle text-slate-700", column.cellClassName, column.widthClassName)}>
                       {column.renderCell(row)}
                     </td>
                   ))}
-                  {actionColumn ? <td className="px-4 py-3">{actionColumn.renderCell(row)}</td> : null}
+                  {actionColumn ? <td className="border-b border-border/50 px-4 py-3.5 align-middle">{actionColumn.renderCell(row)}</td> : null}
                 </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -257,13 +271,13 @@ export function CrmPaginationBar({
   summary?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-t border-border/60 px-4 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-3 border-t border-border/60 bg-slate-50/55 px-4 py-4 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
       <div className="flex items-center gap-2">
         <span>Rows per page:</span>
         <NativeSelect
           value={String(limit)}
           onChange={(event) => onLimitChange(Number(event.target.value))}
-          className="h-8 w-20 rounded-lg px-2 text-sm"
+          className="h-9 w-20 rounded-xl border-border/70 bg-white px-2 text-sm"
         >
           {rowsPerPageOptions.map((option) => (
             <option key={option} value={option}>
@@ -272,15 +286,15 @@ export function CrmPaginationBar({
           ))}
         </NativeSelect>
       </div>
-      <div>{summary ?? `Total Results: ${total}`}</div>
+      <div className="text-sm text-slate-600">{summary ?? `Total Results: ${total}`}</div>
       <div className="flex items-center gap-2">
-        <Button type="button" variant="ghost" size="sm" className="h-8 rounded-lg px-2" disabled={page <= 1} onClick={onPrev}>
+        <Button type="button" variant="outline" size="sm" className="h-9 rounded-xl border-border/70 bg-white px-3" disabled={page <= 1} onClick={onPrev}>
           Prev
         </Button>
-        <span>
+        <span className="min-w-[72px] text-center text-sm font-medium text-slate-700">
           {page} / {totalPages}
         </span>
-        <Button type="button" variant="ghost" size="sm" className="h-8 rounded-lg px-2" disabled={page >= totalPages} onClick={onNext}>
+        <Button type="button" variant="outline" size="sm" className="h-9 rounded-xl border-border/70 bg-white px-3" disabled={page >= totalPages} onClick={onNext}>
           Next
         </Button>
       </div>
