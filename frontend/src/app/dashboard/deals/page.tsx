@@ -1,12 +1,52 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import Link from "next/link";
+import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Import, PencilLine, Plus, Trash2, X, Download } from "lucide-react";
+import { toast } from "sonner";
 
-import { buildApiUrl, ApiError, apiRequest } from "@/lib/api";
+import {
+  CrmColumnSettings,
+  CrmDataTable,
+  CrmFilterDrawer,
+  CrmListPageHeader,
+  CrmListToolbar,
+  CrmListViewTabs,
+  CrmPaginationBar,
+} from "@/components/crm/crm-list-primitives";
+import type { ColumnDefinition } from "@/components/crm/types";
+import { useCrmListState } from "@/components/crm/use-crm-list-state";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
+import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
 import { getCompanyCookie } from "@/lib/cookies";
+import { loadMe } from "@/lib/me-cache";
+import { cn } from "@/lib/utils";
 
 type DealStatus = "open" | "won" | "lost";
+type SortDirection = "asc" | "desc";
+type ModalMode = "create" | "edit" | "delete" | "filter" | null;
+type DealSortKey =
+  | "title"
+  | "amount"
+  | "priority"
+  | "stage"
+  | "closedDate"
+  | "type"
+  | "owner"
+  | "referralSource"
+  | "pipeline"
+  | "status";
+type DealColumnKey = DealSortKey | "actions";
+type DealColumnVisibility = Record<DealColumnKey, boolean>;
+type DocumentColumnKey = "name" | "folder" | "type" | "size" | "createdAt";
+type DocumentColumnVisibility = Record<DocumentColumnKey, boolean>;
 
 interface Deal {
   id: string;
@@ -15,19 +55,33 @@ interface Deal {
   pipeline: string;
   stage: string;
   value: number;
-  expectedCloseDate?: string | null;
-  partnerCompanyId?: string | null;
+  dealType: string | null;
+  priority: string | null;
+  referralSource: string | null;
+  ownerLabel: string | null;
+  productTags: string[];
+  expectedCloseDate: string | null;
+  partnerCompanyId: string | null;
+  assignedToUserId: string | null;
+  customerId: string | null;
+  leadId: string | null;
+  notes: string | null;
+  lostReason: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-interface DealActivity {
-  id: string;
-  type: string;
-  payload: Record<string, unknown>;
-  createdAt: string;
+interface ListResponse {
+  items: Deal[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 interface DocumentItem {
   id: string;
+  entityType: "general" | "lead" | "deal" | "customer";
+  entityId: string | null;
   folder: string;
   originalName: string;
   mimeType: string | null;
@@ -35,53 +89,9 @@ interface DocumentItem {
   createdAt: string;
 }
 
-interface ListResponse {
-  items: Deal[];
-}
-
-interface TimelineResponse {
-  items: DealActivity[];
-}
-
 interface DocumentListResponse {
   items: DocumentItem[];
-}
-
-interface DealBoardResponse {
-  pipeline: {
-    key: string;
-    label: string;
-  };
-  availablePipelines: Array<{
-    key: string;
-    label: string;
-  }>;
-  columns: Array<{
-    key: string;
-    label: string;
-    totalValue: number;
-    items: Deal[];
-  }>;
-  wonCount: number;
-  lostCount: number;
-}
-
-interface DealForecastResponse {
-  summary: {
-    openValue: number;
-    forecastValue: number;
-    overdueValue: number;
-    unassignedForecastValue: number;
-    currentMonthValue: number;
-    nextMonthValue: number;
-  };
-  buckets: Array<{
-    key: string;
-    label: string;
-    value: number;
-    count: number;
-  }>;
-  upcomingDeals: Deal[];
+  total: number;
 }
 
 interface PipelineSettings {
@@ -104,549 +114,1346 @@ interface PartnerListResponse {
   }>;
 }
 
-const statuses: DealStatus[] = ["open", "won", "lost"];
+interface ContactListResponse {
+  items: Array<{
+    id: string;
+    fullName: string;
+  }>;
+}
+
+interface LeadListResponse {
+  items: Array<{
+    id: string;
+    title: string;
+  }>;
+}
+
+type DealFormState = {
+  title: string;
+  pipeline: string;
+  stage: string;
+  status: DealStatus;
+  value: string;
+  expectedCloseDate: string;
+  partnerCompanyId: string;
+  customerId: string;
+  leadId: string;
+  dealType: string;
+  priority: string;
+  referralSource: string;
+  productTags: string;
+  ownerLabel: string;
+  notes: string;
+};
+
+type DealFilters = {
+  q: string;
+  status: string;
+  pipeline: string;
+  stage: string;
+  documentFolder: string;
+};
+
+type DealFilterKey = keyof DealFilters;
+
+type DealFilterChip = {
+  key: DealFilterKey;
+  label: string;
+  value: string;
+};
+
+const rowsPerPageOptions = [10, 20, 50, 100] as const;
+const dealColumnStorageKey = "crm-saas-deals-columns";
+const dealDocumentColumnStorageKey = "crm-saas-deal-documents-columns";
+const dealStatuses: DealStatus[] = ["open", "won", "lost"];
+
+const emptyFilters: DealFilters = {
+  q: "",
+  status: "",
+  pipeline: "",
+  stage: "",
+  documentFolder: "",
+};
+
+const emptyDealForm: DealFormState = {
+  title: "",
+  pipeline: "",
+  stage: "",
+  status: "open",
+  value: "0",
+  expectedCloseDate: "",
+  partnerCompanyId: "",
+  customerId: "",
+  leadId: "",
+  dealType: "",
+  priority: "",
+  referralSource: "",
+  productTags: "",
+  ownerLabel: "",
+  notes: "",
+};
+
+const dealColumnLabels: Record<DealSortKey, string> = {
+  title: "Deal Name",
+  amount: "Deal Amount",
+  priority: "Priority",
+  stage: "Deal Stage",
+  closedDate: "Closed Date",
+  type: "Type",
+  owner: "Deal Owner",
+  referralSource: "Referral Source",
+  pipeline: "Pipeline",
+  status: "Status",
+};
+
+const defaultDealColumnVisibility: DealColumnVisibility = {
+  title: true,
+  amount: true,
+  priority: true,
+  stage: true,
+  closedDate: true,
+  type: true,
+  owner: true,
+  referralSource: true,
+  pipeline: true,
+  status: true,
+  actions: true,
+};
+
+const defaultDocumentColumnVisibility: DocumentColumnVisibility = {
+  name: true,
+  folder: true,
+  type: true,
+  size: true,
+  createdAt: true,
+};
+
+const dealColumnOrder: DealColumnKey[] = [
+  "title",
+  "amount",
+  "priority",
+  "stage",
+  "closedDate",
+  "type",
+  "owner",
+  "referralSource",
+  "pipeline",
+  "status",
+  "actions",
+];
+
+const lockedDealColumns: Exclude<DealColumnKey, "actions">[] = ["title"];
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString();
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString();
+}
+
+function formatFileSize(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function compareValues(left: string | number, right: string | number, direction: SortDirection) {
+  if (typeof left === "number" && typeof right === "number") {
+    return direction === "asc" ? left - right : right - left;
+  }
+
+  const comparison = String(left).localeCompare(String(right), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  return direction === "asc" ? comparison : -comparison;
+}
+
+function parseNoteField(notes: string | null | undefined, label: string) {
+  const raw = notes ?? "";
+  const match = raw.match(new RegExp(`^${label}:\\s*(.+)$`, "im"));
+  return match?.[1]?.trim() ?? "";
+}
+
+function buildNotes(form: DealFormState) {
+  const lines = [
+    ["Deal Type", form.dealType],
+    ["Priority", form.priority],
+    ["Referral Source", form.referralSource],
+    ["Product Tags", form.productTags],
+    ["Deal Owner", form.ownerLabel],
+  ]
+    .filter(([, value]) => value.trim())
+    .map(([label, value]) => `${label}: ${value}`);
+
+  return [form.notes.trim(), lines.length ? lines.join("\n") : null].filter(Boolean).join("\n\n");
+}
+
+function parseTags(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function dealToForm(deal: Deal): DealFormState {
+  return {
+    title: deal.title,
+    pipeline: deal.pipeline,
+    stage: deal.stage,
+    status: deal.status,
+    value: String(deal.value),
+    expectedCloseDate: deal.expectedCloseDate ? new Date(deal.expectedCloseDate).toISOString().slice(0, 10) : "",
+    partnerCompanyId: deal.partnerCompanyId ?? "",
+    customerId: deal.customerId ?? "",
+    leadId: deal.leadId ?? "",
+    dealType: deal.dealType ?? parseNoteField(deal.notes, "Deal Type"),
+    priority: deal.priority ?? parseNoteField(deal.notes, "Priority"),
+    referralSource: deal.referralSource ?? parseNoteField(deal.notes, "Referral Source"),
+    productTags: (deal.productTags ?? []).join(", ") || parseNoteField(deal.notes, "Product Tags"),
+    ownerLabel: deal.ownerLabel ?? parseNoteField(deal.notes, "Deal Owner"),
+    notes: deal.notes ?? "",
+  };
+}
+
+function getFilterChips(filters: DealFilters) {
+  const chips: DealFilterChip[] = [];
+
+  if (filters.q.trim()) chips.push({ key: "q", label: "Search", value: filters.q.trim() });
+  if (filters.status.trim()) chips.push({ key: "status", label: "Status", value: filters.status.trim() });
+  if (filters.pipeline.trim()) chips.push({ key: "pipeline", label: "Pipeline", value: filters.pipeline.trim() });
+  if (filters.stage.trim()) chips.push({ key: "stage", label: "Stage", value: filters.stage.trim() });
+  if (filters.documentFolder.trim()) chips.push({ key: "documentFolder", label: "Folder", value: filters.documentFolder.trim() });
+
+  return chips;
+}
+
+function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): DealFilters {
+  return {
+    q: params.get("q") ?? "",
+    status: params.get("status") ?? "",
+    pipeline: params.get("pipeline") ?? "",
+    stage: params.get("stage") ?? "",
+    documentFolder: params.get("documentFolder") ?? "",
+  };
+}
+
+function writeFiltersToSearchParams(params: URLSearchParams, filters: DealFilters) {
+  if (filters.q.trim()) params.set("q", filters.q.trim());
+  if (filters.status.trim()) params.set("status", filters.status.trim());
+  if (filters.pipeline.trim()) params.set("pipeline", filters.pipeline.trim());
+  if (filters.stage.trim()) params.set("stage", filters.stage.trim());
+  if (filters.documentFolder.trim()) params.set("documentFolder", filters.documentFolder.trim());
+}
+
+function normalizeSortKey(value: string | null): DealSortKey {
+  const allowed: DealSortKey[] = ["title", "amount", "priority", "stage", "closedDate", "type", "owner", "referralSource", "pipeline", "status"];
+  return allowed.includes(value as DealSortKey) ? (value as DealSortKey) : "closedDate";
+}
+
+function toCsvCell(value: string | null | undefined) {
+  const raw = value ?? "";
+  return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+}
+
+function buildDealsCsv(items: Deal[]) {
+  return [
+    ["id", "title", "status", "pipeline", "stage", "value", "deal_type", "priority", "referral_source", "owner_label", "expected_close_date", "notes", "created_at", "updated_at"],
+    ...items.map((deal) => [
+      deal.id,
+      deal.title,
+      deal.status,
+      deal.pipeline,
+      deal.stage,
+      String(deal.value),
+      deal.dealType ?? "",
+      deal.priority ?? "",
+      deal.referralSource ?? "",
+      deal.ownerLabel ?? "",
+      deal.expectedCloseDate ?? "",
+      deal.notes ?? "",
+      deal.createdAt,
+      deal.updatedAt,
+    ]),
+  ]
+    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
+    .join("\n");
+}
+
+function buildDocumentsCsv(items: DocumentItem[]) {
+  return [
+    ["file_name", "folder", "entity_type", "entity_id", "mime_type", "size_bytes", "created_at"],
+    ...items.map((document) => [
+      document.originalName,
+      document.folder,
+      document.entityType,
+      document.entityId ?? "",
+      document.mimeType ?? "",
+      String(document.sizeBytes),
+      document.createdAt,
+    ]),
+  ]
+    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
+    .join("\n");
+}
+
+function Modal({
+  title,
+  description,
+  children,
+  onClose,
+  headerActions,
+  maxWidthClassName = "max-w-5xl",
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  onClose: () => void;
+  headerActions?: ReactNode;
+  maxWidthClassName?: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
+      <div className="flex h-full items-start justify-center overflow-y-auto">
+        <div
+          className={cn(
+            "w-full overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]",
+            maxWidthClassName,
+          )}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
+            <div>
+              <div className="text-base font-semibold text-slate-900">{title}</div>
+              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {headerActions}
+              <Button type="button" variant="ghost" size="xs" onClick={onClose}>
+                <X className="size-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="max-h-[calc(100vh-7.5rem)] overflow-y-auto px-5 py-4">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function DealsPage() {
+  const companyId = getCompanyCookie();
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [title, setTitle] = useState("");
-  const [value, setValue] = useState("0");
-  const [expectedCloseDate, setExpectedCloseDate] = useState("");
-  const [partnerCompanyId, setPartnerCompanyId] = useState("");
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [modalMode, setModalMode] = useState<ModalMode>(null);
+  const [form, setForm] = useState<DealFormState>(emptyDealForm);
+  const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pipelineSettings, setPipelineSettings] = useState<PipelineSettings | null>(null);
   const [partners, setPartners] = useState<PartnerListResponse["items"]>([]);
-  const [pipeline, setPipeline] = useState("default");
-  const [stage, setStage] = useState("new");
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [board, setBoard] = useState<DealBoardResponse | null>(null);
-  const [forecast, setForecast] = useState<DealForecastResponse | null>(null);
-  const [boardPipeline, setBoardPipeline] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<ContactListResponse["items"]>([]);
+  const [leadOptions, setLeadOptions] = useState<LeadListResponse["items"]>([]);
+  const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
+  const [documentColumnVisibility, setDocumentColumnVisibility] = useState<DocumentColumnVisibility>(defaultDocumentColumnVisibility);
+  const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkPipeline, setBulkPipeline] = useState("");
+  const [bulkStage, setBulkStage] = useState("");
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const {
+    tab,
+    setTab,
+    filters,
+    setFilters,
+    filterDraft,
+    setFilterDraft,
+    page,
+    setPage,
+    limit,
+    setLimit,
+    sortBy,
+    sortDir,
+    columnVisibility,
+    applyFilterDraft,
+    removeAppliedFilter,
+    toggleColumn,
+    resetColumns,
+    requestSort,
+  } = useCrmListState<DealFilters, DealSortKey, Exclude<DealColumnKey, "actions">>({
+    defaultFilters: emptyFilters,
+    defaultSortBy: "closedDate",
+    defaultSortDir: "desc",
+    defaultLimit: rowsPerPageOptions[0],
+    rowsPerPageOptions,
+    parseFilters: readFiltersFromSearchParams,
+    writeFilters: writeFiltersToSearchParams,
+    normalizeSortBy: normalizeSortKey,
+    columnStorageKey: dealColumnStorageKey,
+    defaultColumnVisibility: defaultDealColumnVisibility,
+    lockedColumns: lockedDealColumns,
+  });
 
-  const [expandedDealId, setExpandedDealId] = useState<string | null>(null);
-  const [timelineByDeal, setTimelineByDeal] = useState<Record<string, DealActivity[]>>({});
-  const [timelineDraftByDeal, setTimelineDraftByDeal] = useState<Record<string, string>>({});
-  const [timelineLoadingDealId, setTimelineLoadingDealId] = useState<string | null>(null);
-  const [documentsByDeal, setDocumentsByDeal] = useState<Record<string, DocumentItem[]>>({});
-  const [uploadingDealId, setUploadingDealId] = useState<string | null>(null);
-  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
+  const activePipeline =
+    pipelineSettings?.dealPipelines.find((pipeline) => pipeline.key === (form.pipeline || pipelineSettings.defaultDealPipeline)) ?? null;
+  const activeFilterChips = useMemo(
+    () =>
+      getFilterChips(filters).filter((chip) =>
+        tab === "documents" ? chip.key === "q" || chip.key === "documentFolder" : chip.key !== "documentFolder",
+      ),
+    [filters, tab],
+  );
 
-  const companyId = getCompanyCookie();
+  const loadReferenceData = useCallback(async () => {
+    try {
+      const [pipelineData, partnerData, contactData, leadData] = await Promise.all([
+        apiRequest<PipelineSettings>("/settings/pipelines"),
+        apiRequest<PartnerListResponse>("/partners"),
+        apiRequest<ContactListResponse>("/customers?limit=100&offset=0"),
+        apiRequest<LeadListResponse>("/leads?limit=100&offset=0"),
+      ]);
+
+      setPipelineSettings(pipelineData);
+      setPartners(partnerData.items.filter((item) => item.status === "active"));
+      setContacts(contactData.items);
+      setLeadOptions(leadData.items);
+
+      const defaultPipeline =
+        pipelineData.dealPipelines.find((pipeline) => pipeline.key === pipelineData.defaultDealPipeline) ??
+        pipelineData.dealPipelines[0];
+
+      setForm((current) => ({
+        ...current,
+        pipeline: current.pipeline || defaultPipeline?.key || "",
+        stage: current.stage || defaultPipeline?.stages[0]?.key || "",
+      }));
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal settings");
+    }
+  }, []);
 
   const loadDeals = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     const params = new URLSearchParams();
-    if (statusFilter) {
-      params.set("status", statusFilter);
-    }
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.status.trim()) params.set("status", filters.status.trim());
+    if (filters.pipeline.trim()) params.set("pipeline", filters.pipeline.trim());
+    if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
+    params.set("limit", String(limit));
+    params.set("offset", String((page - 1) * limit));
 
     try {
-      const data = await apiRequest<ListResponse>(`/deals?${params.toString()}`);
-      setDeals(data.items);
+      const response = await apiRequest<ListResponse>(`/deals?${params.toString()}`);
+      let items = response.items;
+
+      if (filters.stage.trim()) {
+        const stageNeedle = filters.stage.trim().toLowerCase();
+        items = items.filter((deal) => deal.stage.toLowerCase().includes(stageNeedle));
+      }
+
+      setDeals(items);
+      setTotal(response.total);
+      setSelectedDealIds((current) => current.filter((id) => items.some((deal) => deal.id === id)));
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load deals");
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [filters, limit, myUserId, page, tab]);
 
-  const loadPipelineSettings = useCallback(async () => {
+  const loadDocuments = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    const params = new URLSearchParams();
+    params.set("entityType", "deal");
+    params.set("limit", String(limit));
+    params.set("offset", String((page - 1) * limit));
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.documentFolder.trim()) params.set("folder", filters.documentFolder.trim());
+
     try {
-      const [pipelineData, partnerData] = await Promise.all([
-        apiRequest<PipelineSettings>("/settings/pipelines"),
-        apiRequest<PartnerListResponse>("/partners"),
-      ]);
-      setPipelineSettings(pipelineData);
-      setPartners(partnerData.items.filter((item) => item.status === "active"));
-      setPipeline(pipelineData.defaultDealPipeline);
-      setBoardPipeline(pipelineData.defaultDealPipeline);
-      const defaultPipeline =
-        pipelineData.dealPipelines.find((item) => item.key === pipelineData.defaultDealPipeline) ?? pipelineData.dealPipelines[0];
-      setStage(defaultPipeline?.stages[0]?.key ?? "new");
+      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`);
+      setDocuments(response.items);
+      setTotal(response.total);
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load pipeline settings");
-    }
-  }, []);
-
-  const activePipeline = pipelineSettings?.dealPipelines.find((item) => item.key === pipeline) ?? null;
-
-  const loadForecast = useCallback(async () => {
-    try {
-      const data = await apiRequest<DealForecastResponse>("/deals/forecast?horizonMonths=6");
-      setForecast(data);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal forecast");
-    }
-  }, []);
-
-  const loadBoard = useCallback(async () => {
-    try {
-      const params = new URLSearchParams();
-      if (boardPipeline) {
-        params.set("pipeline", boardPipeline);
-      }
-      const data = await apiRequest<DealBoardResponse>(`/deals/board?${params.toString()}`);
-      setBoard(data);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal board");
-    }
-  }, [boardPipeline]);
-
-  const loadTimeline = useCallback(async (dealId: string) => {
-    setTimelineLoadingDealId(dealId);
-    try {
-      const data = await apiRequest<TimelineResponse>(`/deals/${dealId}/timeline`);
-      setTimelineByDeal((prev) => ({ ...prev, [dealId]: data.items }));
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal timeline");
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal documents");
     } finally {
-      setTimelineLoadingDealId(null);
+      setLoading(false);
     }
+  }, [filters.documentFolder, filters.q, limit, page]);
+
+  useEffect(() => {
+    void loadReferenceData();
+  }, [loadReferenceData]);
+
+  useEffect(() => {
+    void loadMe()
+      .then((me) => setMyUserId(me.user.id))
+      .catch(() => setMyUserId(null));
   }, []);
 
-  const loadDealDocuments = useCallback(async (dealId: string) => {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (tab === "documents") {
+        void loadDocuments();
+        return;
+      }
+
+      if (tab === "mine" && !myUserId) {
+        return;
+      }
+
+      void loadDeals();
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [loadDeals, loadDocuments, myUserId, tab]);
+
+  const sortedDeals = useMemo(() => {
+    const getSortValue = (deal: Deal) => {
+      switch (sortBy) {
+        case "title":
+          return deal.title;
+        case "amount":
+          return deal.value;
+        case "priority":
+          return deal.priority ?? parseNoteField(deal.notes, "Priority");
+        case "stage":
+          return deal.stage;
+        case "closedDate":
+          return deal.expectedCloseDate ? new Date(deal.expectedCloseDate).getTime() : 0;
+        case "type":
+          return deal.dealType ?? parseNoteField(deal.notes, "Deal Type");
+        case "owner":
+          return deal.ownerLabel ?? parseNoteField(deal.notes, "Deal Owner") ?? deal.assignedToUserId ?? "";
+        case "referralSource":
+          return deal.referralSource ?? parseNoteField(deal.notes, "Referral Source");
+        case "pipeline":
+          return deal.pipeline;
+        case "status":
+          return deal.status;
+        default:
+          return "";
+      }
+    };
+
+    const next = [...deals];
+    next.sort((left, right) => compareValues(getSortValue(left), getSortValue(right), sortDir));
+    return next;
+  }, [deals, sortBy, sortDir]);
+
+  const paginatedDeals = sortedDeals;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const closeModal = () => {
+    setModalMode(null);
+    setSelectedDeal(null);
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(dealDocumentColumnStorageKey);
+    if (!stored) return;
+
     try {
-      const data = await apiRequest<DocumentListResponse>(`/documents/list?entityType=deal&entityId=${dealId}`);
-      setDocumentsByDeal((prev) => ({ ...prev, [dealId]: data.items }));
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal attachments");
+      const parsed = JSON.parse(stored) as Partial<DocumentColumnVisibility>;
+      setDocumentColumnVisibility((current) => ({ ...current, ...parsed }));
+    } catch {
+      window.localStorage.removeItem(dealDocumentColumnStorageKey);
     }
   }, []);
 
   useEffect(() => {
-    void loadDeals();
-  }, [loadDeals]);
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(dealDocumentColumnStorageKey, JSON.stringify(documentColumnVisibility));
+  }, [documentColumnVisibility]);
 
-  useEffect(() => {
-    void loadPipelineSettings();
-  }, [loadPipelineSettings]);
+  const toggleDocumentColumn = (key: DocumentColumnKey) => {
+    setDocumentColumnVisibility((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  };
 
-  useEffect(() => {
-    if (boardPipeline) {
-      void loadBoard();
-    }
-  }, [boardPipeline, loadBoard]);
+  const resetDocumentColumns = () => {
+    setDocumentColumnVisibility(defaultDocumentColumnVisibility);
+  };
 
-  useEffect(() => {
-    void loadForecast();
-  }, [loadForecast]);
+  const openCreateModal = () => {
+    const defaultPipeline =
+      pipelineSettings?.dealPipelines.find((pipeline) => pipeline.key === pipelineSettings.defaultDealPipeline) ??
+      pipelineSettings?.dealPipelines[0];
 
-  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
+    setForm({
+      ...emptyDealForm,
+      pipeline: defaultPipeline?.key ?? "",
+      stage: defaultPipeline?.stages[0]?.key ?? "",
+    });
+    setSelectedDeal(null);
+    setModalMode("create");
+  };
+
+  const openEditModal = (deal: Deal) => {
+    setSelectedDeal(deal);
+    setForm(dealToForm(deal));
+    setModalMode("edit");
+  };
+
+  const openDeleteModal = (deal: Deal) => {
+    setSelectedDeal(deal);
+    setModalMode("delete");
+  };
+
+  const handleSort = (key: DealSortKey) => {
+    requestSort(key, key === "amount" || key === "closedDate" ? "desc" : "asc");
+  };
+
+  const applyFilters = () => {
+    applyFilterDraft();
+    setModalMode(null);
+  };
+
+  const clearDealFilterDraft = () => {
+    setFilterDraft(emptyFilters);
+  };
+
+  const clearAllFilters = () => {
+    setFilters(emptyFilters);
+    setFilterDraft(emptyFilters);
+  };
+
+  const toggleDealSelection = (dealId: string, checked: boolean) => {
+    setSelectedDealIds((current) => (checked ? [...new Set([...current, dealId])] : current.filter((id) => id !== dealId)));
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedDealIds(checked ? paginatedDeals.map((deal) => deal.id) : []);
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
 
+    const payload = {
+      title: form.title.trim(),
+      pipeline: form.pipeline,
+      stage: form.stage,
+      status: form.status,
+      value: Number(form.value) || 0,
+      dealType: form.dealType.trim() || undefined,
+      priority: form.priority.trim() || undefined,
+      referralSource: form.referralSource.trim() || undefined,
+      ownerLabel: form.ownerLabel.trim() || undefined,
+      productTags: parseTags(form.productTags),
+      expectedCloseDate: form.expectedCloseDate ? new Date(`${form.expectedCloseDate}T00:00:00.000Z`).toISOString() : undefined,
+      partnerCompanyId: form.partnerCompanyId || undefined,
+      customerId: form.customerId || undefined,
+      leadId: form.leadId || undefined,
+      notes: form.notes.trim() || undefined,
+    };
+
     try {
-      await apiRequest("/deals", {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          value: Number(value) || 0,
-          pipeline,
-          stage,
-          expectedCloseDate: expectedCloseDate ? new Date(`${expectedCloseDate}T00:00:00.000Z`).toISOString() : undefined,
-          partnerCompanyId: partnerCompanyId || undefined,
-        }),
-      });
-      setTitle("");
-      setValue("0");
-      setExpectedCloseDate("");
-      setPartnerCompanyId("");
+      if (modalMode === "edit" && selectedDeal) {
+        await apiRequest(`/deals/${selectedDeal.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        toast.success("Deal updated");
+      } else {
+        await apiRequest("/deals", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        toast.success("Deal created");
+      }
+
+      closeModal();
       await loadDeals();
-      await loadBoard();
-      await loadForecast();
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to create deal");
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to save deal";
+      setError(message);
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handlePipelineChange = (nextPipeline: string) => {
-    setPipeline(nextPipeline);
-    const next = pipelineSettings?.dealPipelines.find((item) => item.key === nextPipeline);
-    setStage(next?.stages[0]?.key ?? "new");
-  };
+  const handleDelete = async () => {
+    if (!selectedDeal) return;
 
-  const updateStatus = async (dealId: string, status: DealStatus) => {
-    try {
-      await apiRequest(`/deals/${dealId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      await loadDeals();
-      await loadBoard();
-      await loadForecast();
-      if (expandedDealId === dealId) {
-        await loadTimeline(dealId);
-      }
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to update deal");
-    }
-  };
-
-  const updateExpectedCloseDate = async (dealId: string, nextDate: string) => {
-    try {
-      await apiRequest(`/deals/${dealId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          expectedCloseDate: nextDate ? new Date(`${nextDate}T00:00:00.000Z`).toISOString() : null,
-        }),
-      });
-      await loadDeals();
-      await loadBoard();
-      await loadForecast();
-      if (expandedDealId === dealId) {
-        await loadTimeline(dealId);
-      }
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to update close date");
-    }
-  };
-
-  const formatDate = (value?: string | null) => {
-    if (!value) {
-      return "No close date";
-    }
-
-    return new Date(value).toLocaleDateString();
-  };
-
-  const toggleTimeline = async (dealId: string) => {
-    if (expandedDealId === dealId) {
-      setExpandedDealId(null);
-      return;
-    }
-
-    setExpandedDealId(dealId);
-    await Promise.all([loadTimeline(dealId), loadDealDocuments(dealId)]);
-  };
-
-  const addTimelineNote = async (dealId: string) => {
-    const message = (timelineDraftByDeal[dealId] ?? "").trim();
-    if (!message) {
-      return;
-    }
-
-    try {
-      await apiRequest(`/deals/${dealId}/timeline`, {
-        method: "POST",
-        body: JSON.stringify({ type: "note", message }),
-      });
-      setTimelineDraftByDeal((prev) => ({ ...prev, [dealId]: "" }));
-      await loadTimeline(dealId);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to add deal timeline note");
-    }
-  };
-
-  const uploadDealDocument = async (dealId: string, file: File | null) => {
-    if (!file) {
-      return;
-    }
-
-    setUploadingDealId(dealId);
+    setDeletingId(selectedDeal.id);
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.set("file", file);
-      formData.set("entityType", "deal");
-      formData.set("entityId", dealId);
-      formData.set("folder", "deals");
-
-      await apiRequest("/documents/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      await loadDealDocuments(dealId);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to upload deal attachment");
-    } finally {
-      setUploadingDealId(null);
-    }
-  };
-
-  const deleteDealDocument = async (dealId: string, documentId: string) => {
-    setDeletingDocumentId(documentId);
-    setError(null);
-
-    try {
-      await apiRequest(`/documents/${documentId}`, {
+      await apiRequest(`/deals/${selectedDeal.id}`, {
         method: "DELETE",
       });
-      await loadDealDocuments(dealId);
+      toast.success("Deal deleted");
+      closeModal();
+      await loadDeals();
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to delete deal attachment");
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete deal";
+      setError(message);
+      toast.error(message);
     } finally {
-      setDeletingDocumentId(null);
+      setDeletingId(null);
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    if (selectedDealIds.length === 0 || (!bulkStatus && !bulkPipeline && !bulkStage)) return;
+
+    setBulkUpdating(true);
+    setError(null);
+    try {
+      await apiRequest("/deals/bulk-update", {
+        method: "POST",
+        body: JSON.stringify({
+          dealIds: selectedDealIds,
+          ...(bulkStatus ? { status: bulkStatus } : {}),
+          ...(bulkPipeline ? { pipeline: bulkPipeline } : {}),
+          ...(bulkStage ? { stage: bulkStage } : {}),
+        }),
+      });
+      toast.success("Deal bulk update complete");
+      setSelectedDealIds([]);
+      setBulkStatus("");
+      setBulkPipeline("");
+      setBulkStage("");
+      await loadDeals();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to bulk update deals";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const dealColumns: Array<ColumnDefinition<Deal, Exclude<DealColumnKey, "actions">, DealSortKey>> = [
+    {
+      key: "title",
+      label: dealColumnLabels.title,
+      sortable: true,
+      sortKey: "title",
+      widthClassName: "min-w-[220px]",
+      renderCell: (deal) => (
+        <Link href={`/dashboard/deals/${deal.id}`} className="font-medium text-slate-900 hover:text-sky-700 hover:underline">
+          {deal.title}
+        </Link>
+      ),
+    },
+    { key: "amount", label: dealColumnLabels.amount, sortable: true, sortKey: "amount", renderCell: (deal) => <span className="text-slate-600">{deal.value}</span> },
+    {
+      key: "priority",
+      label: dealColumnLabels.priority,
+      sortable: true,
+      sortKey: "priority",
+      renderCell: (deal) => <span className="text-slate-600">{deal.priority || parseNoteField(deal.notes, "Priority") || "-"}</span>,
+    },
+    { key: "stage", label: dealColumnLabels.stage, sortable: true, sortKey: "stage", renderCell: (deal) => <span className="text-slate-600">{deal.stage}</span> },
+    {
+      key: "closedDate",
+      label: dealColumnLabels.closedDate,
+      sortable: true,
+      sortKey: "closedDate",
+      renderCell: (deal) => <span className="text-slate-600">{formatDate(deal.expectedCloseDate)}</span>,
+    },
+    {
+      key: "type",
+      label: dealColumnLabels.type,
+      sortable: true,
+      sortKey: "type",
+      renderCell: (deal) => <span className="text-slate-600">{deal.dealType || parseNoteField(deal.notes, "Deal Type") || "-"}</span>,
+    },
+    {
+      key: "owner",
+      label: dealColumnLabels.owner,
+      sortable: true,
+      sortKey: "owner",
+      renderCell: (deal) => <span className="text-slate-600">{deal.ownerLabel || parseNoteField(deal.notes, "Deal Owner") || "-"}</span>,
+    },
+    {
+      key: "referralSource",
+      label: dealColumnLabels.referralSource,
+      sortable: true,
+      sortKey: "referralSource",
+      renderCell: (deal) => <span className="text-slate-600">{deal.referralSource || parseNoteField(deal.notes, "Referral Source") || "-"}</span>,
+    },
+    { key: "pipeline", label: dealColumnLabels.pipeline, sortable: true, sortKey: "pipeline", renderCell: (deal) => <span className="text-slate-600">{deal.pipeline}</span> },
+    {
+      key: "status",
+      label: dealColumnLabels.status,
+      sortable: true,
+      sortKey: "status",
+      renderCell: (deal) => (
+        <Badge variant={deal.status === "lost" ? "destructive" : deal.status === "won" ? "default" : "outline"} className="capitalize">
+          {deal.status}
+        </Badge>
+      ),
+    },
+  ];
+
+  const documentColumns: Array<ColumnDefinition<DocumentItem, DocumentColumnKey>> = [
+    {
+      key: "name",
+      label: "File Name",
+      widthClassName: "min-w-[280px]",
+      renderCell: (document) => (
+        <div className="min-w-0">
+          <div className="truncate font-medium text-slate-900">{document.originalName}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{document.entityId ? document.entityId.slice(0, 8) : "Unlinked"}</div>
+        </div>
+      ),
+    },
+    { key: "folder", label: "Folder", renderCell: (document) => <span className="text-slate-600">{document.folder}</span> },
+    {
+      key: "type",
+      label: "Type",
+      renderCell: (document) => (
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{document.entityType}</Badge>
+          {document.mimeType ? <Badge variant="secondary">{document.mimeType}</Badge> : null}
+        </div>
+      ),
+    },
+    { key: "size", label: "Size", renderCell: (document) => <span className="text-slate-600">{formatFileSize(document.sizeBytes)}</span> },
+    { key: "createdAt", label: "Uploaded", renderCell: (document) => <span className="text-slate-600">{formatDateTime(document.createdAt)}</span> },
+  ];
+
+  const loadAllDealsForExport = useCallback(async () => {
+    const items: Deal[] = [];
+    let nextOffset = 0;
+
+    while (true) {
+      const params = new URLSearchParams();
+      params.set("limit", "100");
+      params.set("offset", String(nextOffset));
+      if (filters.q.trim()) params.set("q", filters.q.trim());
+      if (filters.status.trim()) params.set("status", filters.status.trim());
+      if (filters.pipeline.trim()) params.set("pipeline", filters.pipeline.trim());
+      if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
+
+      const response = await apiRequest<ListResponse>(`/deals?${params.toString()}`, { skipCache: true });
+      let pageItems = response.items;
+      if (filters.stage.trim()) {
+        const stageNeedle = filters.stage.trim().toLowerCase();
+        pageItems = pageItems.filter((deal) => deal.stage.toLowerCase().includes(stageNeedle));
+      }
+
+      items.push(...pageItems);
+      nextOffset += response.items.length;
+      if (response.items.length === 0 || nextOffset >= response.total) break;
+    }
+
+    return items;
+  }, [filters, myUserId, tab]);
+
+  const loadAllDealDocumentsForExport = useCallback(async () => {
+    const items: DocumentItem[] = [];
+    let nextOffset = 0;
+
+    while (true) {
+      const params = new URLSearchParams();
+      params.set("entityType", "deal");
+      params.set("limit", "100");
+      params.set("offset", String(nextOffset));
+      if (filters.q.trim()) params.set("q", filters.q.trim());
+      if (filters.documentFolder.trim()) params.set("folder", filters.documentFolder.trim());
+
+      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`, { skipCache: true });
+      items.push(...response.items);
+      nextOffset += response.items.length;
+      if (response.items.length === 0 || nextOffset >= response.total) break;
+    }
+
+    return items;
+  }, [filters.documentFolder, filters.q]);
+
+  const handleExport = async () => {
+    try {
+      const csv =
+        tab === "documents"
+          ? buildDocumentsCsv(await loadAllDealDocumentsForExport())
+          : buildDealsCsv(await loadAllDealsForExport());
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = tab === "documents" ? "deal-documents.csv" : "deals.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(tab === "documents" ? "Documents exported" : "Deals exported");
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to export data";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: string) => {
+    setDeletingId(documentId);
+    setError(null);
+
+    try {
+      await apiRequest(`/documents/${documentId}`, { method: "DELETE" });
+      toast.success("Document deleted");
+      await loadDocuments();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete document";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
   return (
-    <>
-      <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16, marginBottom: 16}}>
-        <h2 style={{ marginTop: 0 }}>Create deal</h2>
-        <form onSubmit={handleCreate} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Deal title" required style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-          <input value={value} onChange={(event) => setValue(event.target.value)} type="number" min={0} placeholder="Value" style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-          <input value={expectedCloseDate} onChange={(event) => setExpectedCloseDate(event.target.value)} type="date" style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }} />
-          <select value={partnerCompanyId} onChange={(event) => setPartnerCompanyId(event.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }}>
-            <option value="">No partner</option>
-            {partners.map((partner) => (
-              <option key={partner.id} value={partner.id}>
-                {partner.name}
-              </option>
-            ))}
-          </select>
-          <select value={pipeline} onChange={(event) => handlePipelineChange(event.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }}>
-            {(pipelineSettings?.dealPipelines ?? [{ key: "default", label: "Default Pipeline", stages: [{ key: "new", label: "New" }] }]).map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <select value={stage} onChange={(event) => setStage(event.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }}>
-            {(activePipeline?.stages ?? [{ key: "new", label: "New" }]).map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-          <button type="submit" disabled={submitting} style={{ padding: "10px 12px", borderRadius: 10, border: "none", background: "#102031", color: "white" }}>
-            {submitting ? "Creating..." : "Create"}
-          </button>
-        </form>
-      </section>
+    <div className="grid gap-5">
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Request failed</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
-      <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16, marginBottom: 16, display: "grid", gap: 12 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <h2 style={{ margin: 0 }}>Forecast</h2>
-          <span style={{ color: "#556371" }}>6-month revenue projection from open deals with close dates</span>
+      <CrmListPageHeader
+        title="Deals"
+        actions={
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()}>
+              <Download className="size-4" /> Export
+            </Button>
+            <Button type="button" variant="secondary" size="sm" disabled title="Deal import is not available yet">
+              <Import className="size-4" /> Import
+            </Button>
+            <Button type="button" size="sm" onClick={openCreateModal}>
+              <Plus className="size-4" /> Create
+            </Button>
+          </>
+        }
+      />
+
+      <section className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+        <div className="px-4 pt-3">
+          <CrmListViewTabs
+            value={tab}
+            onValueChange={setTab}
+            labels={{ all: "All Deals", mine: "My Deals", documents: "Uploaded Docs" }}
+          />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-          {[
-            { label: "Open pipeline", value: forecast?.summary.openValue ?? 0 },
-            { label: "Forecast window", value: forecast?.summary.forecastValue ?? 0 },
-            { label: "This month", value: forecast?.summary.currentMonthValue ?? 0 },
-            { label: "Next month", value: forecast?.summary.nextMonthValue ?? 0 },
-            { label: "Overdue close dates", value: forecast?.summary.overdueValue ?? 0 },
-            { label: "Missing close dates", value: forecast?.summary.unassignedForecastValue ?? 0 },
-          ].map((item) => (
-            <div key={item.label} style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, background: "#f8fbff" }}>
-              <div style={{ color: "#556371", fontSize: 13 }}>{item.label}</div>
-              <strong style={{ fontSize: 20 }}>{item.value}</strong>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(280px, 1fr)", gap: 12 }}>
-          <div style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
-            <strong>Monthly buckets</strong>
-            {(forecast?.buckets ?? []).map((bucket) => (
-              <div key={bucket.key} style={{ display: "grid", gridTemplateColumns: "140px 1fr auto", gap: 10, alignItems: "center" }}>
-                <span style={{ color: "#35414d", fontSize: 14 }}>{bucket.label}</span>
-                <div style={{ height: 10, borderRadius: 999, background: "#e8edf3", overflow: "hidden" }}>
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${bucket.value > 0
-                        ? Math.max(
-                            8,
-                            forecast?.summary.forecastValue
-                              ? Math.round((bucket.value / forecast.summary.forecastValue) * 100)
-                              : 0,
-                          )
-                        : 0}%`,
-                      background: "#102031",
-                    }}
+
+        <CrmListToolbar
+          searchValue={filters.q}
+          searchPlaceholder={tab === "documents" ? "Search uploaded documents" : "Search by deal name"}
+          onSearchChange={(value) => {
+            setPage(1);
+            setFilters((current) => ({ ...current, q: value }));
+            setFilterDraft((current) => ({ ...current, q: value }));
+          }}
+          onOpenFilters={() => setModalMode("filter")}
+          filterCount={activeFilterChips.length}
+          onOpenColumns={() => setColumnSettingsOpen(true)}
+          onRefresh={() => {
+            if (tab === "documents") {
+              void loadDocuments();
+              return;
+            }
+            void loadDeals();
+          }}
+          extraContent={
+            tab !== "documents" ? (
+              <>
+                <div className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2">
+                  <Checkbox
+                    checked={paginatedDeals.length > 0 && selectedDealIds.length === paginatedDeals.length}
+                    onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+                    aria-label="Select all visible deals"
                   />
+                  <span className="text-sm text-muted-foreground">{selectedDealIds.length} selected</span>
                 </div>
-                <span style={{ color: "#556371", fontSize: 13 }}>
-                  {bucket.count} deals · {bucket.value}
-                </span>
-              </div>
-            ))}
-            {(forecast?.buckets.length ?? 0) === 0 ? <p style={{ margin: 0, color: "#556371" }}>No forecast data available yet.</p> : null}
-          </div>
+                <NativeSelect value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className="h-10 w-40 rounded-xl px-3 text-sm">
+                  <option value="">Keep status</option>
+                  {dealStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                </NativeSelect>
+                <NativeSelect
+                  value={bulkPipeline}
+                  onChange={(event) => {
+                    setBulkPipeline(event.target.value);
+                    setBulkStage("");
+                  }}
+                  className="h-10 w-44 rounded-xl px-3 text-sm"
+                >
+                  <option value="">Keep pipeline</option>
+                  {(pipelineSettings?.dealPipelines ?? []).map((pipeline) => <option key={pipeline.key} value={pipeline.key}>{pipeline.label}</option>)}
+                </NativeSelect>
+                <NativeSelect value={bulkStage} onChange={(event) => setBulkStage(event.target.value)} className="h-10 w-44 rounded-xl px-3 text-sm">
+                  <option value="">Keep stage</option>
+                  {((pipelineSettings?.dealPipelines.find((item) => item.key === bulkPipeline)?.stages) ?? pipelineSettings?.dealPipelines[0]?.stages ?? []).map((stage) => (
+                    <option key={stage.key} value={stage.key}>{stage.label}</option>
+                  ))}
+                </NativeSelect>
+                <Button type="button" disabled={bulkUpdating || selectedDealIds.length === 0 || (!bulkStatus && !bulkPipeline && !bulkStage)} onClick={() => void handleBulkUpdate()}>
+                  {bulkUpdating ? "Updating..." : "Apply bulk update"}
+                </Button>
+              </>
+            ) : null
+          }
+        />
 
-          <div style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
-            <strong>Upcoming deals</strong>
-            {(forecast?.upcomingDeals ?? []).map((deal) => (
-              <div key={deal.id} style={{ border: "1px solid #e8edf3", borderRadius: 10, padding: 10, background: "#fff" }}>
-                <div style={{ fontWeight: 600 }}>{deal.title}</div>
-                <div style={{ color: "#556371", fontSize: 13 }}>{formatDate(deal.expectedCloseDate)}</div>
-                <div style={{ color: "#556371", fontSize: 13 }}>
-                  {deal.pipeline} / {deal.stage} · {deal.value}
-                </div>
-              </div>
-            ))}
-            {(forecast?.upcomingDeals.length ?? 0) === 0 ? <p style={{ margin: 0, color: "#556371" }}>No upcoming forecasted deals.</p> : null}
+        <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
+          <div className="flex flex-wrap gap-2">
+            {activeFilterChips.length ? (
+              activeFilterChips.map((chip) => (
+                <button
+                  key={`${chip.key}-${chip.value}`}
+                  type="button"
+                  onClick={() => removeAppliedFilter(chip.key)}
+                  className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-sky-200 hover:text-sky-700"
+                >
+                  <span>{chip.label}: {chip.value}</span>
+                  <X className="size-3.5" />
+                </button>
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground">No active filters.</div>
+            )}
+            {activeFilterChips.length ? (
+              <Button type="button" variant="ghost" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={clearAllFilters}>
+                Clear all
+              </Button>
+            ) : null}
           </div>
         </div>
-      </section>
 
-      <section style={{ background: "#fff", border: "1px solid #dbe1e8", borderRadius: 12, padding: 16 }}>
-        <Tabs defaultValue="list" queryKey="tab">
-          <TabsList>
-            <TabsTrigger value="list">List</TabsTrigger>
-            <TabsTrigger value="board">Board</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="list">
-            <h2 style={{ marginTop: 16 }}>Deal list</h2>
-            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }}>
-                <option value="">All statuses</option>
-                {statuses.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-              <button type="button" onClick={() => void loadDeals()} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }}>
-                Filter
-              </button>
-            </div>
-
-            {error ? <p style={{ color: "#b02020" }}>{error}</p> : null}
-            {loading ? <p>Loading deals...</p> : null}
-
-            {!loading ? (
-              <div style={{ display: "grid", gap: 10 }}>
-                {deals.map((deal) => (
-                  <article key={deal.id} style={{ border: "1px solid #e1e6ec", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
-                    <strong>{deal.title}</strong>
-                    <span style={{ color: "#556371" }}>Value: {deal.value}</span>
-                    <span style={{ color: "#556371" }}>Pipeline: {deal.pipeline} / {deal.stage}</span>
-                    <span style={{ color: "#556371" }}>Expected close: {formatDate(deal.expectedCloseDate)}</span>
-                    <span style={{ color: "#556371" }}>Partner: {deal.partnerCompanyId ? "Assigned" : "Unassigned"}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span>Status</span>
-                      <select value={deal.status} onChange={(event) => void updateStatus(deal.id, event.target.value as DealStatus)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0" }}>
-                        {statuses.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="date"
-                        value={deal.expectedCloseDate ? new Date(deal.expectedCloseDate).toISOString().slice(0, 10) : ""}
-                        onChange={(event) => void updateExpectedCloseDate(deal.id, event.target.value)}
-                        style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0" }}
-                      />
-                      <button type="button" onClick={() => void toggleTimeline(deal.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}>
-                        {expandedDealId === deal.id ? "Hide timeline" : "Show timeline"}
-                      </button>
-                    </div>
-
-                    {expandedDealId === deal.id ? (
-                      <div style={{ marginTop: 8, borderTop: "1px solid #e8edf3", paddingTop: 10, display: "grid", gap: 8 }}>
-                        {timelineLoadingDealId === deal.id ? <p>Loading timeline...</p> : null}
-                        {(timelineByDeal[deal.id] ?? []).map((activity) => (
-                          <div key={activity.id} style={{ fontSize: 13, color: "#35414d" }}>
-                            <strong>{activity.type}</strong> - {String(activity.payload?.message ?? "") || JSON.stringify(activity.payload)}
-                          </div>
-                        ))}
-                        {(timelineByDeal[deal.id] ?? []).length === 0 && timelineLoadingDealId !== deal.id ? <p>No timeline activity yet.</p> : null}
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <input value={timelineDraftByDeal[deal.id] ?? ""} onChange={(event) => setTimelineDraftByDeal((prev) => ({ ...prev, [deal.id]: event.target.value }))} placeholder="Add timeline note" style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0" }} />
-                          <button type="button" onClick={() => void addTimelineNote(deal.id)} style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}>
-                            Add
-                          </button>
-                        </div>
-                        <div style={{ display: "grid", gap: 8, border: "1px solid #e8edf3", borderRadius: 10, padding: 10, background: "#fff" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                            <strong>Attachments</strong>
-                            <label style={{ color: "#556371", fontSize: 13, cursor: "pointer", textDecoration: "underline" }}>
-                              <input
-                                type="file"
-                                style={{ display: "none" }}
-                                onChange={(event) => {
-                                  const nextFile = event.target.files?.[0] ?? null;
-                                  void uploadDealDocument(deal.id, nextFile);
-                                  event.currentTarget.value = "";
-                                }}
-                              />
-                              {uploadingDealId === deal.id ? "Uploading..." : "Upload file"}
-                            </label>
-                          </div>
-                          {(documentsByDeal[deal.id] ?? []).map((document) => (
-                            <div key={document.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap", border: "1px solid #e8edf3", borderRadius: 10, padding: 10 }}>
-                              <div>
-                                <div style={{ fontWeight: 600 }}>{document.originalName}</div>
-                                <div style={{ color: "#556371", fontSize: 13 }}>
-                                  {document.folder} • {document.mimeType ?? "unknown"} • {Math.max(1, Math.round(document.sizeBytes / 1024))} KB
-                                </div>
-                              </div>
-                              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                                <a href={buildApiUrl(`/documents/${document.id}/download`, { companyId })} style={{ color: "#102031", fontWeight: 600 }}>
-                                  Download
-                                </a>
-                                <button
-                                  type="button"
-                                  disabled={deletingDocumentId === document.id}
-                                  onClick={() => void deleteDealDocument(deal.id, document.id)}
-                                  style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #d2d9e0", background: "#fff" }}
-                                >
-                                  {deletingDocumentId === document.id ? "Deleting..." : "Delete"}
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                          {(documentsByDeal[deal.id] ?? []).length === 0 ? <p style={{ margin: 0, color: "#556371", fontSize: 13 }}>No attachments uploaded for this deal yet.</p> : null}
-                        </div>
-                      </div>
-                    ) : null}
-                  </article>
-                ))}
-                {deals.length === 0 ? <p>No deals found.</p> : null}
-              </div>
-            ) : null}
-          </TabsContent>
-
-          <TabsContent value="board">
-            <div style={{ display: "flex", gap: 8, marginTop: 16, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-              <h2 style={{ margin: 0 }}>Pipeline board</h2>
-              <select value={boardPipeline} onChange={(event) => setBoardPipeline(event.target.value)} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid #d2d9e0" }}>
-                {(board?.availablePipelines ?? pipelineSettings?.dealPipelines ?? []).map((item) => (
-                  <option key={item.key} value={item.key}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-              <span style={{ color: "#556371" }}>Won: {board?.wonCount ?? 0}</span>
-              <span style={{ color: "#556371" }}>Lost: {board?.lostCount ?? 0}</span>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, alignItems: "start" }}>
-              {(board?.columns ?? []).map((column) => (
-                <div key={column.key} style={{ border: "1px solid #e1e6ec", borderRadius: 12, padding: 12, background: "#f8fbff", display: "grid", gap: 10 }}>
-                  <div>
-                    <strong>{column.label}</strong>
-                    <div style={{ color: "#556371", fontSize: 13 }}>{column.items.length} deals · value {column.totalValue}</div>
-                  </div>
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {column.items.map((deal) => (
-                      <article key={deal.id} style={{ border: "1px solid #dbe1e8", borderRadius: 10, padding: 10, background: "#fff", display: "grid", gap: 4 }}>
-                        <strong>{deal.title}</strong>
-                        <span style={{ color: "#556371", fontSize: 13 }}>Value: {deal.value}</span>
-                        <span style={{ color: "#556371", fontSize: 13 }}>Status: {deal.status}</span>
-                        <span style={{ color: "#556371", fontSize: 13 }}>{deal.partnerCompanyId ? "Partner assigned" : "No partner"}</span>
-                      </article>
-                    ))}
-                    {column.items.length === 0 ? <p style={{ margin: 0, color: "#556371", fontSize: 13 }}>No deals in this stage.</p> : null}
-                  </div>
+        {tab === "documents" ? (
+          <CrmDataTable
+            columns={documentColumns}
+            rows={documents}
+            rowKey={(document) => document.id}
+            loading={loading}
+            emptyLabel="No uploaded docs found."
+            columnVisibility={documentColumnVisibility}
+            actionColumn={{
+              header: "Actions",
+              renderCell: (document) => (
+                <div className="flex justify-end gap-1.5">
+                  <a href={buildApiUrl(`/documents/${document.id}/download`, { companyId })} className="inline-flex items-center rounded-xl border border-border/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
+                    Download
+                  </a>
+                  <Button type="button" size="xs" variant="ghost" disabled={deletingId === document.id} onClick={() => void handleDeleteDocument(document.id)}>
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
                 </div>
-              ))}
-            </div>
-          </TabsContent>
-        </Tabs>
+              ),
+            }}
+          />
+        ) : (
+          <CrmDataTable
+            columns={dealColumns}
+            rows={paginatedDeals}
+            rowKey={(deal) => deal.id}
+            loading={loading}
+            emptyLabel="No deals found."
+            columnVisibility={columnVisibility}
+            selectable
+            selectedRowIds={selectedDealIds}
+            onToggleRow={toggleDealSelection}
+            onToggleAllVisible={toggleSelectAllVisible}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={handleSort}
+            actionColumn={{
+              header: "Actions",
+              renderCell: (deal) => (
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => openEditModal(deal)}>
+                    <PencilLine className="size-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg text-rose-600 hover:text-rose-700" onClick={() => openDeleteModal(deal)}>
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              ),
+            }}
+          />
+        )}
+
+        <CrmPaginationBar
+          limit={limit}
+          onLimitChange={(value) => {
+            setLimit(value);
+            setPage(1);
+          }}
+          rowsPerPageOptions={rowsPerPageOptions}
+          total={total}
+          page={page}
+          totalPages={totalPages}
+          onPrev={() => setPage((current) => Math.max(1, current - 1))}
+          onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+        />
       </section>
-    </>
+
+      {(modalMode === "create" || modalMode === "edit") ? (
+        <Modal
+          title={modalMode === "edit" ? "Edit Deal" : "Create New Deal"}
+          description={modalMode === "edit" ? "Update any deal detail and save it back to the database." : "Create a new deal with the same structured layout as the reference UI."}
+          onClose={closeModal}
+          headerActions={
+            <>
+              <Button type="button" variant="ghost" size="xs" onClick={closeModal}>
+                Close
+              </Button>
+              <Button type="submit" form="deal-form" size="xs" disabled={submitting}>
+                {submitting ? "Saving..." : "Save"}
+              </Button>
+            </>
+          }
+        >
+          <form id="deal-form" onSubmit={handleSubmit} className="grid gap-5">
+            <div className="grid gap-4 rounded-2xl border border-border/60 bg-white p-4">
+              <div className="text-sm font-semibold text-slate-900">Basic Information</div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field>
+                  <FieldLabel>Deal Name</FieldLabel>
+                  <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} className="h-10 text-sm" placeholder="eg: lifetime opportunity deal" required />
+                </Field>
+                <Field>
+                  <FieldLabel>Select Pipeline</FieldLabel>
+                  <NativeSelect
+                    value={form.pipeline}
+                    onChange={(event) => {
+                      const nextPipeline = event.target.value;
+                      const next = pipelineSettings?.dealPipelines.find((pipeline) => pipeline.key === nextPipeline);
+                      setForm((current) => ({
+                        ...current,
+                        pipeline: nextPipeline,
+                        stage: next?.stages[0]?.key ?? "",
+                      }));
+                    }}
+                    className="h-10 rounded-xl px-3 text-sm"
+                  >
+                    <option value="">Select pipeline</option>
+                    {(pipelineSettings?.dealPipelines ?? []).map((pipeline) => (
+                      <option key={pipeline.key} value={pipeline.key}>
+                        {pipeline.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+              </div>
+            </div>
+
+            <div className="grid gap-4 rounded-2xl border border-border/60 bg-slate-50/70 p-4">
+              <div className="text-sm font-semibold text-slate-900">Dependent Properties</div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field>
+                  <FieldLabel>Deal Owner</FieldLabel>
+                  <NativeSelect value={form.partnerCompanyId} onChange={(event) => setForm((current) => ({ ...current, partnerCompanyId: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                    <option value="">Search for partners</option>
+                    {partners.map((partner) => (
+                      <option key={partner.id} value={partner.id}>
+                        {partner.name}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Deal Type</FieldLabel>
+                  <Input value={form.dealType} onChange={(event) => setForm((current) => ({ ...current, dealType: event.target.value }))} className="h-10 text-sm" placeholder="Select deal type" />
+                </Field>
+                <Field>
+                  <FieldLabel>Amount</FieldLabel>
+                  <Input value={form.value} onChange={(event) => setForm((current) => ({ ...current, value: event.target.value }))} className="h-10 text-sm" type="number" min={0} placeholder="eg: 2000" />
+                </Field>
+                <Field>
+                  <FieldLabel>Closed Date</FieldLabel>
+                  <Input value={form.expectedCloseDate} onChange={(event) => setForm((current) => ({ ...current, expectedCloseDate: event.target.value }))} className="h-10 text-sm" type="date" />
+                </Field>
+                <Field>
+                  <FieldLabel>Referral Source</FieldLabel>
+                  <Input value={form.referralSource} onChange={(event) => setForm((current) => ({ ...current, referralSource: event.target.value }))} className="h-10 text-sm" placeholder="Select referral source" />
+                </Field>
+                <Field>
+                  <FieldLabel>Deal Stage</FieldLabel>
+                  <NativeSelect value={form.stage} onChange={(event) => setForm((current) => ({ ...current, stage: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                    <option value="">Select deal stage</option>
+                    {(activePipeline?.stages ?? []).map((stage) => (
+                      <option key={stage.key} value={stage.key}>
+                        {stage.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field className="md:col-span-2">
+                  <FieldLabel>Priority</FieldLabel>
+                  <Input value={form.priority} onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))} className="h-10 text-sm" placeholder="Select priority" />
+                </Field>
+                <Field className="md:col-span-2">
+                  <FieldLabel>Product Tags</FieldLabel>
+                  <Input value={form.productTags} onChange={(event) => setForm((current) => ({ ...current, productTags: event.target.value }))} className="h-10 text-sm" placeholder="Select or type to create tags..." />
+                </Field>
+              </div>
+            </div>
+
+            <div className="grid gap-4 rounded-2xl border border-border/60 bg-white p-4">
+              <div className="text-sm font-semibold text-slate-900">Associate deal with</div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field>
+                  <FieldLabel>Contact</FieldLabel>
+                  <NativeSelect value={form.customerId} onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                    <option value="">Search and select contact</option>
+                    {contacts.map((contact) => (
+                      <option key={contact.id} value={contact.id}>
+                        {contact.fullName}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Lead</FieldLabel>
+                  <NativeSelect value={form.leadId} onChange={(event) => setForm((current) => ({ ...current, leadId: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                    <option value="">Select lead</option>
+                    {leadOptions.map((lead) => (
+                      <option key={lead.id} value={lead.id}>
+                        {lead.title}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Status</FieldLabel>
+                  <NativeSelect value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as DealStatus }))} className="h-10 rounded-xl px-3 text-sm">
+                    {dealStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Owner Label</FieldLabel>
+                  <Input value={form.ownerLabel} onChange={(event) => setForm((current) => ({ ...current, ownerLabel: event.target.value }))} className="h-10 text-sm" placeholder="Name shown in the table" />
+                </Field>
+                <Field className="md:col-span-2">
+                  <FieldLabel>Notes</FieldLabel>
+                  <Textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="min-h-28 text-sm" placeholder="Add supporting notes for this deal" />
+                </Field>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {modalMode === "delete" && selectedDeal ? (
+        <Modal title="Delete Deal" description={`Remove ${selectedDeal.title} from the workspace.`} onClose={closeModal} maxWidthClassName="max-w-xl">
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
+            <div className="flex gap-2">
+              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedDeal.id}>
+                {deletingId === selectedDeal.id ? "Deleting..." : "Delete"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={closeModal}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      <CrmFilterDrawer
+        open={modalMode === "filter"}
+        title="Filter"
+        description={tab === "documents" ? "Shape the uploaded docs table." : "Shape the deal table with focused filters."}
+        onClose={closeModal}
+        onClear={clearDealFilterDraft}
+        onApply={applyFilters}
+      >
+        <div className="grid gap-4">
+          <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
+            <div className="text-sm font-semibold text-slate-900">Search</div>
+            <Field>
+              <FieldLabel>Search term</FieldLabel>
+              <Input value={filterDraft.q} onChange={(event) => setFilterDraft((current) => ({ ...current, q: event.target.value }))} className="h-10 text-sm" placeholder={tab === "documents" ? "Filename" : "Deal name"} />
+            </Field>
+            {tab === "documents" ? (
+              <Field>
+                <FieldLabel>Folder</FieldLabel>
+                <Input value={filterDraft.documentFolder} onChange={(event) => setFilterDraft((current) => ({ ...current, documentFolder: event.target.value }))} className="h-10 text-sm" placeholder="general" />
+              </Field>
+            ) : null}
+          </div>
+
+          {tab !== "documents" ? (
+            <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
+              <div className="text-sm font-semibold text-slate-900">Deal details</div>
+              <Field>
+                <FieldLabel>Status</FieldLabel>
+                <NativeSelect value={filterDraft.status} onChange={(event) => setFilterDraft((current) => ({ ...current, status: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                  <option value="">All statuses</option>
+                  {dealStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>Pipeline</FieldLabel>
+                <NativeSelect value={filterDraft.pipeline} onChange={(event) => setFilterDraft((current) => ({ ...current, pipeline: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                  <option value="">All pipelines</option>
+                  {(pipelineSettings?.dealPipelines ?? []).map((pipeline) => (
+                    <option key={pipeline.key} value={pipeline.key}>
+                      {pipeline.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>Deal Stage</FieldLabel>
+                <Input value={filterDraft.stage} onChange={(event) => setFilterDraft((current) => ({ ...current, stage: event.target.value }))} className="h-10 text-sm" placeholder="Filter by stage" />
+              </Field>
+            </div>
+          ) : null}
+        </div>
+      </CrmFilterDrawer>
+
+      {tab === "documents" ? (
+        <CrmColumnSettings
+          open={columnSettingsOpen}
+          description="Choose which document columns stay visible in the table."
+          columns={[
+            { key: "name", label: "File Name" },
+            { key: "folder", label: "Folder" },
+            { key: "type", label: "Type" },
+            { key: "size", label: "Size" },
+            { key: "createdAt", label: "Uploaded" },
+          ]}
+          columnVisibility={documentColumnVisibility}
+          onToggleColumn={toggleDocumentColumn}
+          onReset={resetDocumentColumns}
+          onClose={() => setColumnSettingsOpen(false)}
+        />
+      ) : (
+        <CrmColumnSettings
+          open={columnSettingsOpen}
+          description="Choose which deal columns stay visible in the table."
+          columns={dealColumnOrder
+            .filter((key) => key !== "actions")
+            .map((key) => ({ key: key as Exclude<DealColumnKey, "actions">, label: dealColumnLabels[key as DealSortKey] }))}
+          columnVisibility={columnVisibility}
+          lockedColumns={lockedDealColumns}
+          onToggleColumn={toggleColumn}
+          onReset={resetColumns}
+          onClose={() => setColumnSettingsOpen(false)}
+        />
+      )}
+    </div>
   );
 }
-

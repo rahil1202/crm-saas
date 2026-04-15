@@ -3,13 +3,14 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { dealActivities, deals, partnerCompanies } from "@/db/schema";
+import { customers, dealActivities, deals, leads, partnerCompanies, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
 import { AppError } from "@/lib/errors";
 import { createNotification } from "@/lib/notifications";
 import { dealParamSchema } from "@/modules/deals/schema";
 import type {
+  BulkUpdateDealsInput,
   BoardDealsQuery,
   CreateDealInput,
   CreateDealTimelineInput,
@@ -254,6 +255,11 @@ export async function createDeal(c: Context<AppEnv>) {
       stage: body.stage,
       status: body.status,
       value: body.value,
+      dealType: body.dealType ?? null,
+      priority: body.priority ?? null,
+      referralSource: body.referralSource ?? null,
+      ownerLabel: body.ownerLabel ?? null,
+      productTags: body.productTags,
       expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : null,
       lostReason: body.lostReason ?? null,
       notes: body.notes ?? null,
@@ -323,6 +329,11 @@ export async function updateDeal(c: Context<AppEnv>) {
       ...(body.stage !== undefined ? { stage: body.stage } : {}),
       ...(body.status !== undefined ? { status: body.status } : {}),
       ...(body.value !== undefined ? { value: body.value } : {}),
+      ...(body.dealType !== undefined ? { dealType: body.dealType ?? null } : {}),
+      ...(body.priority !== undefined ? { priority: body.priority ?? null } : {}),
+      ...(body.referralSource !== undefined ? { referralSource: body.referralSource ?? null } : {}),
+      ...(body.ownerLabel !== undefined ? { ownerLabel: body.ownerLabel ?? null } : {}),
+      ...(body.productTags !== undefined ? { productTags: body.productTags } : {}),
       ...(body.expectedCloseDate !== undefined
         ? { expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : null }
         : {}),
@@ -353,6 +364,134 @@ export async function updateDeal(c: Context<AppEnv>) {
   }
 
   return ok(c, updated);
+}
+
+export async function bulkUpdateDeals(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const body = c.get("validatedBody") as BulkUpdateDealsInput;
+
+  if (body.pipeline !== undefined || body.stage !== undefined) {
+    const targetDeals = await db
+      .select({ id: deals.id, pipeline: deals.pipeline, stage: deals.stage })
+      .from(deals)
+      .where(and(eq(deals.companyId, tenant.companyId), isNull(deals.deletedAt)));
+
+    const firstDeal = targetDeals.find((item) => body.dealIds.includes(item.id));
+    if (firstDeal) {
+      await assertValidPipelineStage(tenant.companyId, body.pipeline ?? firstDeal.pipeline, body.stage ?? firstDeal.stage);
+    }
+  }
+
+  const uniqueDealIds = [...new Set(body.dealIds)];
+  const targetDeals = await db
+    .select({ id: deals.id, status: deals.status, pipeline: deals.pipeline, stage: deals.stage, priority: deals.priority })
+    .from(deals)
+    .where(and(eq(deals.companyId, tenant.companyId), isNull(deals.deletedAt)));
+
+  const matchingDeals = targetDeals.filter((deal) => uniqueDealIds.includes(deal.id));
+  if (matchingDeals.length === 0) {
+    throw AppError.notFound("No matching deals found for bulk update");
+  }
+
+  for (const deal of matchingDeals) {
+    const [updated] = await db
+      .update(deals)
+      .set({
+        ...(body.status !== undefined ? { status: body.status } : {}),
+        ...(body.pipeline !== undefined ? { pipeline: body.pipeline } : {}),
+        ...(body.stage !== undefined ? { stage: body.stage } : {}),
+        ...(body.priority !== undefined ? { priority: body.priority ?? null } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(deals.id, deal.id))
+      .returning({ id: deals.id, status: deals.status, pipeline: deals.pipeline, stage: deals.stage, priority: deals.priority });
+
+    if (!updated) continue;
+
+    await addDealActivity({
+      companyId: tenant.companyId,
+      dealId: updated.id,
+      actorUserId: user.id,
+      type: "deal_bulk_updated",
+      payload: {
+        ...(body.status !== undefined ? { fromStatus: deal.status, toStatus: body.status } : {}),
+        ...(body.pipeline !== undefined ? { fromPipeline: deal.pipeline, toPipeline: body.pipeline } : {}),
+        ...(body.stage !== undefined ? { fromStage: deal.stage, toStage: body.stage } : {}),
+        ...(body.priority !== undefined ? { fromPriority: deal.priority, toPriority: body.priority } : {}),
+      },
+    });
+  }
+
+  return ok(c, {
+    updatedCount: matchingDeals.length,
+    dealIds: matchingDeals.map((deal) => deal.id),
+  });
+}
+
+export async function getDealHistory(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = dealParamSchema.parse(c.req.param());
+
+  const [deal] = await db
+    .select()
+    .from(deals)
+    .where(and(eq(deals.id, params.dealId), eq(deals.companyId, tenant.companyId), isNull(deals.deletedAt)))
+    .limit(1);
+
+  if (!deal) {
+    throw AppError.notFound("Deal not found");
+  }
+
+  const [timeline, relatedTasks, creator, customer, lead] = await Promise.all([
+    db
+      .select()
+      .from(dealActivities)
+      .where(and(eq(dealActivities.companyId, tenant.companyId), eq(dealActivities.dealId, deal.id)))
+      .orderBy(desc(dealActivities.createdAt), asc(dealActivities.id))
+      .limit(50),
+    db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.companyId, tenant.companyId), eq(tasks.dealId, deal.id), isNull(tasks.deletedAt)))
+      .orderBy(desc(tasks.createdAt)),
+    db
+      .select({ id: profiles.id, fullName: profiles.fullName, email: profiles.email })
+      .from(profiles)
+      .where(eq(profiles.id, deal.createdBy))
+      .limit(1)
+      .then((items) => items[0] ?? null),
+    deal.customerId
+      ? db
+          .select({ id: customers.id, fullName: customers.fullName, email: customers.email, phone: customers.phone })
+          .from(customers)
+          .where(and(eq(customers.id, deal.customerId), eq(customers.companyId, tenant.companyId), isNull(customers.deletedAt)))
+          .limit(1)
+          .then((items) => items[0] ?? null)
+      : Promise.resolve(null),
+    deal.leadId
+      ? db
+          .select({ id: leads.id, title: leads.title, fullName: leads.fullName, email: leads.email, phone: leads.phone, status: leads.status })
+          .from(leads)
+          .where(and(eq(leads.id, deal.leadId), eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt)))
+          .limit(1)
+          .then((items) => items[0] ?? null)
+      : Promise.resolve(null),
+  ]);
+
+  return ok(c, {
+    deal,
+    timeline,
+    tasks: relatedTasks,
+    creator,
+    customer,
+    lead,
+    summary: {
+      openTasks: relatedTasks.filter((task) => task.status !== "done").length,
+      completedTasks: relatedTasks.filter((task) => task.status === "done").length,
+      timelineEvents: timeline.length,
+    },
+  });
 }
 
 export async function getDealTimeline(c: Context<AppEnv>) {

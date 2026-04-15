@@ -1,10 +1,10 @@
-import { and, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { customers, dealActivities, deals, leadActivities, leads, partnerCompanies } from "@/db/schema";
+import { campaignCustomers, campaigns, customers, dealActivities, deals, leadActivities, leads, partnerCompanies, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { queueLeadScoreChangedTrigger, recordTriggerEvent } from "@/lib/automation-runtime";
 import { getCompanySettings } from "@/lib/company-settings";
@@ -557,6 +557,97 @@ export async function updateLead(c: Context<AppEnv>) {
   return ok(c, updated);
 }
 
+export async function getLeadHistory(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = leadParamSchema.parse(c.req.param());
+
+  const [lead] = await db
+    .select()
+    .from(leads)
+    .where(and(eq(leads.id, params.leadId), eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt)))
+    .limit(1);
+
+  if (!lead) {
+    throw AppError.notFound("Lead not found");
+  }
+
+  const [timeline, relatedDeals, relatedCustomers, relatedCampaigns, creator] = await Promise.all([
+    db
+      .select()
+      .from(leadActivities)
+      .where(and(eq(leadActivities.companyId, tenant.companyId), eq(leadActivities.leadId, lead.id)))
+      .orderBy(desc(leadActivities.createdAt), asc(leadActivities.id))
+      .limit(50),
+    db
+      .select()
+      .from(deals)
+      .where(and(eq(deals.companyId, tenant.companyId), eq(deals.leadId, lead.id), isNull(deals.deletedAt)))
+      .orderBy(desc(deals.createdAt)),
+    db
+      .select()
+      .from(customers)
+      .where(and(eq(customers.companyId, tenant.companyId), eq(customers.leadId, lead.id), isNull(customers.deletedAt)))
+      .orderBy(desc(customers.createdAt)),
+    db
+      .select({
+        id: campaigns.id,
+        name: campaigns.name,
+        channel: campaigns.channel,
+        status: campaigns.status,
+        scheduledAt: campaigns.scheduledAt,
+        createdAt: campaigns.createdAt,
+      })
+      .from(campaignCustomers)
+      .innerJoin(customers, eq(customers.id, campaignCustomers.customerId))
+      .innerJoin(campaigns, eq(campaigns.id, campaignCustomers.campaignId))
+      .where(and(eq(campaignCustomers.companyId, tenant.companyId), eq(customers.leadId, lead.id), isNull(customers.deletedAt), isNull(campaigns.deletedAt)))
+      .orderBy(desc(campaigns.createdAt)),
+    db
+      .select({ id: profiles.id, fullName: profiles.fullName, email: profiles.email })
+      .from(profiles)
+      .where(eq(profiles.id, lead.createdBy))
+      .limit(1)
+      .then((items) => items[0] ?? null),
+  ]);
+
+  const customerIds = relatedCustomers.map((item) => item.id);
+  const dealIds = relatedDeals.map((item) => item.id);
+  const relatedTasks =
+    customerIds.length > 0 || dealIds.length > 0
+      ? await db
+          .select()
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.companyId, tenant.companyId),
+              isNull(tasks.deletedAt),
+              customerIds.length > 0 && dealIds.length > 0
+                ? or(inArray(tasks.customerId, customerIds), inArray(tasks.dealId, dealIds))
+                : customerIds.length > 0
+                  ? inArray(tasks.customerId, customerIds)
+                  : inArray(tasks.dealId, dealIds),
+            ),
+          )
+          .orderBy(desc(tasks.createdAt))
+      : [];
+
+  return ok(c, {
+    lead,
+    timeline,
+    deals: relatedDeals,
+    customers: relatedCustomers,
+    tasks: relatedTasks,
+    campaigns: relatedCampaigns,
+    creator,
+    summary: {
+      customers: relatedCustomers.length,
+      deals: relatedDeals.length,
+      openDeals: relatedDeals.filter((deal) => deal.status === "open").length,
+      timelineEvents: timeline.length,
+    },
+  });
+}
+
 export async function getLeadTimeline(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const params = leadParamSchema.parse(c.req.param());
@@ -682,6 +773,7 @@ export async function convertLead(c: Context<AppEnv>) {
           companyId: tenant.companyId,
           storeId: lead.storeId,
           leadId: lead.id,
+          assignedToUserId: lead.assignedToUserId,
           fullName: lead.fullName ?? lead.title,
           email: lead.email,
           phone: lead.phone,

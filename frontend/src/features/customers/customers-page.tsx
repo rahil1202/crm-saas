@@ -2,10 +2,20 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Download, Filter, Import, PencilLine, Plus, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Download, Import, PencilLine, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  CrmColumnSettings,
+  CrmDataTable,
+  CrmFilterDrawer,
+  CrmListPageHeader,
+  CrmListToolbar,
+  CrmListViewTabs,
+  CrmPaginationBar,
+} from "@/components/crm/crm-list-primitives";
+import type { ColumnDefinition, CrmListTabKey } from "@/components/crm/types";
+import { useCrmListState } from "@/components/crm/use-crm-list-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +25,10 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, apiRequest } from "@/lib/api";
+import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
 import { getInitials } from "@/lib/auth-ui";
+import { getCompanyCookie } from "@/lib/cookies";
+import { loadMe } from "@/lib/me-cache";
 import { cn } from "@/lib/utils";
 
 interface Customer {
@@ -24,6 +36,7 @@ interface Customer {
   fullName: string;
   email: string | null;
   phone: string | null;
+  assignedToUserId: string | null;
   createdAt: string;
   updatedAt: string;
   tags?: string[];
@@ -32,6 +45,24 @@ interface Customer {
 
 interface ListResponse {
   items: Customer[];
+  total: number;
+  limit?: number;
+  offset?: number;
+}
+
+interface DocumentItem {
+  id: string;
+  entityType: "general" | "lead" | "deal" | "customer";
+  entityId: string | null;
+  folder: string;
+  originalName: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+interface DocumentListResponse {
+  items: DocumentItem[];
   total: number;
 }
 
@@ -136,6 +167,8 @@ type CustomerColumnKey =
 type CustomerColumnVisibility = Record<CustomerColumnKey, boolean>;
 type CustomerSortKey = Exclude<CustomerColumnKey, "actions">;
 type CustomerSortDirection = "asc" | "desc";
+type DocumentColumnKey = "name" | "folder" | "type" | "size" | "createdAt";
+type DocumentColumnVisibility = Record<DocumentColumnKey, boolean>;
 
 type CustomerFilters = {
   q: string;
@@ -149,6 +182,7 @@ type CustomerFilters = {
   phone: string;
   createdFrom: string;
   createdTo: string;
+  documentFolder: string;
 };
 
 type CustomerFilterKey = keyof CustomerFilters;
@@ -161,6 +195,7 @@ type CustomerFilterChip = {
 
 const rowsPerPageOptions = [10, 20, 50, 100] as const;
 const columnStorageKey = "crm-saas-customers-columns";
+const documentColumnStorageKey = "crm-saas-customer-documents-columns";
 const callRemarkOptions = ["Interested", "Not Interested", "No Assets", "Not Started"] as const;
 const callStatusOptions = ["Not Started", "Answered", "Not Answered 1", "Not Answered 2", "Not Connected", "Out of Reach", "Wrong Number"] as const;
 
@@ -197,7 +232,15 @@ const defaultCustomerColumnVisibility: CustomerColumnVisibility = {
   actions: true,
 };
 
-const lockedCustomerColumns: CustomerColumnKey[] = ["name", "mobile"];
+const defaultDocumentColumnVisibility: DocumentColumnVisibility = {
+  name: true,
+  folder: true,
+  type: true,
+  size: true,
+  createdAt: true,
+};
+
+const lockedCustomerColumns: Exclude<CustomerColumnKey, "actions">[] = ["name", "mobile"];
 const customerSortKeys: CustomerSortKey[] = ["name", "email", "mobile", "title", "remarks", "callRemark", "callStatus", "productTags", "country", "source", "status", "createdAt", "updatedAt"];
 
 const emptyCustomerFilters: CustomerFilters = {
@@ -212,6 +255,7 @@ const emptyCustomerFilters: CustomerFilters = {
   phone: "",
   createdFrom: "",
   createdTo: "",
+  documentFolder: "",
 };
 
 const customerTableColumns: Array<{
@@ -391,6 +435,23 @@ function buildCustomersCsv(items: Customer[]) {
     .join("\n");
 }
 
+function buildDocumentsCsv(items: DocumentItem[]) {
+  return [
+    ["file_name", "folder", "entity_type", "entity_id", "mime_type", "size_bytes", "created_at"],
+    ...items.map((document) => [
+      document.originalName,
+      document.folder,
+      document.entityType,
+      document.entityId ?? "",
+      document.mimeType ?? "",
+      String(document.sizeBytes),
+      document.createdAt,
+    ]),
+  ]
+    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
+    .join("\n");
+}
+
 function customerToForm(customer: Customer): CustomerFormState {
   return {
     fullName: customer.fullName,
@@ -455,7 +516,23 @@ function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): Cust
     phone: params.get("phone") ?? "",
     createdFrom: params.get("createdFrom") ?? "",
     createdTo: params.get("createdTo") ?? "",
+    documentFolder: params.get("documentFolder") ?? "",
   };
+}
+
+function writeFiltersToSearchParams(params: URLSearchParams, filters: CustomerFilters) {
+  if (filters.q.trim()) params.set("q", filters.q.trim());
+  if (filters.email.trim()) params.set("email", filters.email.trim());
+  if (filters.title.trim()) params.set("title", filters.title.trim());
+  if (filters.callRemark.trim()) params.set("callRemark", filters.callRemark.trim());
+  if (filters.callStatus.trim()) params.set("callStatus", filters.callStatus.trim());
+  if (filters.productTags.trim()) params.set("productTags", filters.productTags.trim());
+  if (filters.country.trim()) params.set("country", filters.country.trim());
+  if (filters.source.trim()) params.set("source", filters.source.trim());
+  if (filters.phone.trim()) params.set("phone", filters.phone.trim());
+  if (filters.createdFrom.trim()) params.set("createdFrom", filters.createdFrom.trim());
+  if (filters.createdTo.trim()) params.set("createdTo", filters.createdTo.trim());
+  if (filters.documentFolder.trim()) params.set("documentFolder", filters.documentFolder.trim());
 }
 
 function getCustomerFilterChips(filters: CustomerFilters): CustomerFilterChip[] {
@@ -472,6 +549,7 @@ function getCustomerFilterChips(filters: CustomerFilters): CustomerFilterChip[] 
   if (filters.phone.trim()) chips.push({ key: "phone", label: "Phone", value: filters.phone.trim() });
   if (filters.createdFrom.trim()) chips.push({ key: "createdFrom", label: "Created From", value: filters.createdFrom.trim() });
   if (filters.createdTo.trim()) chips.push({ key: "createdTo", label: "Created To", value: filters.createdTo.trim() });
+  if (filters.documentFolder.trim()) chips.push({ key: "documentFolder", label: "Folder", value: filters.documentFolder.trim() });
 
   return chips;
 }
@@ -608,6 +686,12 @@ function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
 }
 
+function formatFileSize(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function initialColumnVisibility(): CustomerColumnVisibility {
   return {
     ...defaultCustomerColumnVisibility,
@@ -654,19 +738,11 @@ function Modal({
 }
 
 export default function CustomersPage() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const initialFilters = readFiltersFromSearchParams(searchParams);
-
+  const companyId = getCompanyCookie();
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [filters, setFilters] = useState<CustomerFilters>(initialFilters);
-  const [filterDraft, setFilterDraft] = useState<CustomerFilters>(initialFilters);
-  const [page, setPage] = useState(() => normalizePage(searchParams.get("page")));
-  const [limit, setLimit] = useState(() => normalizeLimit(searchParams.get("limit")));
-  const [sortBy, setSortBy] = useState<CustomerSortKey>(() => normalizeSortKey(searchParams.get("sortBy")));
-  const [sortDir, setSortDir] = useState<CustomerSortDirection>(() => normalizeSortDirection(searchParams.get("sortDir")));
+  const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -686,41 +762,48 @@ export default function CustomersPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
-  const [columnVisibility, setColumnVisibility] = useState<CustomerColumnVisibility>(initialColumnVisibility);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
+  const [documentColumnVisibility, setDocumentColumnVisibility] = useState<DocumentColumnVisibility>(defaultDocumentColumnVisibility);
+  const {
+    tab,
+    setTab,
+    filters,
+    setFilters,
+    filterDraft,
+    setFilterDraft,
+    page,
+    setPage,
+    limit,
+    setLimit,
+    sortBy,
+    sortDir,
+    columnVisibility,
+    applyFilterDraft,
+    clearFilterDraft,
+    removeAppliedFilter,
+    toggleColumn,
+    resetColumns,
+    requestSort,
+  } = useCrmListState<CustomerFilters, CustomerSortKey, Exclude<CustomerColumnKey, "actions">>({
+    defaultFilters: emptyCustomerFilters,
+    defaultSortBy: "updatedAt",
+    defaultSortDir: "desc",
+    defaultLimit: rowsPerPageOptions[0],
+    rowsPerPageOptions,
+    parseFilters: readFiltersFromSearchParams,
+    writeFilters: writeFiltersToSearchParams,
+    normalizeSortBy: normalizeSortKey,
+    columnStorageKey,
+    defaultColumnVisibility: initialColumnVisibility(),
+    lockedColumns: lockedCustomerColumns,
+  });
 
   const offset = (page - 1) * limit;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const startRow = total === 0 ? 0 : offset + 1;
-  const endRow = total === 0 ? 0 : Math.min(offset + customers.length, total);
-  const visibleColumns = (Object.keys(customerColumnLabels) as CustomerSortKey[]).filter(
-    (key) => columnVisibility[key],
-  );
-  const activeFilterChips = getCustomerFilterChips(filters);
+  const endRow = total === 0 ? 0 : Math.min(offset + (tab === "documents" ? documents.length : customers.length), total);
+  const activeFilterChips = getCustomerFilterChips(filters).filter((chip) => tab === "documents" ? chip.key === "q" || chip.key === "documentFolder" : chip.key !== "documentFolder");
   const activeFilterCount = activeFilterChips.length;
-
-  const buildQueryString = useCallback(
-    (next: { filters: CustomerFilters; page: number; limit: number; sortBy: CustomerSortKey; sortDir: CustomerSortDirection }) => {
-      const params = new URLSearchParams();
-      if (next.filters.q.trim()) params.set("q", next.filters.q.trim());
-      if (next.filters.email.trim()) params.set("email", next.filters.email.trim());
-      if (next.filters.title.trim()) params.set("title", next.filters.title.trim());
-      if (next.filters.callRemark.trim()) params.set("callRemark", next.filters.callRemark.trim());
-      if (next.filters.callStatus.trim()) params.set("callStatus", next.filters.callStatus.trim());
-      if (next.filters.productTags.trim()) params.set("productTags", next.filters.productTags.trim());
-      if (next.filters.country.trim()) params.set("country", next.filters.country.trim());
-      if (next.filters.source.trim()) params.set("source", next.filters.source.trim());
-      if (next.filters.phone.trim()) params.set("phone", next.filters.phone.trim());
-      if (next.filters.createdFrom.trim()) params.set("createdFrom", next.filters.createdFrom.trim());
-      if (next.filters.createdTo.trim()) params.set("createdTo", next.filters.createdTo.trim());
-      if (next.page > 1) params.set("page", String(next.page));
-      if (next.limit !== rowsPerPageOptions[0]) params.set("limit", String(next.limit));
-      if (next.sortBy !== "updatedAt") params.set("sortBy", next.sortBy);
-      if (next.sortDir !== "desc") params.set("sortDir", next.sortDir);
-      return params.toString();
-    },
-    [],
-  );
 
   const loadCustomers = useCallback(async () => {
     setLoading(true);
@@ -740,6 +823,7 @@ export default function CustomersPage() {
     if (filters.phone.trim()) params.set("phone", filters.phone.trim());
     if (filters.createdFrom.trim()) params.set("createdFrom", filters.createdFrom.trim());
     if (filters.createdTo.trim()) params.set("createdTo", filters.createdTo.trim());
+    if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
     params.set("sortBy", sortBy);
     params.set("sortDir", sortDir);
 
@@ -757,21 +841,56 @@ export default function CustomersPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, limit, offset, page, sortBy, sortDir]);
+  }, [filters, limit, myUserId, offset, page, sortBy, sortDir, tab]);
+
+  const loadDocuments = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("offset", String(offset));
+    params.set("entityType", "customer");
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.documentFolder.trim()) params.set("folder", filters.documentFolder.trim());
+
+    try {
+      const data = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`);
+      const nextTotalPages = Math.max(1, Math.ceil((data.total ?? 0) / limit));
+      if (page > nextTotalPages && data.total > 0) {
+        setPage(nextTotalPages);
+        return;
+      }
+      setDocuments(data.items);
+      setTotal(data.total);
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to load uploaded documents.");
+    } finally {
+      setLoading(false);
+    }
+  }, [filters.documentFolder, filters.q, limit, offset, page, setPage]);
 
   useEffect(() => {
-    const next = buildQueryString({ filters, page, limit, sortBy, sortDir });
-    if (next !== searchParams.toString()) {
-      router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
-    }
-  }, [buildQueryString, filters, limit, page, pathname, router, searchParams, sortBy, sortDir]);
+    void loadMe()
+      .then((me) => setMyUserId(me.user.id))
+      .catch(() => setMyUserId(null));
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      if (tab === "documents") {
+        void loadDocuments();
+        return;
+      }
+
+      if (tab === "mine" && !myUserId) {
+        return;
+      }
+
       void loadCustomers();
     }, 220);
     return () => window.clearTimeout(timer);
-  }, [loadCustomers]);
+  }, [loadCustomers, loadDocuments, myUserId, tab]);
 
   useEffect(() => {
     if (!loading && total > 0 && page > totalPages) {
@@ -780,27 +899,29 @@ export default function CustomersPage() {
   }, [loading, page, total, totalPages]);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(columnStorageKey);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const stored = window.localStorage.getItem(documentColumnStorageKey);
     if (!stored) {
       return;
     }
 
     try {
-      const parsed = JSON.parse(stored) as Partial<CustomerColumnVisibility>;
-      setColumnVisibility((current) => ({
-        ...current,
-        ...parsed,
-        name: true,
-        mobile: true,
-      }));
+      const parsed = JSON.parse(stored) as Partial<DocumentColumnVisibility>;
+      setDocumentColumnVisibility((current) => ({ ...current, ...parsed }));
     } catch {
-      window.localStorage.removeItem(columnStorageKey);
+      window.localStorage.removeItem(documentColumnStorageKey);
     }
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(columnStorageKey, JSON.stringify(columnVisibility));
-  }, [columnVisibility]);
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(documentColumnStorageKey, JSON.stringify(documentColumnVisibility));
+  }, [documentColumnVisibility]);
 
   const closeModal = () => {
     setModalMode(null);
@@ -844,34 +965,8 @@ export default function CustomersPage() {
   };
 
   const commitFilterDraft = () => {
-    setFilters(filterDraft);
-    setPage(1);
+    applyFilterDraft();
     setModalMode(null);
-  };
-
-  const clearFilterDraft = () => {
-    setFilterDraft(emptyCustomerFilters);
-  };
-
-  const removeAppliedFilter = (key: CustomerFilterKey) => {
-    setPage(1);
-    setFilters((current) => ({ ...current, [key]: "" }));
-    setFilterDraft((current) => ({ ...current, [key]: "" }));
-  };
-
-  const toggleColumn = (key: CustomerColumnKey) => {
-    if (lockedCustomerColumns.includes(key)) {
-      return;
-    }
-
-    setColumnVisibility((current) => ({
-      ...current,
-      [key]: !current[key],
-    }));
-  };
-
-  const resetColumns = () => {
-    setColumnVisibility(initialColumnVisibility());
   };
 
   const closeColumnSettings = () => {
@@ -882,16 +977,110 @@ export default function CustomersPage() {
     setColumnSettingsOpen(true);
   };
 
-  const requestSort = (key: CustomerSortKey) => {
-    setPage(1);
-    if (sortBy === key) {
-      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
-      return;
-    }
-
-    setSortBy(key);
-    setSortDir(getDefaultSortDirection(key));
+  const toggleDocumentColumn = (key: DocumentColumnKey) => {
+    setDocumentColumnVisibility((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
   };
+
+  const resetDocumentColumns = () => {
+    setDocumentColumnVisibility(defaultDocumentColumnVisibility);
+  };
+
+  const customerColumns: Array<ColumnDefinition<Customer, Exclude<CustomerColumnKey, "actions">, CustomerSortKey>> =
+    customerTableColumns.map((column) => ({
+      key: column.key,
+      label: customerColumnLabels[column.key],
+      widthClassName: column.width,
+      sortable: true,
+      sortKey: column.key,
+      renderCell: (customer) => {
+        const customerDetails = parseContactNotes(customer.notes);
+
+        if (column.key === "remarks") {
+          return (
+            <button
+              type="button"
+              onClick={() => openQuickUpdate(customer)}
+              className="group flex w-full items-start rounded-xl border border-transparent px-2 py-2 text-left transition-colors hover:border-sky-200 hover:bg-sky-50/70"
+            >
+              <div className="min-w-0">
+                <div className="max-w-[260px] truncate text-[0.82rem] text-muted-foreground">{customerDetails.remarks ?? "-"}</div>
+                <div className="mt-1 text-[0.68rem] font-medium uppercase tracking-[0.12em] text-sky-700/80 opacity-0 transition-opacity group-hover:opacity-100">
+                  Edit remarks
+                </div>
+              </div>
+            </button>
+          );
+        }
+
+        if (column.key === "callRemark") {
+          return (
+            <button type="button" onClick={() => openQuickUpdate(customer)} className="group inline-flex w-full justify-start">
+              <span className="inline-flex max-w-full items-center rounded-full border border-sky-200/70 bg-sky-50 px-2.5 py-1 text-[0.76rem] font-medium text-sky-900 transition-colors group-hover:border-sky-300 group-hover:bg-sky-100">
+                <span className="truncate">{customerDetails.callRemark ?? "Not Started"}</span>
+              </span>
+            </button>
+          );
+        }
+
+        if (column.key === "callStatus") {
+          return (
+            <button type="button" onClick={() => openQuickUpdate(customer)} className="group inline-flex w-full justify-start">
+              <span className="inline-flex max-w-full items-center rounded-full border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-[0.76rem] font-medium text-slate-800 transition-colors group-hover:border-sky-300 group-hover:bg-sky-50 group-hover:text-sky-900">
+                <span className="truncate">{customerDetails.callStatus ?? "Not Started"}</span>
+              </span>
+            </button>
+          );
+        }
+
+        return column.render(customer);
+      },
+    }));
+
+  const documentColumns: Array<ColumnDefinition<DocumentItem, "name" | "folder" | "type" | "size" | "createdAt">> = [
+    {
+      key: "name",
+      label: "File Name",
+      widthClassName: "min-w-[280px]",
+      renderCell: (document) => (
+        <div className="min-w-0">
+          <div className="truncate font-medium text-slate-900">{document.originalName}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{document.entityId ? document.entityId.slice(0, 8) : "Unlinked"}</div>
+        </div>
+      ),
+    },
+    {
+      key: "folder",
+      label: "Folder",
+      widthClassName: "min-w-[140px]",
+      renderCell: (document) => <span className="text-slate-600">{document.folder}</span>,
+    },
+    {
+      key: "type",
+      label: "Type",
+      widthClassName: "min-w-[140px]",
+      renderCell: (document) => (
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{document.entityType}</Badge>
+          {document.mimeType ? <Badge variant="secondary">{document.mimeType}</Badge> : null}
+        </div>
+      ),
+    },
+    {
+      key: "size",
+      label: "Size",
+      widthClassName: "min-w-[110px]",
+      renderCell: (document) => <span className="text-slate-600">{formatFileSize(document.sizeBytes)}</span>,
+    },
+    {
+      key: "createdAt",
+      label: "Uploaded",
+      widthClassName: "min-w-[180px]",
+      renderCell: (document) => <span className="text-slate-600">{formatDateTime(document.createdAt)}</span>,
+    },
+  ];
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1003,6 +1192,7 @@ export default function CustomersPage() {
       if (filters.phone.trim()) params.set("phone", filters.phone.trim());
       if (filters.createdFrom.trim()) params.set("createdFrom", filters.createdFrom.trim());
       if (filters.createdTo.trim()) params.set("createdTo", filters.createdTo.trim());
+      if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
       params.set("sortBy", sortBy);
       params.set("sortDir", sortDir);
       const response = await apiRequest<ListResponse>(`/customers?${params.toString()}`, { skipCache: true });
@@ -1011,26 +1201,61 @@ export default function CustomersPage() {
       if (response.items.length === 0 || items.length >= response.total) break;
     }
     return items;
-  }, [filters, sortBy, sortDir]);
+  }, [filters, myUserId, sortBy, sortDir, tab]);
+
+  const loadAllDocumentsForExport = useCallback(async () => {
+    const items: DocumentItem[] = [];
+    let nextOffset = 0;
+    while (true) {
+      const params = new URLSearchParams();
+      params.set("limit", "100");
+      params.set("offset", String(nextOffset));
+      params.set("entityType", "customer");
+      if (filters.q.trim()) params.set("q", filters.q.trim());
+      if (filters.documentFolder.trim()) params.set("folder", filters.documentFolder.trim());
+      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`, { skipCache: true });
+      items.push(...response.items);
+      nextOffset += response.items.length;
+      if (response.items.length === 0 || items.length >= response.total) break;
+    }
+    return items;
+  }, [filters.documentFolder, filters.q]);
 
   const handleExport = async () => {
     setExporting(true);
     setError(null);
     try {
-      const csv = buildCustomersCsv(await loadAllForExport());
+      const csv =
+        tab === "documents"
+          ? buildDocumentsCsv(await loadAllDocumentsForExport())
+          : buildCustomersCsv(await loadAllForExport());
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "contacts.csv";
+      link.download = tab === "documents" ? "contact-documents.csv" : "contacts.csv";
       link.click();
       URL.revokeObjectURL(url);
-      toast.success("Contacts exported.");
+      toast.success(tab === "documents" ? "Documents exported." : "Contacts exported.");
       closeModal();
     } catch (caughtError) {
-      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to export contacts.");
+      setError(caughtError instanceof ApiError ? caughtError.message : `Unable to export ${tab === "documents" ? "documents" : "contacts"}.`);
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: string) => {
+    setDeletingId(documentId);
+    setError(null);
+    try {
+      await apiRequest(`/documents/${documentId}`, { method: "DELETE" });
+      toast.success("Document deleted.");
+      await loadDocuments();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to delete document.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -1122,83 +1347,61 @@ export default function CustomersPage() {
         </Alert>
       ) : null}
 
-      <div className="grid min-w-0 gap-3 rounded-[1.25rem] border border-border/60 bg-white px-4 py-3 shadow-[0_14px_36px_-28px_rgba(35,86,166,0.16)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Contact Directory</h1>
-        </div>
-        <div className="flex min-w-0 flex-wrap gap-2 lg:justify-end">
-          <Button type="button" variant="outline" size="sm" onClick={() => setModalMode("export")}>
-            <Download className="size-4" /> Export
-          </Button>
-          <Button type="button" size="sm" onClick={openCreate}>
-            <Plus className="size-4" /> Create Contact
-          </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={openImport}>
-            <Import className="size-4" /> Import Contacts
-          </Button>
-        </div>
-      </div>
+      <CrmListPageHeader
+        title="Contact"
+        actions={
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={() => setModalMode("export")}>
+              <Download className="size-4" /> Export
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={openImport}>
+              <Import className="size-4" /> Import
+            </Button>
+            <Button type="button" size="sm" onClick={openCreate}>
+              <Plus className="size-4" /> Create
+            </Button>
+          </>
+        }
+      />
 
-      <div className="grid min-w-0 gap-3 rounded-[1.1rem] border border-border/60 bg-white px-4 py-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] lg:items-center">
-        <div className="relative min-w-0">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={filters.q}
-            onChange={(event) => {
-              setPage(1);
-              setFilters((current) => ({ ...current, q: event.target.value }));
+      <section className="min-w-0 max-w-full overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_16px_44px_-34px_rgba(35,86,166,0.2)]">
+        <div className="px-4 pt-3">
+          <CrmListViewTabs
+            value={tab}
+            onValueChange={setTab}
+            labels={{
+              all: "All Contacts",
+              mine: "My Contacts",
+              documents: "Uploaded Docs",
             }}
-            placeholder="Search customers, email, phone, or notes"
-            className="h-9 pl-9 text-sm"
           />
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={openFilter}>
-          <Filter className="size-4" /> Advanced Filters
-        </Button>
-        <Button type="button" variant="outline" size="sm" onClick={openColumnSettings}>
-          <Settings2 className="size-4" />
-          Columns
-        </Button>
-        <Button type="button" variant="ghost" size="icon" onClick={() => void loadCustomers()} aria-label="Refresh contacts">
-          <RefreshCw className="size-4" />
-        </Button>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">Rows</span>
-          <NativeSelect
-            value={String(limit)}
-            onChange={(event) => {
-              setPage(1);
-              setLimit(Number(event.target.value));
-            }}
-            className="h-9 w-24 rounded-xl px-3 text-sm"
-          >
-            {rowsPerPageOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
-      </div>
 
-      <div className="min-w-0 max-w-full overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_16px_44px_-34px_rgba(35,86,166,0.2)]">
+        <CrmListToolbar
+          searchValue={filters.q}
+          searchPlaceholder={tab === "documents" ? "Search uploaded documents" : "Search customers, email, phone, or notes"}
+          onSearchChange={(value) => {
+            setPage(1);
+            setFilters((current) => ({ ...current, q: value }));
+            setFilterDraft((current) => ({ ...current, q: value }));
+          }}
+          onOpenFilters={openFilter}
+          filterCount={activeFilterCount}
+          onOpenColumns={openColumnSettings}
+          onRefresh={() => {
+            if (tab === "documents") {
+              void loadDocuments();
+              return;
+            }
+            void loadCustomers();
+          }}
+        />
+
         <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-900">Contact Directory</div>
-              <p className="text-xs leading-5 text-muted-foreground">Click any column title to sort. Use filters to narrow the current company view.</p>
-            </div>
-            <Badge variant="secondary" className="w-fit rounded-full px-3 py-1 text-[0.72rem]">
-              Sorted by {customerColumnLabels[sortBy]} {sortDir === "asc" ? "ascending" : "descending"}
-            </Badge>
-          </div>
           <div className="flex flex-wrap gap-2">
             {activeFilterChips.length ? (
               activeFilterChips.map((chip) => (
-                <div
-                  key={chip.key}
-                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-sky-200/80 bg-white px-3 py-1 text-[0.72rem] font-medium text-slate-800 shadow-sm"
-                >
+                <div key={chip.key} className="inline-flex max-w-full items-center gap-2 rounded-full border border-sky-200/80 bg-white px-3 py-1 text-[0.72rem] font-medium text-slate-800 shadow-sm">
                   <span className="text-slate-500">{chip.label}:</span>
                   <span className="max-w-[16rem] truncate text-slate-900">{chip.value}</span>
                   <button
@@ -1215,230 +1418,108 @@ export default function CustomersPage() {
               <div className="text-xs text-muted-foreground">No active filters.</div>
             )}
           </div>
-          {activeFilterCount > 0 ? (
-            <div className="text-xs text-muted-foreground">{activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"} applied.</div>
-          ) : null}
-        </div>
-        <div className="max-w-full overflow-x-auto">
-          <table className="min-w-full border-separate border-spacing-0 text-sm">
-            <thead className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm">
-              <tr className="text-left text-[0.7rem] uppercase tracking-[0.14em] text-muted-foreground">
-                {visibleColumns.map((key) => {
-                  const column = customerTableColumns.find((item) => item.key === key);
-                  const isActiveSort = sortBy === key;
-                  return (
-                    <th key={key} className={cn("border-b border-border/70 px-3 py-2.5 font-medium", column?.width)}>
-                      <button
-                        type="button"
-                        onClick={() => requestSort(key)}
-                        className="group inline-flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-slate-100/80"
-                      >
-                        <span className="truncate">{customerColumnLabels[key]}</span>
-                        {isActiveSort ? (
-                          sortDir === "asc" ? (
-                            <ArrowUp className="size-3.5 shrink-0 text-sky-700" />
-                          ) : (
-                            <ArrowDown className="size-3.5 shrink-0 text-sky-700" />
-                          )
-                        ) : (
-                          <ArrowUpDown className="size-3.5 shrink-0 text-muted-foreground/80 transition-colors group-hover:text-slate-700" />
-                        )}
-                      </button>
-                    </th>
-                  );
-                })}
-                <th className="border-b border-border/70 px-3 py-2.5 font-medium text-right">
-                  <span className="inline-flex rounded-lg px-2 py-1">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td className="px-3 py-6 text-sm text-muted-foreground" colSpan={visibleColumns.length + 1}>
-                    Loading contacts...
-                  </td>
-                </tr>
-              ) : customers.length === 0 ? (
-                <tr>
-                  <td className="px-3 py-8 text-sm text-muted-foreground" colSpan={visibleColumns.length + 1}>
-                    No contacts found.
-                  </td>
-                </tr>
-              ) : (
-                customers.map((customer) => (
-                  <tr key={customer.id} className="border-b border-border/40 last:border-b-0 hover:bg-muted/20">
-                    {customerTableColumns
-                      .filter((column) => columnVisibility[column.key])
-                      .map((column) => {
-                        const customerDetails = parseContactNotes(customer.notes);
-
-                        if (column.key === "remarks") {
-                          return (
-                            <td key={column.key} className={cn("px-3 py-3 align-top", column.width)}>
-                              <button
-                                type="button"
-                                onClick={() => openQuickUpdate(customer)}
-                                className="group flex w-full items-start rounded-xl border border-transparent px-2 py-2 text-left transition-colors hover:border-sky-200 hover:bg-sky-50/70"
-                              >
-                                <div className="min-w-0">
-                                  <div className="max-w-[260px] truncate text-[0.82rem] text-muted-foreground">{customerDetails.remarks ?? "-"}</div>
-                                  <div className="mt-1 text-[0.68rem] font-medium uppercase tracking-[0.12em] text-sky-700/80 opacity-0 transition-opacity group-hover:opacity-100">
-                                    Edit remarks
-                                  </div>
-                                </div>
-                              </button>
-                            </td>
-                          );
-                        }
-
-                        if (column.key === "callRemark") {
-                          return (
-                            <td key={column.key} className={cn("px-3 py-3 align-top", column.width)}>
-                              <button
-                                type="button"
-                                onClick={() => openQuickUpdate(customer)}
-                                className="group inline-flex w-full justify-start"
-                              >
-                                <span className="inline-flex max-w-full items-center rounded-full border border-sky-200/70 bg-sky-50 px-2.5 py-1 text-[0.76rem] font-medium text-sky-900 transition-colors group-hover:border-sky-300 group-hover:bg-sky-100">
-                                  <span className="truncate">{customerDetails.callRemark ?? "Not Started"}</span>
-                                </span>
-                              </button>
-                            </td>
-                          );
-                        }
-
-                        if (column.key === "callStatus") {
-                          return (
-                            <td key={column.key} className={cn("px-3 py-3 align-top", column.width)}>
-                              <button
-                                type="button"
-                                onClick={() => openQuickUpdate(customer)}
-                                className="group inline-flex w-full justify-start"
-                              >
-                                <span className="inline-flex max-w-full items-center rounded-full border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-[0.76rem] font-medium text-slate-800 transition-colors group-hover:border-sky-300 group-hover:bg-sky-50 group-hover:text-sky-900">
-                                  <span className="truncate">{customerDetails.callStatus ?? "Not Started"}</span>
-                                </span>
-                              </button>
-                            </td>
-                          );
-                        }
-
-                        return (
-                          <td key={column.key} className={cn("px-3 py-3 align-top", column.width)}>
-                            {column.render(customer)}
-                          </td>
-                        );
-                      })}
-                    <td className="px-3 py-3 align-top">
-                      <div className="flex justify-end gap-1.5">
-                        <Button type="button" size="xs" variant="outline" onClick={() => openEdit(customer)}>
-                          <PencilLine className="size-3.5" /> Edit
-                        </Button>
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="ghost"
-                          disabled={deletingId === customer.id}
-                          onClick={() => {
-                            setSelectedCustomer(customer);
-                            setModalMode("delete");
-                          }}
-                        >
-                          <Trash2 className="size-3.5" /> Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-border/60 bg-gradient-to-r from-white via-slate-50/70 to-sky-50/60 px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
+        {tab === "documents" ? (
+          <CrmDataTable
+            columns={documentColumns}
+            rows={documents}
+            rowKey={(record) => record.id}
+            loading={loading}
+            emptyLabel="No documents found."
+            columnVisibility={documentColumnVisibility}
+            actionColumn={{
+              header: "Actions",
+              renderCell: (record) => (
+                <div className="flex justify-end gap-1.5">
+                  <a href={buildApiUrl(`/documents/${record.id}/download`, { companyId })} className="inline-flex items-center rounded-xl border border-border/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
+                    Download
+                  </a>
+                  <Button type="button" size="xs" variant="ghost" disabled={deletingId === record.id} onClick={() => void handleDeleteDocument(record.id)}>
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </div>
+              ),
+            }}
+          />
+        ) : (
+          <CrmDataTable
+            columns={customerColumns}
+            rows={customers}
+            rowKey={(record) => record.id}
+            loading={loading}
+            emptyLabel="No contacts found."
+            columnVisibility={columnVisibility}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={(key) => requestSort(key, getDefaultSortDirection(key))}
+            actionColumn={{
+              header: "Actions",
+              renderCell: (record) => (
+                <div className="flex justify-end gap-1.5">
+                  <Button type="button" size="xs" variant="outline" onClick={() => openEdit(record)}>
+                    <PencilLine className="size-3.5" /> Edit
+                  </Button>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    disabled={deletingId === record.id}
+                    onClick={() => {
+                      setSelectedCustomer(record);
+                      setModalMode("delete");
+                    }}
+                  >
+                    <Trash2 className="size-3.5" /> Delete
+                  </Button>
+                </div>
+              ),
+            }}
+          />
+        )}
+
+        <CrmPaginationBar
+          limit={limit}
+          onLimitChange={(value) => {
+            setPage(1);
+            setLimit(value);
+          }}
+          rowsPerPageOptions={rowsPerPageOptions}
+          total={total}
+          page={page}
+          totalPages={totalPages}
+          onPrev={() => setPage((current) => Math.max(1, current - 1))}
+          onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+          summary={
             <div className="text-sm text-muted-foreground">
-              Showing <span className="font-medium text-slate-900">{startRow}</span> to{" "}
-              <span className="font-medium text-slate-900">{endRow}</span> of{" "}
-              <span className="font-medium text-slate-900">{total}</span>
+              Showing <span className="font-medium text-slate-900">{startRow}</span> to <span className="font-medium text-slate-900">{endRow}</span> of <span className="font-medium text-slate-900">{total}</span>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Rows</span>
-              <NativeSelect
-                value={String(limit)}
-                onChange={(event) => {
-                  setPage(1);
-                  setLimit(Number(event.target.value));
-                }}
-                className="h-8 w-24 rounded-lg px-2 text-xs"
-              >
-                {rowsPerPageOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </NativeSelect>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>
-                Prev
-              </Button>
-              <div className="rounded-lg border border-border/60 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 shadow-sm">
-                Page {page} of {totalPages}
-              </div>
-              <Button type="button" variant="outline" size="sm" disabled={page >= totalPages || total === 0} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>
-                Next
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
+          }
+        />
+      </section>
 
-      {columnSettingsOpen ? (
-        <div className="fixed inset-0 z-40">
-          <button type="button" aria-label="Close column settings" className="absolute inset-0 bg-slate-950/35 backdrop-blur-[1px]" onClick={closeColumnSettings} />
-          <aside className="absolute right-0 top-0 h-full w-[320px] border-l border-border/60 bg-white shadow-[-12px_0_40px_-24px_rgba(15,23,42,0.45)]">
-            <div className="flex h-full flex-col">
-              <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-4">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">Table columns</div>
-                  <p className="text-xs text-muted-foreground">Name and Mobile stay on. Toggle the rest.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button type="button" variant="ghost" size="xs" onClick={resetColumns}>
-                    Reset
-                  </Button>
-                  <Button type="button" variant="ghost" size="xs" onClick={closeColumnSettings}>
-                    <X className="size-4" />
-                  </Button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto px-4 py-4">
-                <div className="grid gap-2">
-                  {(Object.keys(customerColumnLabels) as Exclude<CustomerColumnKey, "actions">[]).map((key) => {
-                    const locked = lockedCustomerColumns.includes(key);
-                    return (
-                      <label
-                        key={key}
-                        className={cn(
-                          "flex items-center justify-between rounded-xl border px-3 py-2 text-sm",
-                          locked ? "border-primary/20 bg-primary/5" : "border-border/60 bg-white",
-                        )}
-                      >
-                        <span className="font-medium text-slate-900">{customerColumnLabels[key]}</span>
-                        <Checkbox checked={locked || columnVisibility[key]} disabled={locked} onCheckedChange={() => toggleColumn(key)} />
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </aside>
-        </div>
-      ) : null}
+      {tab === "documents" ? (
+        <CrmColumnSettings
+          open={columnSettingsOpen}
+          description="Choose which document columns stay visible in the uploaded docs table."
+          columns={documentColumns.map((column) => ({ key: column.key, label: column.label }))}
+          columnVisibility={documentColumnVisibility}
+          onToggleColumn={toggleDocumentColumn}
+          onReset={resetDocumentColumns}
+          onClose={closeColumnSettings}
+        />
+      ) : (
+        <CrmColumnSettings
+          open={columnSettingsOpen}
+          description="Name and Mobile stay on. Toggle the rest."
+          columns={(Object.keys(customerColumnLabels) as Exclude<CustomerColumnKey, "actions">[]).map((key) => ({ key, label: customerColumnLabels[key] }))}
+          columnVisibility={columnVisibility}
+          lockedColumns={lockedCustomerColumns}
+          onToggleColumn={toggleColumn}
+          onReset={resetColumns}
+          onClose={closeColumnSettings}
+        />
+      )}
 
       {modalMode === "create" ? (
         <Modal
@@ -1728,161 +1809,120 @@ export default function CustomersPage() {
         </Modal>
       ) : null}
 
-      {modalMode === "filter" ? (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-sm">
-          <button type="button" aria-label="Close filters" className="absolute inset-0 z-0 cursor-default" onClick={closeModal} />
-          <aside className="absolute right-0 top-0 z-10 flex h-full w-full max-w-[440px] flex-col border-l border-border/60 bg-white shadow-[-18px_0_48px_-28px_rgba(15,23,42,0.42)]">
-            <div className="flex items-start justify-between gap-3 border-b border-border/60 px-5 py-4">
-              <div className="min-w-0">
-                <div className="text-lg font-semibold tracking-tight text-slate-900">Filter</div>
-                <p className="mt-1 text-sm text-muted-foreground">Shape the table with live customer filters.</p>
+      <CrmFilterDrawer
+        open={modalMode === "filter"}
+        title="Filter"
+        description={tab === "documents" ? "Shape the uploaded docs table." : "Shape the table with live customer filters."}
+        onClose={closeModal}
+        onClear={clearFilterDraft}
+        applyFormId="customer-filter-form"
+      >
+        <form
+          id="customer-filter-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commitFilterDraft();
+          }}
+          className="grid gap-4"
+        >
+          <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
+            <div className="text-sm font-semibold text-slate-900">Search</div>
+            <Field>
+              <FieldLabel>Search term</FieldLabel>
+              <Input
+                value={filterDraft.q}
+                onChange={(event) => setFilterDraft((current) => ({ ...current, q: event.target.value }))}
+                placeholder={tab === "documents" ? "Search by filename" : "Search by name, email, phone, or notes"}
+                className="h-10 text-sm"
+              />
+            </Field>
+            {tab === "documents" ? (
+              <Field>
+                <FieldLabel>Folder</FieldLabel>
+                <Input
+                  value={filterDraft.documentFolder}
+                  onChange={(event) => setFilterDraft((current) => ({ ...current, documentFolder: event.target.value }))}
+                  placeholder="general"
+                  className="h-10 text-sm"
+                />
+              </Field>
+            ) : (
+              <Field>
+                <FieldLabel>Email</FieldLabel>
+                <Input
+                  value={filterDraft.email}
+                  onChange={(event) => setFilterDraft((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="Exact email or fragment"
+                  className="h-10 text-sm"
+                />
+              </Field>
+            )}
+          </div>
+
+          {tab !== "documents" ? (
+            <>
+              <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
+                <div className="text-sm font-semibold text-slate-900">Contact details</div>
+                <Field>
+                  <FieldLabel>Title</FieldLabel>
+                  <Input value={filterDraft.title} onChange={(event) => setFilterDraft((current) => ({ ...current, title: event.target.value }))} placeholder="eg: CTO" className="h-10 text-sm" />
+                </Field>
+                <Field>
+                  <FieldLabel>Call Remark</FieldLabel>
+                  <NativeSelect value={filterDraft.callRemark} onChange={(event) => setFilterDraft((current) => ({ ...current, callRemark: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                    <option value="">All call remarks</option>
+                    {callRemarkOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Call Status</FieldLabel>
+                  <NativeSelect value={filterDraft.callStatus} onChange={(event) => setFilterDraft((current) => ({ ...current, callStatus: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                    <option value="">All call statuses</option>
+                    {callStatusOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Product Tags</FieldLabel>
+                  <Input value={filterDraft.productTags} onChange={(event) => setFilterDraft((current) => ({ ...current, productTags: event.target.value }))} placeholder="priority, enterprise" className="h-10 text-sm" />
+                </Field>
+                <Field>
+                  <FieldLabel>Country</FieldLabel>
+                  <Input value={filterDraft.country} onChange={(event) => setFilterDraft((current) => ({ ...current, country: event.target.value }))} placeholder="eg: India" className="h-10 text-sm" />
+                </Field>
+                <Field>
+                  <FieldLabel>Source</FieldLabel>
+                  <Input value={filterDraft.source} onChange={(event) => setFilterDraft((current) => ({ ...current, source: event.target.value }))} placeholder="eg: inbound, referral" className="h-10 text-sm" />
+                </Field>
+                <Field>
+                  <FieldLabel>Phone</FieldLabel>
+                  <Input value={filterDraft.phone} onChange={(event) => setFilterDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="Search mobile or work number" className="h-10 text-sm" />
+                </Field>
               </div>
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="ghost" size="xs" onClick={clearFilterDraft}>
-                  Clear All
-                </Button>
-                <Button type="submit" form="customer-filter-form" size="xs">
-                  Apply
-                </Button>
-                <Button type="button" variant="ghost" size="xs" onClick={closeModal} aria-label="Close filters">
-                  <X className="size-4" />
-                </Button>
+
+              <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
+                <div className="text-sm font-semibold text-slate-900">Created on</div>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+                  <Input type="date" value={filterDraft.createdFrom} onChange={(event) => setFilterDraft((current) => ({ ...current, createdFrom: event.target.value }))} className="h-10 text-sm" />
+                  <span className="px-1 text-sm text-muted-foreground">to</span>
+                  <Input type="date" value={filterDraft.createdTo} onChange={(event) => setFilterDraft((current) => ({ ...current, createdTo: event.target.value }))} className="h-10 text-sm" />
+                </div>
               </div>
-            </div>
+            </>
+          ) : null}
 
-            <div className="flex-1 overflow-y-auto px-5 py-4">
-              <form id="customer-filter-form" onSubmit={(event) => {
-                event.preventDefault();
-                commitFilterDraft();
-              }} className="grid gap-4">
-                <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
-                  <div className="text-sm font-semibold text-slate-900">Search</div>
-                  <Field>
-                    <FieldLabel>Search term</FieldLabel>
-                    <Input
-                      value={filterDraft.q}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, q: event.target.value }))}
-                      placeholder="Search by name, email, phone, or notes"
-                      className="h-10 text-sm"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Email</FieldLabel>
-                    <Input
-                      value={filterDraft.email}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, email: event.target.value }))}
-                      placeholder="Exact email or fragment"
-                      className="h-10 text-sm"
-                    />
-                  </Field>
-                </div>
-
-                <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
-                  <div className="text-sm font-semibold text-slate-900">Contact details</div>
-                  <Field>
-                    <FieldLabel>Title</FieldLabel>
-                    <Input
-                      value={filterDraft.title}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, title: event.target.value }))}
-                      placeholder="eg: CTO"
-                      className="h-10 text-sm"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Call Remark</FieldLabel>
-                    <NativeSelect
-                      value={filterDraft.callRemark}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, callRemark: event.target.value }))}
-                      className="h-10 rounded-xl px-3 text-sm"
-                    >
-                      <option value="">All call remarks</option>
-                      {callRemarkOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </Field>
-                  <Field>
-                    <FieldLabel>Call Status</FieldLabel>
-                    <NativeSelect
-                      value={filterDraft.callStatus}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, callStatus: event.target.value }))}
-                      className="h-10 rounded-xl px-3 text-sm"
-                    >
-                      <option value="">All call statuses</option>
-                      {callStatusOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </Field>
-                  <Field>
-                    <FieldLabel>Product Tags</FieldLabel>
-                    <Input
-                      value={filterDraft.productTags}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, productTags: event.target.value }))}
-                      placeholder="priority, enterprise"
-                      className="h-10 text-sm"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Country</FieldLabel>
-                    <Input
-                      value={filterDraft.country}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, country: event.target.value }))}
-                      placeholder="eg: India"
-                      className="h-10 text-sm"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Source</FieldLabel>
-                    <Input
-                      value={filterDraft.source}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, source: event.target.value }))}
-                      placeholder="eg: inbound, referral"
-                      className="h-10 text-sm"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Phone</FieldLabel>
-                    <Input
-                      value={filterDraft.phone}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, phone: event.target.value }))}
-                      placeholder="Search mobile or work number"
-                      className="h-10 text-sm"
-                    />
-                  </Field>
-                </div>
-
-                <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
-                  <div className="text-sm font-semibold text-slate-900">Created on</div>
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
-                    <Input
-                      type="date"
-                      value={filterDraft.createdFrom}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, createdFrom: event.target.value }))}
-                      className="h-10 text-sm"
-                    />
-                    <span className="px-1 text-sm text-muted-foreground">to</span>
-                    <Input
-                      type="date"
-                      value={filterDraft.createdTo}
-                      onChange={(event) => setFilterDraft((current) => ({ ...current, createdTo: event.target.value }))}
-                      className="h-10 text-sm"
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-[1.35rem] border border-dashed border-border/70 bg-white px-4 py-3 text-xs leading-5 text-muted-foreground">
-                  Filters update the table after Apply. Clear All only resets this drawer until you confirm the changes.
-                </div>
-              </form>
-            </div>
-          </aside>
-        </div>
-      ) : null}
+          <div className="rounded-[1.35rem] border border-dashed border-border/70 bg-white px-4 py-3 text-xs leading-5 text-muted-foreground">
+            Filters update the table after Apply. Clear All only resets this drawer until you confirm the changes.
+          </div>
+        </form>
+      </CrmFilterDrawer>
 
       {modalMode === "edit" && selectedCustomer ? (
         <Modal

@@ -6,11 +6,34 @@ import * as XLSX from "xlsx";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { campaignCustomers, campaigns, customers, deals, leads, profiles, tasks } from "@/db/schema";
+import { campaignCustomers, campaigns, companyMemberships, customers, deals, leads, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { customerParamSchema } from "@/modules/customers/schema";
 import type { CreateCustomerInput, ImportCustomerCsvInput, ListCustomersQuery, UpdateCustomerInput } from "@/modules/customers/schema";
+
+async function assertAssignableUser(companyId: string, assignedToUserId?: string | null) {
+  if (!assignedToUserId) {
+    return;
+  }
+
+  const [membership] = await db
+    .select({ membershipId: companyMemberships.id })
+    .from(companyMemberships)
+    .where(
+      and(
+        eq(companyMemberships.companyId, companyId),
+        eq(companyMemberships.userId, assignedToUserId),
+        eq(companyMemberships.status, "active"),
+      ),
+    )
+    .limit(1);
+
+  if (!membership) {
+    throw AppError.badRequest("Assigned user must belong to the current company");
+  }
+}
+
 function detectDelimitedSeparator(text: string) {
   const sampleLine = text
     .split(/\r?\n/)
@@ -268,6 +291,7 @@ async function importCustomerRows(c: Context<AppEnv>, rows: string[][]) {
         .values({
           companyId: tenant.companyId,
           storeId: tenant.storeId ?? null,
+          assignedToUserId: user.id,
           fullName: customerInput.fullName,
           email: customerInput.email ?? null,
           phone: customerInput.phone ?? null,
@@ -320,6 +344,9 @@ export async function listCustomers(c: Context<AppEnv>) {
   }
   if (query.email) {
     conditions.push(eq(customers.email, query.email));
+  }
+  if (query.assignedToUserId) {
+    conditions.push(eq(customers.assignedToUserId, query.assignedToUserId));
   }
   if (query.title) {
     conditions.push(ilike(sql<string>`coalesce(${customers.notes}, '')`, `%Title: ${query.title}%`));
@@ -378,12 +405,18 @@ export async function listCustomers(c: Context<AppEnv>) {
                             : customers.updatedAt;
   const sortDirection = query.sortDir === "asc" ? asc : desc;
 
+  const isPrimarySortUpdatedAt = query.sortBy === "updatedAt";
+
   const [items, totalRows] = await Promise.all([
     db
       .select()
       .from(customers)
       .where(where)
-      .orderBy(sortDirection(sortExpression), desc(customers.updatedAt), desc(customers.createdAt))
+      .orderBy(
+        sortDirection(sortExpression),
+        ...(isPrimarySortUpdatedAt ? [] : [desc(customers.updatedAt)]),
+        desc(customers.createdAt),
+      )
       .limit(query.limit)
       .offset(query.offset),
     db.select({ count: count() }).from(customers).where(where),
@@ -473,12 +506,15 @@ export async function createCustomer(c: Context<AppEnv>) {
   const user = c.get("user");
   const body = c.get("validatedBody") as CreateCustomerInput;
 
+  await assertAssignableUser(tenant.companyId, body.assignedToUserId ?? user.id);
+
   const [created] = await db
     .insert(customers)
     .values({
       companyId: tenant.companyId,
       storeId: body.storeId ?? tenant.storeId ?? null,
       leadId: body.leadId ?? null,
+      assignedToUserId: body.assignedToUserId ?? user.id,
       fullName: body.fullName,
       email: body.email ?? null,
       phone: body.phone ?? null,
@@ -515,6 +551,8 @@ export async function updateCustomer(c: Context<AppEnv>) {
     throw AppError.badRequest("At least one field is required for update");
   }
 
+  await assertAssignableUser(tenant.companyId, body.assignedToUserId);
+
   const [updated] = await db
     .update(customers)
     .set({
@@ -523,6 +561,7 @@ export async function updateCustomer(c: Context<AppEnv>) {
       ...(body.phone !== undefined ? { phone: body.phone ?? null } : {}),
       ...(body.tags !== undefined ? { tags: body.tags } : {}),
       ...(body.notes !== undefined ? { notes: withDefaultCallFields(body.notes) } : {}),
+      ...(body.assignedToUserId !== undefined ? { assignedToUserId: body.assignedToUserId ?? null } : {}),
       ...(body.leadId !== undefined ? { leadId: body.leadId ?? null } : {}),
       ...(body.storeId !== undefined ? { storeId: body.storeId ?? null } : {}),
       updatedAt: new Date(),

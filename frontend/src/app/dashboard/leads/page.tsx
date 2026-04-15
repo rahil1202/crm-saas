@@ -1,43 +1,52 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Import, PencilLine, Plus, Trash2, X, Download } from "lucide-react";
+import { toast } from "sonner";
 
-import { FormErrorSummary, FormSection } from "@/components/forms/form-primitives";
+import {
+  CrmColumnSettings,
+  CrmDataTable,
+  CrmFilterDrawer,
+  CrmListPageHeader,
+  CrmListToolbar,
+  CrmListViewTabs,
+  CrmPaginationBar,
+} from "@/components/crm/crm-list-primitives";
+import type { ColumnDefinition } from "@/components/crm/types";
+import { useCrmListState } from "@/components/crm/use-crm-list-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { CrudPanel, EmptyState, FilterBar, LoadingState, PageSection } from "@/components/ui/page-patterns";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { buildApiUrl, ApiError, apiRequest } from "@/lib/api";
-import { useAsyncForm } from "@/hooks/use-async-form";
+import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
 import { getCompanyCookie } from "@/lib/cookies";
-import { optionalSelectValue, readOptionalSelectValue, SELECT_ALL, SELECT_EMPTY } from "@/lib/select";
+import { loadMe } from "@/lib/me-cache";
 import { cn } from "@/lib/utils";
+
+type LeadStatus = "new" | "qualified" | "proposal" | "won" | "lost";
+type SortDirection = "asc" | "desc";
+type ModalMode = "create" | "edit" | "delete" | "import" | "filter" | null;
+type LeadSortKey =
+  | "id"
+  | "title"
+  | "fullName"
+  | "email"
+  | "phone"
+  | "source"
+  | "status"
+  | "score"
+  | "createdAt"
+  | "updatedAt";
+type LeadColumnKey = LeadSortKey | "actions";
+type LeadColumnVisibility = Record<LeadColumnKey, boolean>;
+type DocumentColumnKey = "name" | "folder" | "type" | "size" | "createdAt";
+type DocumentColumnVisibility = Record<DocumentColumnKey, boolean>;
 
 interface Lead {
   id: string;
@@ -46,26 +55,14 @@ interface Lead {
   email: string | null;
   phone: string | null;
   source: string | null;
-  partnerCompanyId?: string | null;
-  status: "new" | "qualified" | "proposal" | "won" | "lost";
+  partnerCompanyId: string | null;
+  assignedToUserId: string | null;
+  status: LeadStatus;
   score: number;
+  notes: string | null;
+  tags: string[];
   createdAt: string;
-}
-
-interface LeadActivity {
-  id: string;
-  type: string;
-  payload: Record<string, unknown>;
-  createdAt: string;
-}
-
-interface DocumentItem {
-  id: string;
-  folder: string;
-  originalName: string;
-  mimeType: string | null;
-  sizeBytes: number;
-  createdAt: string;
+  updatedAt: string;
 }
 
 interface ListLeadResponse {
@@ -75,27 +72,19 @@ interface ListLeadResponse {
   offset: number;
 }
 
-interface TimelineResponse {
-  items: LeadActivity[];
+interface DocumentItem {
+  id: string;
+  entityType: "general" | "lead" | "deal" | "customer";
+  entityId: string | null;
+  folder: string;
+  originalName: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  createdAt: string;
 }
 
 interface DocumentListResponse {
   items: DocumentItem[];
-}
-
-interface ConvertLeadResponse {
-  leadId: string;
-  dealId: string;
-  customerId: string | null;
-  converted: true;
-}
-
-interface LeadBoardResponse {
-  columns: Array<{
-    key: string;
-    label: string;
-    items: Lead[];
-  }>;
   total: number;
 }
 
@@ -114,330 +103,681 @@ interface PartnerListResponse {
   }>;
 }
 
-interface CsvImportResponse {
-  createdCount: number;
-  attemptedCount: number;
-  errorCount: number;
-  leadIds: string[];
-  errors: Array<{
-    row: number;
-    message: string;
-  }>;
-}
-
-const leadStatuses = ["new", "qualified", "proposal", "won", "lost"] as const;
-const statusToneByValue: Record<Lead["status"], "outline" | "secondary" | "default" | "destructive"> = {
-  new: "outline",
-  qualified: "secondary",
-  proposal: "default",
-  won: "default",
-  lost: "destructive",
+type LeadFormState = {
+  title: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  source: string;
+  status: LeadStatus;
+  score: string;
+  notes: string;
+  tags: string;
 };
 
-const importExample = `title,full_name,email,source,status,score,tags
-Acme HQ fit-out,Riya Mehta,riya@acme.com,website,new,78,priority|enterprise
-North zone referral,Vikram Singh,,referral,qualified,62,partner`;
+type LeadFilters = {
+  q: string;
+  source: string;
+  status: string;
+  email: string;
+  phone: string;
+  documentFolder: string;
+};
+
+type LeadFilterKey = keyof LeadFilters;
+
+type LeadFilterChip = {
+  key: LeadFilterKey;
+  label: string;
+  value: string;
+};
+
+const rowsPerPageOptions = [10, 20, 50, 100] as const;
+const leadColumnStorageKey = "crm-saas-leads-columns";
+const leadDocumentColumnStorageKey = "crm-saas-lead-documents-columns";
+const leadStatuses: LeadStatus[] = ["new", "qualified", "proposal", "won", "lost"];
+const importSample = `title,full_name,email,phone,source,status,score,tags,notes
+Acme HQ fit-out,Riya Mehta,riya@acme.com,+91 9988816709,website,new,78,enterprise|priority,Inbound lead
+North zone referral,Vikram Singh,,+91 9876543210,referral,qualified,62,partner,Requested callback`;
+
+const emptyLeadForm: LeadFormState = {
+  title: "",
+  fullName: "",
+  email: "",
+  phone: "",
+  source: "",
+  status: "new",
+  score: "0",
+  notes: "",
+  tags: "",
+};
+
+const emptyFilters: LeadFilters = {
+  q: "",
+  source: "",
+  status: "",
+  email: "",
+  phone: "",
+  documentFolder: "",
+};
+
+const leadColumnLabels: Record<LeadSortKey, string> = {
+  id: "ID",
+  title: "Title / Designation",
+  fullName: "Lead Name",
+  email: "Email",
+  phone: "Mobile Phone",
+  source: "Source",
+  status: "Lead Status",
+  score: "Score",
+  createdAt: "Created On",
+  updatedAt: "Updated On",
+};
+
+const defaultLeadColumnVisibility: LeadColumnVisibility = {
+  id: true,
+  title: true,
+  fullName: true,
+  email: true,
+  phone: true,
+  source: true,
+  status: true,
+  score: true,
+  createdAt: true,
+  updatedAt: true,
+  actions: true,
+};
+
+const defaultDocumentColumnVisibility: DocumentColumnVisibility = {
+  name: true,
+  folder: true,
+  type: true,
+  size: true,
+  createdAt: true,
+};
+
+const lockedLeadColumns: Exclude<LeadColumnKey, "actions">[] = ["title"];
+const leadColumnOrder: LeadColumnKey[] = [
+  "id",
+  "title",
+  "fullName",
+  "email",
+  "phone",
+  "source",
+  "status",
+  "score",
+  "createdAt",
+  "updatedAt",
+  "actions",
+];
+
+function parseTags(value: string) {
+  return value
+    .split(/[|,;]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString();
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString();
+}
+
+function formatFileSize(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getStatusTone(status: LeadStatus) {
+  if (status === "won") return "default";
+  if (status === "lost") return "destructive";
+  if (status === "qualified") return "secondary";
+  return "outline";
+}
+
+function compareValues(left: string | number, right: string | number, direction: SortDirection) {
+  if (typeof left === "number" && typeof right === "number") {
+    return direction === "asc" ? left - right : right - left;
+  }
+
+  const comparison = String(left).localeCompare(String(right), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  return direction === "asc" ? comparison : -comparison;
+}
+
+function getLeadSortValue(lead: Lead, key: LeadSortKey) {
+  switch (key) {
+    case "id":
+      return lead.id;
+    case "title":
+      return lead.title;
+    case "fullName":
+      return lead.fullName ?? "";
+    case "email":
+      return lead.email ?? "";
+    case "phone":
+      return lead.phone ?? "";
+    case "source":
+      return lead.source ?? "";
+    case "status":
+      return lead.status;
+    case "score":
+      return lead.score;
+    case "createdAt":
+      return new Date(lead.createdAt).getTime();
+    case "updatedAt":
+      return new Date(lead.updatedAt).getTime();
+    default:
+      return "";
+  }
+}
+
+function getFilterChips(filters: LeadFilters) {
+  const chips: LeadFilterChip[] = [];
+
+  if (filters.q.trim()) chips.push({ key: "q", label: "Search", value: filters.q.trim() });
+  if (filters.source.trim()) chips.push({ key: "source", label: "Source", value: filters.source.trim() });
+  if (filters.status.trim()) chips.push({ key: "status", label: "Lead Status", value: filters.status.trim() });
+  if (filters.email.trim()) chips.push({ key: "email", label: "Email", value: filters.email.trim() });
+  if (filters.phone.trim()) chips.push({ key: "phone", label: "Phone", value: filters.phone.trim() });
+  if (filters.documentFolder.trim()) chips.push({ key: "documentFolder", label: "Folder", value: filters.documentFolder.trim() });
+
+  return chips;
+}
+
+function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): LeadFilters {
+  return {
+    q: params.get("q") ?? "",
+    source: params.get("source") ?? "",
+    status: params.get("status") ?? "",
+    email: params.get("email") ?? "",
+    phone: params.get("phone") ?? "",
+    documentFolder: params.get("documentFolder") ?? "",
+  };
+}
+
+function writeFiltersToSearchParams(params: URLSearchParams, filters: LeadFilters) {
+  if (filters.q.trim()) params.set("q", filters.q.trim());
+  if (filters.source.trim()) params.set("source", filters.source.trim());
+  if (filters.status.trim()) params.set("status", filters.status.trim());
+  if (filters.email.trim()) params.set("email", filters.email.trim());
+  if (filters.phone.trim()) params.set("phone", filters.phone.trim());
+  if (filters.documentFolder.trim()) params.set("documentFolder", filters.documentFolder.trim());
+}
+
+function normalizeSortKey(value: string | null): LeadSortKey {
+  const allowed: LeadSortKey[] = ["id", "title", "fullName", "email", "phone", "source", "status", "score", "createdAt", "updatedAt"];
+  return allowed.includes(value as LeadSortKey) ? (value as LeadSortKey) : "updatedAt";
+}
+
+function toCsvCell(value: string | null | undefined) {
+  const raw = value ?? "";
+  return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+}
+
+function buildLeadsCsv(items: Lead[]) {
+  return [
+    ["id", "title", "full_name", "email", "phone", "source", "status", "score", "tags", "notes", "created_at", "updated_at"],
+    ...items.map((lead) => [
+      lead.id,
+      lead.title,
+      lead.fullName ?? "",
+      lead.email ?? "",
+      lead.phone ?? "",
+      lead.source ?? "",
+      lead.status,
+      String(lead.score),
+      (lead.tags ?? []).join(", "),
+      lead.notes ?? "",
+      lead.createdAt,
+      lead.updatedAt,
+    ]),
+  ]
+    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
+    .join("\n");
+}
+
+function buildDocumentsCsv(items: DocumentItem[]) {
+  return [
+    ["file_name", "folder", "entity_type", "entity_id", "mime_type", "size_bytes", "created_at"],
+    ...items.map((document) => [
+      document.originalName,
+      document.folder,
+      document.entityType,
+      document.entityId ?? "",
+      document.mimeType ?? "",
+      String(document.sizeBytes),
+      document.createdAt,
+    ]),
+  ]
+    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
+    .join("\n");
+}
+
+function buildLeadPayload(form: LeadFormState) {
+  return {
+    title: form.title.trim(),
+    fullName: form.fullName.trim() || undefined,
+    email: form.email.trim() || undefined,
+    phone: form.phone.trim() || undefined,
+    source: form.source || undefined,
+    status: form.status,
+    score: Number(form.score) || 0,
+    notes: form.notes.trim() || undefined,
+    tags: parseTags(form.tags),
+  };
+}
+
+function leadToForm(lead: Lead): LeadFormState {
+  return {
+    title: lead.title,
+    fullName: lead.fullName ?? "",
+    email: lead.email ?? "",
+    phone: lead.phone ?? "",
+    source: lead.source ?? "",
+    status: lead.status,
+    score: String(lead.score ?? 0),
+    notes: lead.notes ?? "",
+    tags: (lead.tags ?? []).join(", "),
+  };
+}
+
+function Modal({
+  title,
+  description,
+  children,
+  onClose,
+  headerActions,
+  maxWidthClassName = "max-w-3xl",
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  onClose: () => void;
+  headerActions?: ReactNode;
+  maxWidthClassName?: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
+      <div className="flex h-full items-start justify-center overflow-y-auto">
+        <div
+          className={cn(
+            "w-full overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]",
+            maxWidthClassName,
+          )}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
+            <div>
+              <div className="text-base font-semibold text-slate-900">{title}</div>
+              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {headerActions}
+              <Button type="button" variant="ghost" size="xs" onClick={onClose}>
+                <X className="size-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="max-h-[calc(100vh-7.5rem)] overflow-y-auto px-5 py-4">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function LeadsPage() {
+  const companyId = getCompanyCookie();
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [newLeadTitle, setNewLeadTitle] = useState("");
-  const [newLeadName, setNewLeadName] = useState("");
-  const [newLeadEmail, setNewLeadEmail] = useState("");
-  const [newLeadSource, setNewLeadSource] = useState("");
-  const [newLeadPartnerId, setNewLeadPartnerId] = useState("");
-  const [convertingLeadId, setConvertingLeadId] = useState<string | null>(null);
+  const [modalMode, setModalMode] = useState<ModalMode>(null);
+  const [form, setForm] = useState<LeadFormState>(emptyLeadForm);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importCsv, setImportCsv] = useState(importSample);
+  const [importSummary, setImportSummary] = useState<{
+    createdCount: number;
+    attemptedCount: number;
+    errorCount: number;
+  } | null>(null);
   const [leadSourceSettings, setLeadSourceSettings] = useState<LeadSourceSettings | null>(null);
   const [partners, setPartners] = useState<PartnerListResponse["items"]>([]);
-  const [board, setBoard] = useState<LeadBoardResponse | null>(null);
-  const [sourceFilter, setSourceFilter] = useState<string>("");
+  const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
+  const [documentColumnVisibility, setDocumentColumnVisibility] = useState<DocumentColumnVisibility>(defaultDocumentColumnVisibility);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
-  const [bulkStatus, setBulkStatus] = useState<string>("");
-  const [bulkSource, setBulkSource] = useState<string>("");
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkSource, setBulkSource] = useState("");
   const [bulkUpdating, setBulkUpdating] = useState(false);
-  const [importCsv, setImportCsv] = useState(importExample);
-  const [importResult, setImportResult] = useState<CsvImportResponse | null>(null);
+  const {
+    tab,
+    setTab,
+    filters,
+    setFilters,
+    filterDraft,
+    setFilterDraft,
+    page,
+    setPage,
+    limit,
+    setLimit,
+    sortBy,
+    sortDir,
+    columnVisibility,
+    applyFilterDraft,
+    clearFilterDraft,
+    removeAppliedFilter,
+    toggleColumn,
+    resetColumns,
+    requestSort,
+  } = useCrmListState<LeadFilters, LeadSortKey, Exclude<LeadColumnKey, "actions">>({
+    defaultFilters: emptyFilters,
+    defaultSortBy: "updatedAt",
+    defaultSortDir: "desc",
+    defaultLimit: rowsPerPageOptions[0],
+    rowsPerPageOptions,
+    parseFilters: readFiltersFromSearchParams,
+    writeFilters: writeFiltersToSearchParams,
+    normalizeSortBy: normalizeSortKey,
+    columnStorageKey: leadColumnStorageKey,
+    defaultColumnVisibility: defaultLeadColumnVisibility,
+    lockedColumns: lockedLeadColumns,
+  });
 
-  const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null);
-  const [timelineByLead, setTimelineByLead] = useState<Record<string, LeadActivity[]>>({});
-  const [timelineDraftByLead, setTimelineDraftByLead] = useState<Record<string, string>>({});
-  const [timelineLoadingLeadId, setTimelineLoadingLeadId] = useState<string | null>(null);
-  const [documentsByLead, setDocumentsByLead] = useState<Record<string, DocumentItem[]>>({});
-  const [uploadingLeadId, setUploadingLeadId] = useState<string | null>(null);
-  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
-  const createLeadForm = useAsyncForm();
-  const importLeadForm = useAsyncForm();
+  const activeFilterChips = useMemo(
+    () =>
+      getFilterChips(filters).filter((chip) =>
+        tab === "documents" ? chip.key === "q" || chip.key === "documentFolder" : chip.key !== "documentFolder",
+      ),
+    [filters, tab],
+  );
 
-  const companyId = getCompanyCookie();
+  const loadReferenceData = useCallback(async () => {
+    try {
+      const [sources, partnerData] = await Promise.all([
+        apiRequest<LeadSourceSettings>("/settings/lead-sources"),
+        apiRequest<PartnerListResponse>("/partners"),
+      ]);
+      setLeadSourceSettings(sources);
+      setPartners(partnerData.items.filter((item) => item.status === "active"));
+      setForm((current) => ({
+        ...current,
+        source: current.source || sources.leadSources[0]?.key || "",
+      }));
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead settings");
+    }
+  }, []);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const searchParams = new URLSearchParams();
-    if (query.trim()) {
-      searchParams.set("q", query.trim());
-    }
-    if (statusFilter) {
-      searchParams.set("status", statusFilter);
-    }
+    const params = new URLSearchParams();
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.status.trim()) params.set("status", filters.status.trim());
+    if (filters.source.trim()) params.set("source", filters.source.trim());
+    if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
+    params.set("limit", String(limit));
+    params.set("offset", String((page - 1) * limit));
 
     try {
-      const data = await apiRequest<ListLeadResponse>(`/leads?${searchParams.toString()}`);
-      setLeads(data.items);
-      setSelectedLeadIds((current) => current.filter((id) => data.items.some((lead) => lead.id === id)));
+      const response = await apiRequest<ListLeadResponse>(`/leads?${params.toString()}`);
+      let items = response.items;
+
+      if (filters.email.trim()) {
+        const needle = filters.email.trim().toLowerCase();
+        items = items.filter((lead) => (lead.email ?? "").toLowerCase().includes(needle));
+      }
+
+      if (filters.phone.trim()) {
+        const needle = filters.phone.trim().toLowerCase();
+        items = items.filter((lead) => (lead.phone ?? "").toLowerCase().includes(needle));
+      }
+
+      setLeads(items);
+      setTotal(response.total);
+      setSelectedLeadIds((current) => current.filter((id) => items.some((lead) => lead.id === id)));
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load leads");
     } finally {
       setLoading(false);
     }
-  }, [query, statusFilter]);
+  }, [filters, limit, myUserId, page, tab]);
 
-  const loadTimeline = useCallback(async (leadId: string) => {
-    setTimelineLoadingLeadId(leadId);
+  const loadDocuments = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    const params = new URLSearchParams();
+    params.set("entityType", "lead");
+    params.set("limit", String(limit));
+    params.set("offset", String((page - 1) * limit));
+    if (filters.q.trim()) params.set("q", filters.q.trim());
+    if (filters.documentFolder.trim()) params.set("folder", filters.documentFolder.trim());
+
     try {
-      const data = await apiRequest<TimelineResponse>(`/leads/${leadId}/timeline`);
-      setTimelineByLead((prev) => ({ ...prev, [leadId]: data.items }));
+      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`);
+      setDocuments(response.items);
+      setTotal(response.total);
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead timeline");
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead documents");
     } finally {
-      setTimelineLoadingLeadId(null);
+      setLoading(false);
     }
-  }, []);
-
-  const loadLeadDocuments = useCallback(async (leadId: string) => {
-    try {
-      const data = await apiRequest<DocumentListResponse>(`/documents/list?entityType=lead&entityId=${leadId}`);
-      setDocumentsByLead((prev) => ({ ...prev, [leadId]: data.items }));
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead attachments");
-    }
-  }, []);
-
-  const loadBoard = useCallback(async () => {
-    try {
-      const params = new URLSearchParams();
-      if (sourceFilter) {
-        params.set("source", sourceFilter);
-      }
-      const data = await apiRequest<LeadBoardResponse>(`/leads/board?${params.toString()}`);
-      setBoard(data);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead board");
-    }
-  }, [sourceFilter]);
+  }, [filters.documentFolder, filters.q, limit, page]);
 
   useEffect(() => {
-    void loadLeads();
-  }, [loadLeads]);
+    void loadReferenceData();
+  }, [loadReferenceData]);
 
   useEffect(() => {
-    const loadLeadSources = async () => {
-      try {
-        const [leadSourceData, partnerData] = await Promise.all([
-          apiRequest<LeadSourceSettings>("/settings/lead-sources"),
-          apiRequest<PartnerListResponse>("/partners"),
-        ]);
-        setLeadSourceSettings(leadSourceData);
-        setPartners(partnerData.items.filter((item) => item.status === "active"));
-        setNewLeadSource(leadSourceData.leadSources[0]?.key ?? "");
-      } catch (requestError) {
-        setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead sources");
-      }
-    };
-
-    void loadLeadSources();
+    void loadMe()
+      .then((me) => setMyUserId(me.user.id))
+      .catch(() => setMyUserId(null));
   }, []);
 
   useEffect(() => {
-    void loadBoard();
-  }, [loadBoard]);
-
-  const handleCreateLead = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-
-    try {
-      await createLeadForm.runSubmit(
-        () =>
-          apiRequest<Lead>("/leads", {
-            method: "POST",
-            body: JSON.stringify({
-              title: newLeadTitle,
-              fullName: newLeadName || undefined,
-              email: newLeadEmail || undefined,
-              source: newLeadSource || undefined,
-              partnerCompanyId: newLeadPartnerId || undefined,
-            }),
-          }),
-        "Unable to create lead",
-      );
-
-      setNewLeadTitle("");
-      setNewLeadName("");
-      setNewLeadEmail("");
-      setNewLeadSource(leadSourceSettings?.leadSources[0]?.key ?? "");
-      setNewLeadPartnerId("");
-      await loadLeads();
-      await loadBoard();
-    } catch {}
-  };
-
-  const handleImportCsv = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    setImportResult(null);
-
-    try {
-      const result = await importLeadForm.runSubmit(
-        () =>
-          apiRequest<CsvImportResponse>("/leads/import-csv", {
-            method: "POST",
-            body: JSON.stringify({ csv: importCsv }),
-          }),
-        "Unable to import CSV",
-      );
-
-      setImportResult(result);
-      await loadLeads();
-      await loadBoard();
-    } catch {}
-  };
-
-  const handleStatusChange = async (leadId: string, status: Lead["status"]) => {
-    try {
-      await apiRequest<Lead>(`/leads/${leadId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      await loadLeads();
-      await loadBoard();
-      if (expandedLeadId === leadId) {
-        await loadTimeline(leadId);
+    const timer = window.setTimeout(() => {
+      if (tab === "documents") {
+        void loadDocuments();
+        return;
       }
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to update lead");
-    }
-  };
 
-  const handleConvertLead = async (leadId: string) => {
-    setConvertingLeadId(leadId);
-    setError(null);
-
-    try {
-      await apiRequest<ConvertLeadResponse>(`/leads/${leadId}/convert`, {
-        method: "POST",
-        body: JSON.stringify({
-          createCustomer: true,
-          value: 0,
-        }),
-      });
-      await loadLeads();
-      await loadBoard();
-      if (expandedLeadId === leadId) {
-        await loadTimeline(leadId);
+      if (tab === "mine" && !myUserId) {
+        return;
       }
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to convert lead");
-    } finally {
-      setConvertingLeadId(null);
-    }
+
+      void loadLeads();
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [loadDocuments, loadLeads, myUserId, tab]);
+
+  const sortedLeads = useMemo(() => {
+    const next = [...leads];
+    next.sort((left, right) => compareValues(getLeadSortValue(left, sortBy), getLeadSortValue(right, sortBy), sortDir));
+    return next;
+  }, [leads, sortBy, sortDir]);
+
+  const paginatedLeads = sortedLeads;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const closeModal = () => {
+    setModalMode(null);
+    setSelectedLead(null);
   };
 
-  const toggleTimeline = async (leadId: string) => {
-    if (expandedLeadId === leadId) {
-      setExpandedLeadId(null);
-      return;
-    }
-
-    setExpandedLeadId(leadId);
-    await Promise.all([loadTimeline(leadId), loadLeadDocuments(leadId)]);
-  };
-
-  const addTimelineNote = async (leadId: string) => {
-    const message = (timelineDraftByLead[leadId] ?? "").trim();
-    if (!message) {
-      return;
-    }
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(leadDocumentColumnStorageKey);
+    if (!stored) return;
 
     try {
-      await apiRequest(`/leads/${leadId}/timeline`, {
-        method: "POST",
-        body: JSON.stringify({ type: "note", message }),
-      });
-      setTimelineDraftByLead((prev) => ({ ...prev, [leadId]: "" }));
-      await loadTimeline(leadId);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to add timeline note");
+      const parsed = JSON.parse(stored) as Partial<DocumentColumnVisibility>;
+      setDocumentColumnVisibility((current) => ({ ...current, ...parsed }));
+    } catch {
+      window.localStorage.removeItem(leadDocumentColumnStorageKey);
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(leadDocumentColumnStorageKey, JSON.stringify(documentColumnVisibility));
+  }, [documentColumnVisibility]);
+
+  const toggleDocumentColumn = (key: DocumentColumnKey) => {
+    setDocumentColumnVisibility((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
   };
 
-  const uploadLeadDocument = async (leadId: string, file: File | null) => {
-    if (!file) {
-      return;
-    }
-
-    setUploadingLeadId(leadId);
-    setError(null);
-
-    try {
-      const formData = new FormData();
-      formData.set("file", file);
-      formData.set("entityType", "lead");
-      formData.set("entityId", leadId);
-      formData.set("folder", "leads");
-
-      await apiRequest("/documents/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      await loadLeadDocuments(leadId);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to upload lead attachment");
-    } finally {
-      setUploadingLeadId(null);
-    }
+  const resetDocumentColumns = () => {
+    setDocumentColumnVisibility(defaultDocumentColumnVisibility);
   };
 
-  const deleteLeadDocument = async (leadId: string, documentId: string) => {
-    setDeletingDocumentId(documentId);
-    setError(null);
+  const openCreateModal = () => {
+    setSelectedLead(null);
+    setForm({
+      ...emptyLeadForm,
+      source: leadSourceSettings?.leadSources[0]?.key ?? "",
+    });
+    setModalMode("create");
+  };
 
-    try {
-      await apiRequest(`/documents/${documentId}`, {
-        method: "DELETE",
-      });
-      await loadLeadDocuments(leadId);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to delete lead attachment");
-    } finally {
-      setDeletingDocumentId(null);
-    }
+  const openEditModal = (lead: Lead) => {
+    setSelectedLead(lead);
+    setForm(leadToForm(lead));
+    setModalMode("edit");
+  };
+
+  const openDeleteModal = (lead: Lead) => {
+    setSelectedLead(lead);
+    setModalMode("delete");
+  };
+
+  const handleSort = (key: LeadSortKey) => {
+    requestSort(key, key === "createdAt" || key === "updatedAt" ? "desc" : "asc");
+  };
+
+  const renderSortIcon = (key: LeadSortKey) => {
+    return null;
+  };
+
+  const applyFilters = () => {
+    applyFilterDraft();
+    setModalMode(null);
+  };
+
+  const clearAllFilters = () => {
+    setFilters(emptyFilters);
+    setFilterDraft(emptyFilters);
   };
 
   const toggleLeadSelection = (leadId: string, checked: boolean) => {
-    setSelectedLeadIds((current) =>
-      checked ? [...new Set([...current, leadId])] : current.filter((id) => id !== leadId),
-    );
+    setSelectedLeadIds((current) => (checked ? [...new Set([...current, leadId])] : current.filter((id) => id !== leadId)));
   };
 
   const toggleSelectAllVisible = (checked: boolean) => {
-    setSelectedLeadIds(checked ? leads.map((lead) => lead.id) : []);
+    setSelectedLeadIds(checked ? (tab === "documents" ? [] : paginatedLeads.map((lead) => lead.id)) : []);
+  };
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const payload = buildLeadPayload(form);
+
+      if (modalMode === "edit" && selectedLead) {
+        await apiRequest(`/leads/${selectedLead.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        toast.success("Lead updated");
+      } else {
+        await apiRequest("/leads", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        toast.success("Lead created");
+      }
+
+      closeModal();
+      await loadLeads();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to save lead";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedLead) return;
+
+    setDeletingId(selectedLead.id);
+    setError(null);
+
+    try {
+      await apiRequest(`/leads/${selectedLead.id}`, {
+        method: "DELETE",
+      });
+      toast.success("Lead deleted");
+      closeModal();
+      await loadLeads();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete lead";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleImport = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setImporting(true);
+    setError(null);
+
+    try {
+      const result = await apiRequest<{
+        createdCount: number;
+        attemptedCount: number;
+        errorCount: number;
+      }>("/leads/import-csv", {
+        method: "POST",
+        body: JSON.stringify({ csv: importCsv }),
+      });
+      setImportSummary(result);
+      toast.success("Lead import complete");
+      await loadLeads();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to import leads";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setImporting(false);
+    }
   };
 
   const handleBulkUpdate = async () => {
-    if (selectedLeadIds.length === 0) {
-      return;
-    }
+    if (selectedLeadIds.length === 0 || (!bulkStatus && !bulkSource)) return;
 
     setBulkUpdating(true);
     setError(null);
-
     try {
       await apiRequest("/leads/bulk-update", {
         method: "POST",
@@ -447,450 +787,567 @@ export default function LeadsPage() {
           ...(bulkSource ? { source: bulkSource } : {}),
         }),
       });
-
+      toast.success("Lead bulk update complete");
       setSelectedLeadIds([]);
       setBulkStatus("");
       setBulkSource("");
       await loadLeads();
-      await loadBoard();
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to bulk update leads");
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to bulk update leads";
+      setError(message);
+      toast.error(message);
     } finally {
       setBulkUpdating(false);
     }
   };
 
-  return (
-    <>
-      <div className="grid gap-6">
-        <FormErrorSummary title="Request failed" error={error ?? createLeadForm.formError ?? importLeadForm.formError} />
-
-        {importResult ? (
-          <Alert>
-            <AlertTitle>CSV import complete</AlertTitle>
-            <AlertDescription>
-              Created {importResult.createdCount} of {importResult.attemptedCount} rows.{" "}
-              {importResult.errorCount > 0 ? `${importResult.errorCount} rows need correction.` : "No row errors returned."}
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        <PageSection>
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <CrudPanel title="Create lead" description="Add one lead manually with the configured source list.">
-              <form className="grid gap-4" onSubmit={handleCreateLead}>
-                <FormSection title="Lead details" description="Capture the minimum lead profile used by the tenant-scoped CRM APIs.">
-                  <FieldGroup>
-                    <Field>
-                      <FieldLabel htmlFor="lead-title">Lead title</FieldLabel>
-                      <Input
-                        id="lead-title"
-                        value={newLeadTitle}
-                        onChange={(event) => {
-                          createLeadForm.clearFieldError("title");
-                          setNewLeadTitle(event.target.value);
-                        }}
-                        placeholder="Acme office expansion"
-                        required
-                      />
-                      <FieldError errors={createLeadForm.fieldErrors.title?.map((message) => ({ message }))} />
-                    </Field>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <Field>
-                        <FieldLabel htmlFor="lead-name">Contact name</FieldLabel>
-                        <Input
-                          id="lead-name"
-                          value={newLeadName}
-                          onChange={(event) => setNewLeadName(event.target.value)}
-                          placeholder="Riya Mehta"
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="lead-email">Contact email</FieldLabel>
-                        <Input
-                          id="lead-email"
-                          type="email"
-                          value={newLeadEmail}
-                          onChange={(event) => {
-                            createLeadForm.clearFieldError("email");
-                            setNewLeadEmail(event.target.value);
-                          }}
-                          placeholder="riya@acme.com"
-                        />
-                        <FieldError errors={createLeadForm.fieldErrors.email?.map((message) => ({ message }))} />
-                      </Field>
-                    </div>
-                    <Field>
-                      <FieldLabel>Lead source</FieldLabel>
-                      <Select value={optionalSelectValue(newLeadSource)} onValueChange={(value) => setNewLeadSource(readOptionalSelectValue(value))}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select a source" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={SELECT_EMPTY}>No source</SelectItem>
-                        {(leadSourceSettings?.leadSources ?? []).map((source) => (
-                          <SelectItem key={source.key} value={source.key}>
-                            {source.label}
-                          </SelectItem>
-                        ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field>
-                      <FieldLabel>Partner assignment</FieldLabel>
-                      <Select value={optionalSelectValue(newLeadPartnerId)} onValueChange={(value) => setNewLeadPartnerId(readOptionalSelectValue(value))}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select partner" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={SELECT_EMPTY}>No partner</SelectItem>
-                          {partners.map((partner) => (
-                            <SelectItem key={partner.id} value={partner.id}>
-                              {partner.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                  </FieldGroup>
-                </FormSection>
-                <Button disabled={createLeadForm.submitting} type="submit" className="w-fit">
-                  {createLeadForm.submitting ? "Creating..." : "Create lead"}
-                </Button>
-              </form>
-          </CrudPanel>
-
-          <CrudPanel title="Import CSV" description="Paste up to 200 rows. Supported headers include `title`, `full_name`, `email`, `source`, `status`, `score`, `notes`, and `tags`.">
-              <form className="grid gap-4" onSubmit={handleImportCsv}>
-                <Field>
-                  <FieldLabel htmlFor="lead-import">CSV payload</FieldLabel>
-                  <FieldContent>
-                    <Textarea
-                      id="lead-import"
-                      value={importCsv}
-                      onChange={(event) => setImportCsv(event.target.value)}
-                      className="min-h-52 font-mono text-xs"
-                    />
-                    <FieldDescription>
-                      `tags` can be separated by `|`, `,`, or `;`. Invalid rows are returned with line numbers and do not block valid inserts.
-                    </FieldDescription>
-                  </FieldContent>
-                </Field>
-                <div className="flex flex-wrap gap-3">
-                  <Button disabled={importLeadForm.submitting} type="submit">
-                    {importLeadForm.submitting ? "Importing..." : "Import leads"}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setImportCsv(importExample)}>
-                    Reset sample
-                  </Button>
-                </div>
-                {importResult?.errors.length ? (
-                  <div className="grid gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
-                    <div className="font-medium">Rows that need correction</div>
-                    {importResult.errors.slice(0, 8).map((item) => (
-                      <div key={`${item.row}-${item.message}`} className="text-muted-foreground">
-                        Row {item.row}: {item.message}
-                      </div>
-                    ))}
-                    {importResult.errors.length > 8 ? (
-                      <div className="text-muted-foreground">
-                        {importResult.errors.length - 8} more row errors returned by the API.
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </form>
-          </CrudPanel>
+  const leadColumns: Array<ColumnDefinition<Lead, Exclude<LeadColumnKey, "actions">, LeadSortKey>> = [
+    {
+      key: "id",
+      label: leadColumnLabels.id,
+      sortable: true,
+      sortKey: "id",
+      renderCell: (lead) => <span className="text-slate-600">{lead.id.slice(0, 6)}</span>,
+    },
+    {
+      key: "title",
+      label: leadColumnLabels.title,
+      sortable: true,
+      sortKey: "title",
+      widthClassName: "min-w-[180px]",
+      renderCell: (lead) => (
+        <div className="min-w-[180px]">
+          <Link href={`/dashboard/leads/${lead.id}`} className="font-medium text-slate-900 hover:text-sky-700 hover:underline">
+            {lead.title}
+          </Link>
+          <div className="mt-1 text-xs text-muted-foreground">{(lead.tags ?? []).slice(0, 2).join(", ") || "No tags"}</div>
         </div>
-        </PageSection>
+      ),
+    },
+    { key: "fullName", label: leadColumnLabels.fullName, sortable: true, sortKey: "fullName", renderCell: (lead) => <span className="text-slate-600">{lead.fullName ?? "-"}</span> },
+    { key: "email", label: leadColumnLabels.email, sortable: true, sortKey: "email", renderCell: (lead) => <span className="text-slate-600">{lead.email ?? "-"}</span> },
+    { key: "phone", label: leadColumnLabels.phone, sortable: true, sortKey: "phone", renderCell: (lead) => <span className="text-slate-600">{lead.phone ?? "-"}</span> },
+    { key: "source", label: leadColumnLabels.source, sortable: true, sortKey: "source", renderCell: (lead) => <span className="text-slate-600">{lead.source ?? "-"}</span> },
+    {
+      key: "status",
+      label: leadColumnLabels.status,
+      sortable: true,
+      sortKey: "status",
+      renderCell: (lead) => (
+        <Badge variant={getStatusTone(lead.status)} className="capitalize">
+          {lead.status}
+        </Badge>
+      ),
+    },
+    { key: "score", label: leadColumnLabels.score, sortable: true, sortKey: "score", renderCell: (lead) => <span className="text-slate-600">{lead.score}</span> },
+    { key: "createdAt", label: leadColumnLabels.createdAt, sortable: true, sortKey: "createdAt", renderCell: (lead) => <span className="text-slate-600">{formatDate(lead.createdAt)}</span> },
+    { key: "updatedAt", label: leadColumnLabels.updatedAt, sortable: true, sortKey: "updatedAt", renderCell: (lead) => <span className="text-slate-600">{formatDateTime(lead.updatedAt)}</span> },
+  ];
 
-        <CrudPanel title="Lead workspace" description="Use list mode for bulk actions and board mode for status distribution.">
-            <Tabs defaultValue="list" queryKey="tab" className="grid gap-4">
-              <TabsList className="w-fit">
-                <TabsTrigger value="list">List</TabsTrigger>
-                <TabsTrigger value="board">Board</TabsTrigger>
-              </TabsList>
+  const documentColumns: Array<ColumnDefinition<DocumentItem, DocumentColumnKey>> = [
+    {
+      key: "name",
+      label: "File Name",
+      widthClassName: "min-w-[280px]",
+      renderCell: (document) => (
+        <div className="min-w-0">
+          <div className="truncate font-medium text-slate-900">{document.originalName}</div>
+          <div className="mt-1 text-xs text-muted-foreground">{document.entityId ? document.entityId.slice(0, 8) : "Unlinked"}</div>
+        </div>
+      ),
+    },
+    { key: "folder", label: "Folder", renderCell: (document) => <span className="text-slate-600">{document.folder}</span> },
+    {
+      key: "type",
+      label: "Type",
+      renderCell: (document) => (
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{document.entityType}</Badge>
+          {document.mimeType ? <Badge variant="secondary">{document.mimeType}</Badge> : null}
+        </div>
+      ),
+    },
+    { key: "size", label: "Size", renderCell: (document) => <span className="text-slate-600">{formatFileSize(document.sizeBytes)}</span> },
+    { key: "createdAt", label: "Uploaded", renderCell: (document) => <span className="text-slate-600">{formatDateTime(document.createdAt)}</span> },
+  ];
 
-              <TabsContent value="list" className="grid gap-4">
-                <FilterBar className="lg:grid-cols-[minmax(0,1fr)_220px_auto]">
-                  <Field>
-                    <FieldLabel htmlFor="lead-search">Search</FieldLabel>
-                    <Input
-                      id="lead-search"
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search lead titles"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Status</FieldLabel>
-                    <Select value={optionalSelectValue(statusFilter, SELECT_ALL)} onValueChange={(value) => setStatusFilter(readOptionalSelectValue(value))}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="All statuses" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
-                        {leadStatuses.map((status) => (
-                          <SelectItem key={status} value={status}>
-                            {status}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <div className="flex items-end">
-                    <Button type="button" variant="outline" onClick={() => void loadLeads()}>
-                      Apply filters
-                    </Button>
-                  </div>
-                </FilterBar>
+  const loadAllLeadsForExport = useCallback(async () => {
+    const items: Lead[] = [];
+    let nextOffset = 0;
+    while (true) {
+      const params = new URLSearchParams();
+      params.set("limit", "100");
+      params.set("offset", String(nextOffset));
+      if (filters.q.trim()) params.set("q", filters.q.trim());
+      if (filters.status.trim()) params.set("status", filters.status.trim());
+      if (filters.source.trim()) params.set("source", filters.source.trim());
+      if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
+      const response = await apiRequest<ListLeadResponse>(`/leads?${params.toString()}`, { skipCache: true });
+      let pageItems = response.items;
+      if (filters.email.trim()) {
+        const needle = filters.email.trim().toLowerCase();
+        pageItems = pageItems.filter((lead) => (lead.email ?? "").toLowerCase().includes(needle));
+      }
+      if (filters.phone.trim()) {
+        const needle = filters.phone.trim().toLowerCase();
+        pageItems = pageItems.filter((lead) => (lead.phone ?? "").toLowerCase().includes(needle));
+      }
+      items.push(...pageItems);
+      nextOffset += response.items.length;
+      if (response.items.length === 0 || nextOffset >= response.total) break;
+    }
+    return items;
+  }, [filters, myUserId, tab]);
 
-                <div className="grid gap-4 rounded-xl border bg-card p-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
-                      <Checkbox
-                        checked={leads.length > 0 && selectedLeadIds.length === leads.length}
-                        onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
-                        aria-label="Select all visible leads"
-                      />
-                      <span className="text-sm text-muted-foreground">{selectedLeadIds.length} selected</span>
-                    </div>
-                    <Select value={bulkStatus || "__keep"} onValueChange={(value) => setBulkStatus(!value || value === "__keep" ? "" : value)}>
-                      <SelectTrigger className="w-full md:w-52">
-                        <SelectValue placeholder="Keep current status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__keep">Keep current status</SelectItem>
-                        {leadStatuses.map((status) => (
-                          <SelectItem key={status} value={status}>
-                            {status}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={bulkSource || "__keep"} onValueChange={(value) => setBulkSource(!value || value === "__keep" ? "" : value)}>
-                      <SelectTrigger className="w-full md:w-52">
-                        <SelectValue placeholder="Keep current source" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__keep">Keep current source</SelectItem>
-                        {(leadSourceSettings?.leadSources ?? []).map((source) => (
-                          <SelectItem key={source.key} value={source.key}>
-                            {source.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      disabled={bulkUpdating || selectedLeadIds.length === 0 || (!bulkStatus && !bulkSource)}
-                      onClick={() => void handleBulkUpdate()}
-                    >
-                      {bulkUpdating ? "Updating..." : "Apply bulk update"}
-                    </Button>
-                  </div>
+  const loadAllLeadDocumentsForExport = useCallback(async () => {
+    const items: DocumentItem[] = [];
+    let nextOffset = 0;
+    while (true) {
+      const params = new URLSearchParams();
+      params.set("entityType", "lead");
+      params.set("limit", "100");
+      params.set("offset", String(nextOffset));
+      if (filters.q.trim()) params.set("q", filters.q.trim());
+      if (filters.documentFolder.trim()) params.set("folder", filters.documentFolder.trim());
+      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`, { skipCache: true });
+      items.push(...response.items);
+      nextOffset += response.items.length;
+      if (response.items.length === 0 || nextOffset >= response.total) break;
+    }
+    return items;
+  }, [filters.documentFolder, filters.q]);
 
-                  {loading ? <LoadingState label="Loading leads..." /> : null}
+  const handleExport = async () => {
+    try {
+      const csv =
+        tab === "documents"
+          ? buildDocumentsCsv(await loadAllLeadDocumentsForExport())
+          : buildLeadsCsv(await loadAllLeadsForExport());
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = tab === "documents" ? "lead-documents.csv" : "leads.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success(tab === "documents" ? "Documents exported" : "Leads exported");
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to export data";
+      setError(message);
+      toast.error(message);
+    }
+  };
 
-                  {!loading ? (
-                    <div className="grid gap-3">
-                      {leads.map((lead) => (
-                        <article
-                          key={lead.id}
-                          className="grid gap-4 rounded-xl border bg-background p-4"
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="flex items-start gap-3">
-                              <Checkbox
-                                checked={selectedLeadIds.includes(lead.id)}
-                                onCheckedChange={(checked) => toggleLeadSelection(lead.id, checked === true)}
-                                aria-label={`Select lead ${lead.title}`}
-                              />
-                              <div className="grid gap-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <h3 className="font-medium">{lead.title}</h3>
-                                  <Badge variant={statusToneByValue[lead.status]}>{lead.status}</Badge>
-                                  {lead.source ? <Badge variant="outline">{lead.source}</Badge> : null}
-                                  {lead.partnerCompanyId ? <Badge variant="secondary">Partner assigned</Badge> : null}
-                                </div>
-                                <div className="text-sm text-muted-foreground">
-                                  {lead.fullName ?? "No contact name"}{lead.email ? ` • ${lead.email}` : ""}
-                                </div>
-                                <div className="text-sm text-muted-foreground">
-                                  Score {lead.score}{lead.phone ? ` • ${lead.phone}` : ""}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Select value={lead.status} onValueChange={(value) => value ? void handleStatusChange(lead.id, value as Lead["status"]) : undefined}>
-                                <SelectTrigger className="w-40">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {leadStatuses.map((status) => (
-                                    <SelectItem key={status} value={status}>
-                                      {status}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={convertingLeadId === lead.id}
-                                onClick={() => void handleConvertLead(lead.id)}
-                              >
-                                {convertingLeadId === lead.id ? "Converting..." : "Convert to deal"}
-                              </Button>
-                              <Button type="button" variant="ghost" onClick={() => void toggleTimeline(lead.id)}>
-                                {expandedLeadId === lead.id ? "Hide timeline" : "Show timeline"}
-                              </Button>
-                            </div>
-                          </div>
+  const handleDeleteDocument = async (documentId: string) => {
+    setDeletingId(documentId);
+    setError(null);
+    try {
+      await apiRequest(`/documents/${documentId}`, { method: "DELETE" });
+      toast.success("Document deleted");
+      await loadDocuments();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete document";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
-                          {expandedLeadId === lead.id ? (
-                            <div className="grid gap-3 rounded-xl border bg-muted/30 p-4">
-                              {timelineLoadingLeadId === lead.id ? (
-                                <div className="text-sm text-muted-foreground">Loading timeline...</div>
-                              ) : null}
-                              {(timelineByLead[lead.id] ?? []).length ? (
-                                <div className="grid gap-2">
-                                  {(timelineByLead[lead.id] ?? []).map((activity) => (
-                                    <div key={activity.id} className="rounded-lg border bg-background p-3 text-sm">
-                                      <div className="font-medium">{activity.type}</div>
-                                      <div className="text-muted-foreground">
-                                        {String(activity.payload?.message ?? "") || JSON.stringify(activity.payload)}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : timelineLoadingLeadId !== lead.id ? (
-                                <div className="text-sm text-muted-foreground">No timeline activity yet.</div>
-                              ) : null}
-                              <div className="flex flex-col gap-3 sm:flex-row">
-                                <Input
-                                  value={timelineDraftByLead[lead.id] ?? ""}
-                                  onChange={(event) =>
-                                    setTimelineDraftByLead((prev) => ({ ...prev, [lead.id]: event.target.value }))
-                                  }
-                                  placeholder="Add timeline note"
-                                />
-                                <Button type="button" onClick={() => void addTimelineNote(lead.id)}>
-                                  Add note
-                                </Button>
-                              </div>
-                              <div className="grid gap-3 rounded-lg border bg-background p-3">
-                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                  <div className="font-medium">Attachments</div>
-                                  <label className="text-sm text-muted-foreground">
-                                    <input
-                                      type="file"
-                                      className="hidden"
-                                      onChange={(event) => {
-                                        const nextFile = event.target.files?.[0] ?? null;
-                                        void uploadLeadDocument(lead.id, nextFile);
-                                        event.currentTarget.value = "";
-                                      }}
-                                    />
-                                    <span className="cursor-pointer underline underline-offset-4">
-                                      {uploadingLeadId === lead.id ? "Uploading..." : "Upload file"}
-                                    </span>
-                                  </label>
-                                </div>
-                                {(documentsByLead[lead.id] ?? []).map((document) => (
-                                  <div key={document.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
-                                    <div>
-                                      <div className="font-medium">{document.originalName}</div>
-                                      <div className="text-muted-foreground">
-                                        {document.folder} • {document.mimeType ?? "unknown"} • {Math.max(1, Math.round(document.sizeBytes / 1024))} KB
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                      <a
-                                        href={buildApiUrl(`/documents/${document.id}/download`, { companyId })}
-                                        className="font-medium underline underline-offset-4"
-                                      >
-                                        Download
-                                      </a>
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        disabled={deletingDocumentId === document.id}
-                                        onClick={() => void deleteLeadDocument(lead.id, document.id)}
-                                      >
-                                        {deletingDocumentId === document.id ? "Deleting..." : "Delete"}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ))}
-                                {(documentsByLead[lead.id] ?? []).length === 0 ? (
-                                  <div className="text-sm text-muted-foreground">No attachments uploaded for this lead yet.</div>
-                                ) : null}
-                              </div>
-                            </div>
-                          ) : null}
-                        </article>
-                      ))}
-                      {leads.length === 0 ? (
-                        <EmptyState title="No leads found" description="Adjust the filters or create/import a lead." />
-                      ) : null}
-                    </div>
-                  ) : null}
+  return (
+    <div className="grid gap-5">
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Request failed</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {importSummary ? (
+        <Alert>
+          <AlertTitle>CSV import complete</AlertTitle>
+          <AlertDescription>
+            Created {importSummary.createdCount} of {importSummary.attemptedCount} rows.{" "}
+            {importSummary.errorCount > 0 ? `${importSummary.errorCount} rows need correction.` : "No row errors returned."}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <CrmListPageHeader
+        title="Leads"
+        actions={
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()}>
+              <Download className="size-4" /> Export
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={() => setModalMode("import")}>
+              <Import className="size-4" /> Import
+            </Button>
+            <Button type="button" size="sm" onClick={openCreateModal}>
+              <Plus className="size-4" /> Create
+            </Button>
+          </>
+        }
+      />
+
+      <section className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+        <div className="px-4 pt-3">
+          <CrmListViewTabs
+            value={tab}
+            onValueChange={setTab}
+            labels={{ all: "All Leads", mine: "My Leads", documents: "Uploaded Docs" }}
+          />
+        </div>
+
+        <CrmListToolbar
+          searchValue={filters.q}
+          searchPlaceholder={tab === "documents" ? "Search uploaded documents" : "Search by title, name, email, or phone"}
+          onSearchChange={(value) => {
+            setPage(1);
+            setFilters((current) => ({ ...current, q: value }));
+            setFilterDraft((current) => ({ ...current, q: value }));
+          }}
+          onOpenFilters={() => setModalMode("filter")}
+          filterCount={activeFilterChips.length}
+          onOpenColumns={() => setColumnSettingsOpen(true)}
+          onRefresh={() => {
+            if (tab === "documents") {
+              void loadDocuments();
+              return;
+            }
+            void loadLeads();
+          }}
+          extraContent={
+            tab !== "documents" ? (
+              <>
+                <div className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2">
+                  <Checkbox
+                    checked={paginatedLeads.length > 0 && selectedLeadIds.length === paginatedLeads.length}
+                    onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+                    aria-label="Select all visible leads"
+                  />
+                  <span className="text-sm text-muted-foreground">{selectedLeadIds.length} selected</span>
                 </div>
-              </TabsContent>
+                <NativeSelect value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className="h-10 w-44 rounded-xl px-3 text-sm">
+                  <option value="">Keep current status</option>
+                  {leadStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                </NativeSelect>
+                <NativeSelect value={bulkSource} onChange={(event) => setBulkSource(event.target.value)} className="h-10 w-44 rounded-xl px-3 text-sm">
+                  <option value="">Keep current source</option>
+                  {(leadSourceSettings?.leadSources ?? []).map((source) => <option key={source.key} value={source.key}>{source.label}</option>)}
+                </NativeSelect>
+                <Button type="button" disabled={bulkUpdating || selectedLeadIds.length === 0 || (!bulkStatus && !bulkSource)} onClick={() => void handleBulkUpdate()}>
+                  {bulkUpdating ? "Updating..." : "Apply bulk update"}
+                </Button>
+              </>
+            ) : null
+          }
+        />
 
-              <TabsContent value="board" className="grid gap-4">
-                <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-muted/30 p-4">
-                  <Field className="min-w-52 flex-1">
-                    <FieldLabel>Source filter</FieldLabel>
-                    <Select value={optionalSelectValue(sourceFilter, SELECT_ALL)} onValueChange={(value) => setSourceFilter(readOptionalSelectValue(value))}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="All sources" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={SELECT_ALL}>All sources</SelectItem>
-                        {(leadSourceSettings?.leadSources ?? []).map((source) => (
-                          <SelectItem key={source.key} value={source.key}>
-                            {source.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Button type="button" variant="outline" onClick={() => void loadBoard()}>
-                    Refresh board
+        <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
+          <div className="flex flex-wrap gap-2">
+            {activeFilterChips.length ? (
+              activeFilterChips.map((chip) => (
+                <button
+                  key={`${chip.key}-${chip.value}`}
+                  type="button"
+                  onClick={() => removeAppliedFilter(chip.key)}
+                  className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-sky-200 hover:text-sky-700"
+                >
+                  <span>{chip.label}: {chip.value}</span>
+                  <X className="size-3.5" />
+                </button>
+              ))
+            ) : (
+              <div className="text-xs text-muted-foreground">No active filters.</div>
+            )}
+          </div>
+        </div>
+
+        {tab === "documents" ? (
+          <CrmDataTable
+            columns={documentColumns}
+            rows={documents}
+            rowKey={(document) => document.id}
+            loading={loading}
+            emptyLabel="No uploaded docs found."
+            columnVisibility={documentColumnVisibility}
+            actionColumn={{
+              header: "Actions",
+              renderCell: (document) => (
+                <div className="flex justify-end gap-1.5">
+                  <a href={buildApiUrl(`/documents/${document.id}/download`, { companyId })} className="inline-flex items-center rounded-xl border border-border/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
+                    Download
+                  </a>
+                  <Button type="button" size="xs" variant="ghost" disabled={deletingId === document.id} onClick={() => void handleDeleteDocument(document.id)}>
+                    <Trash2 className="size-3.5" /> Delete
                   </Button>
                 </div>
-
-                <div className="grid gap-4 xl:grid-cols-5">
-                  {(board?.columns ?? []).map((column) => (
-                    <Card key={column.key} className="bg-muted/20">
-                      <CardHeader>
-                        <CardTitle className="flex items-center justify-between gap-2 text-sm">
-                          <span className="capitalize">{column.label}</span>
-                          <Badge variant="outline">{column.items.length}</Badge>
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="grid gap-3">
-                        {column.items.map((lead) => (
-                          <div key={lead.id} className={cn("grid gap-1 rounded-xl border bg-background p-3")}>
-                            <div className="font-medium">{lead.title}</div>
-                            <div className="text-sm text-muted-foreground">{lead.fullName ?? "No contact name"}</div>
-                            <div className="text-xs text-muted-foreground">{lead.source ?? "Unspecified source"}</div>
-                          </div>
-                        ))}
-                        {column.items.length === 0 ? (
-                          <EmptyState title="No leads in this status" description="Move or create leads to populate this board column." className="bg-background" />
-                        ) : null}
-                      </CardContent>
-                    </Card>
-                  ))}
+              ),
+            }}
+          />
+        ) : (
+          <CrmDataTable
+            columns={leadColumns}
+            rows={paginatedLeads}
+            rowKey={(lead) => lead.id}
+            loading={loading}
+            emptyLabel="No leads found."
+            columnVisibility={columnVisibility}
+            selectable
+            selectedRowIds={selectedLeadIds}
+            onToggleRow={toggleLeadSelection}
+            onToggleAllVisible={toggleSelectAllVisible}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={handleSort}
+            actionColumn={{
+              header: "Actions",
+              renderCell: (lead) => (
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => openEditModal(lead)}>
+                    <PencilLine className="size-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg text-rose-600 hover:text-rose-700" onClick={() => openDeleteModal(lead)}>
+                    <Trash2 className="size-4" />
+                  </Button>
                 </div>
-              </TabsContent>
-            </Tabs>
-        </CrudPanel>
-      </div>
-    </>
+              ),
+            }}
+          />
+        )}
+
+        <CrmPaginationBar
+          limit={limit}
+          onLimitChange={(value) => {
+            setLimit(value);
+            setPage(1);
+          }}
+          rowsPerPageOptions={rowsPerPageOptions}
+          total={total}
+          page={page}
+          totalPages={totalPages}
+          onPrev={() => setPage((current) => Math.max(1, current - 1))}
+          onNext={() => setPage((current) => Math.min(totalPages, current + 1))}
+        />
+      </section>
+
+      {(modalMode === "create" || modalMode === "edit") ? (
+        <Modal
+          title={modalMode === "edit" ? "Edit Lead" : "Create Lead"}
+          description={modalMode === "edit" ? "Update the selected lead record." : "Add a new lead into the pipeline."}
+          onClose={closeModal}
+          headerActions={
+            <>
+              <Button type="button" variant="ghost" size="xs" onClick={closeModal}>
+                Close
+              </Button>
+              <Button type="submit" form="lead-form" size="xs" disabled={submitting}>
+                {submitting ? "Saving..." : "Save"}
+              </Button>
+            </>
+          }
+        >
+          <form id="lead-form" onSubmit={handleSubmit} className="grid gap-5">
+            <div className="grid gap-4 rounded-2xl border border-border/60 bg-slate-50/70 p-4">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Lead basics</div>
+                <p className="text-xs text-muted-foreground">The table and modal use the same lead fields shown in the list.</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field className="md:col-span-2">
+                  <FieldLabel>Title / Designation</FieldLabel>
+                  <Input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} className="h-10 text-sm" placeholder="eg: Head of Procurement" required />
+                </Field>
+                <Field>
+                  <FieldLabel>Lead Name</FieldLabel>
+                  <Input value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} className="h-10 text-sm" placeholder="Full name" />
+                </Field>
+                <Field>
+                  <FieldLabel>Email</FieldLabel>
+                  <Input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} className="h-10 text-sm" placeholder="name@example.com" />
+                </Field>
+                <Field>
+                  <FieldLabel>Mobile Phone</FieldLabel>
+                  <Input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} className="h-10 text-sm" placeholder="+91 9876543210" />
+                </Field>
+                <Field>
+                  <FieldLabel>Source</FieldLabel>
+                  <NativeSelect value={form.source} onChange={(event) => setForm((current) => ({ ...current, source: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                    <option value="">Select source</option>
+                    {(leadSourceSettings?.leadSources ?? []).map((source) => (
+                      <option key={source.key} value={source.key}>
+                        {source.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Lead Status</FieldLabel>
+                  <NativeSelect value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as LeadStatus }))} className="h-10 rounded-xl px-3 text-sm">
+                    {leadStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                <Field>
+                  <FieldLabel>Score</FieldLabel>
+                  <Input value={form.score} onChange={(event) => setForm((current) => ({ ...current, score: event.target.value }))} className="h-10 text-sm" type="number" min={0} />
+                </Field>
+                <Field>
+                  <FieldLabel>Partner Pool</FieldLabel>
+                  <div className="flex h-10 items-center rounded-xl border border-input bg-slate-50 px-3 text-sm text-muted-foreground">
+                    {partners.length} active partners available
+                  </div>
+                </Field>
+                <Field className="md:col-span-2">
+                  <FieldLabel>Tags</FieldLabel>
+                  <Input value={form.tags} onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value }))} className="h-10 text-sm" placeholder="enterprise, inbound, high priority" />
+                </Field>
+                <Field className="md:col-span-2">
+                  <FieldLabel>Notes</FieldLabel>
+                  <Textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} className="min-h-28 text-sm" placeholder="Add context for the lead" />
+                </Field>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {modalMode === "import" ? (
+        <Modal
+          title="Import Leads"
+          description="Paste CSV rows to create leads in bulk."
+          onClose={closeModal}
+          headerActions={
+            <>
+              <Button type="button" variant="ghost" size="xs" onClick={closeModal}>
+                Close
+              </Button>
+              <Button type="submit" form="lead-import-form" size="xs" disabled={importing}>
+                {importing ? "Importing..." : "Import"}
+              </Button>
+            </>
+          }
+        >
+          <form id="lead-import-form" onSubmit={handleImport} className="grid gap-4">
+            <Field>
+              <FieldLabel>CSV payload</FieldLabel>
+              <Textarea value={importCsv} onChange={(event) => setImportCsv(event.target.value)} className="min-h-72 font-mono text-xs" />
+            </Field>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setImportCsv(importSample)}>
+                Reset sample
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {modalMode === "delete" && selectedLead ? (
+        <Modal title="Delete Lead" description={`Remove ${selectedLead.title} from the workspace.`} onClose={closeModal} maxWidthClassName="max-w-xl">
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
+            <div className="flex gap-2">
+              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedLead.id}>
+                {deletingId === selectedLead.id ? "Deleting..." : "Delete"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={closeModal}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      <CrmFilterDrawer
+        open={modalMode === "filter"}
+        title="Filter"
+        description={tab === "documents" ? "Shape the uploaded docs table." : "Shape the lead table with focused filters."}
+        onClose={closeModal}
+        onClear={clearFilterDraft}
+        onApply={applyFilters}
+      >
+        <div className="grid gap-4">
+          <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
+            <div className="text-sm font-semibold text-slate-900">Search</div>
+            <Field>
+              <FieldLabel>Search term</FieldLabel>
+              <Input value={filterDraft.q} onChange={(event) => setFilterDraft((current) => ({ ...current, q: event.target.value }))} className="h-10 text-sm" placeholder={tab === "documents" ? "Filename" : "Title, name, email, or phone"} />
+            </Field>
+            {tab === "documents" ? (
+              <Field>
+                <FieldLabel>Folder</FieldLabel>
+                <Input value={filterDraft.documentFolder} onChange={(event) => setFilterDraft((current) => ({ ...current, documentFolder: event.target.value }))} className="h-10 text-sm" placeholder="general" />
+              </Field>
+            ) : (
+              <>
+                <Field>
+                  <FieldLabel>Email</FieldLabel>
+                  <Input value={filterDraft.email} onChange={(event) => setFilterDraft((current) => ({ ...current, email: event.target.value }))} className="h-10 text-sm" placeholder="Filter by email" />
+                </Field>
+                <Field>
+                  <FieldLabel>Phone</FieldLabel>
+                  <Input value={filterDraft.phone} onChange={(event) => setFilterDraft((current) => ({ ...current, phone: event.target.value }))} className="h-10 text-sm" placeholder="Filter by phone" />
+                </Field>
+              </>
+            )}
+          </div>
+
+          {tab !== "documents" ? (
+            <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
+              <div className="text-sm font-semibold text-slate-900">Lead details</div>
+              <Field>
+                <FieldLabel>Source</FieldLabel>
+                <NativeSelect value={filterDraft.source} onChange={(event) => setFilterDraft((current) => ({ ...current, source: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                  <option value="">All sources</option>
+                  {(leadSourceSettings?.leadSources ?? []).map((source) => (
+                    <option key={source.key} value={source.key}>
+                      {source.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>Lead Status</FieldLabel>
+                <NativeSelect value={filterDraft.status} onChange={(event) => setFilterDraft((current) => ({ ...current, status: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                  <option value="">All statuses</option>
+                  {leadStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+            </div>
+          ) : null}
+        </div>
+      </CrmFilterDrawer>
+
+      {tab === "documents" ? (
+        <CrmColumnSettings
+          open={columnSettingsOpen}
+          description="Choose which lead document columns stay visible."
+          columns={documentColumns.map((column) => ({ key: column.key, label: column.label }))}
+          columnVisibility={documentColumnVisibility}
+          onToggleColumn={toggleDocumentColumn}
+          onReset={resetDocumentColumns}
+          onClose={() => setColumnSettingsOpen(false)}
+        />
+      ) : (
+        <CrmColumnSettings
+          open={columnSettingsOpen}
+          description="Choose which lead columns stay visible in the table."
+          columns={leadColumns.map((column) => ({ key: column.key, label: column.label }))}
+          columnVisibility={columnVisibility}
+          lockedColumns={lockedLeadColumns}
+          onToggleColumn={toggleColumn}
+          onReset={resetColumns}
+          onClose={() => setColumnSettingsOpen(false)}
+        />
+      )}
+    </div>
   );
 }
-

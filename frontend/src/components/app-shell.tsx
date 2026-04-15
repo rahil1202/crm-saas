@@ -189,6 +189,12 @@ export function AppShell({
     if (pathname.startsWith("/dashboard/contacts/")) {
       items.push({ href: "/dashboard/contacts", label: "Contact" });
       items.push({ href: pathname, label: title });
+    } else if (pathname.startsWith("/dashboard/leads/")) {
+      items.push({ href: "/dashboard/leads", label: "Leads" });
+      items.push({ href: pathname, label: title });
+    } else if (pathname.startsWith("/dashboard/deals/")) {
+      items.push({ href: "/dashboard/deals", label: "Deals" });
+      items.push({ href: pathname, label: title });
     } else if (pathname !== "/dashboard") {
       items.push({
         href: pathname,
@@ -438,7 +444,11 @@ export function AppShell({
                     ) : null}
                     {group.items.map((item) => {
                       const Icon = item.icon;
-                      const isActive = pathname === item.href || (item.href === "/dashboard/contacts" && pathname.startsWith("/dashboard/contacts/"));
+                      const isActive =
+                        pathname === item.href ||
+                        (item.href === "/dashboard/contacts" && pathname.startsWith("/dashboard/contacts/")) ||
+                        (item.href === "/dashboard/leads" && pathname.startsWith("/dashboard/leads/")) ||
+                        (item.href === "/dashboard/deals" && pathname.startsWith("/dashboard/deals/"));
 
                       return (
                         <Link
@@ -500,12 +510,6 @@ export function AppShell({
           <header className="z-30 mb-4 shrink-0 rounded-[1.4rem] border border-sky-200/70 bg-white px-3 py-2 shadow-[0_18px_45px_-32px_rgba(56,122,199,0.22)] lg:sticky lg:top-4 lg:mb-4 lg:rounded-[1.4rem] lg:border lg:px-4">
             <div className="flex gap-3 lg:items-start lg:justify-between">
               <div className="min-w-0 flex-1">
-                <Link href="/dashboard" className="mb-1 flex w-fit items-center gap-2 rounded-xl transition-colors hover:text-sky-950">
-                  <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-sky-200/70 bg-white shadow-[0_12px_26px_-18px_rgba(56,122,199,0.28)]">
-                    <Image src={websiteLogo} alt="The One CRM logo" className="h-5 w-5 object-contain" />
-                  </div>
-                  <span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-sky-700/80">The One CRM</span>
-                </Link>
                 <nav className="flex flex-wrap items-center gap-1 text-xs text-sky-700 lg:text-sm">
                   {breadcrumbItems.map((item, index) => {
                     const isLast = index === breadcrumbItems.length - 1;

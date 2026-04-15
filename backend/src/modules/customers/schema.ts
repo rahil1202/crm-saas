@@ -21,6 +21,7 @@ const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const listCustomersSchema = z.object({
   q: z.string().trim().optional(),
   email: z.string().email().optional(),
+  assignedToUserId: z.string().uuid().optional(),
   title: z.string().trim().optional(),
   callRemark: z.string().trim().optional(),
   callStatus: z.string().trim().optional(),
@@ -42,6 +43,7 @@ export const createCustomerSchema = z.object({
   phone: z.string().trim().max(40).optional(),
   tags: z.array(z.string().trim().min(1).max(50)).default([]),
   notes: z.string().trim().max(4000).optional(),
+  assignedToUserId: z.string().uuid().nullable().optional(),
   leadId: z.string().uuid().nullable().optional(),
   storeId: z.string().uuid().nullable().optional(),
 });

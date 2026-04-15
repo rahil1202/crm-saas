@@ -538,6 +538,7 @@ export const customers = pgTable(
       .references(() => companies.id, { onDelete: "cascade" }),
     storeId: uuid("store_id").references(() => stores.id, { onDelete: "set null" }),
     leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => profiles.id, { onDelete: "set null" }),
     fullName: varchar("full_name", { length: 180 }).notNull(),
     email: varchar("email", { length: 320 }),
     phone: varchar("phone", { length: 40 }),
@@ -553,6 +554,7 @@ export const customers = pgTable(
   (table) => ({
     byCompanyIdx: index("customers_company_idx").on(table.companyId),
     byLeadIdx: index("customers_lead_idx").on(table.leadId),
+    byAssignedIdx: index("customers_assigned_idx").on(table.companyId, table.assignedToUserId),
     byEmailIdx: index("customers_email_idx").on(table.email),
   }),
 );
@@ -574,6 +576,11 @@ export const deals = pgTable(
     stage: varchar("stage", { length: 100 }).notNull().default("new"),
     status: dealStatusEnum("status").notNull().default("open"),
     value: integer("value").notNull().default(0),
+    dealType: varchar("deal_type", { length: 120 }),
+    priority: varchar("priority", { length: 80 }),
+    referralSource: varchar("referral_source", { length: 120 }),
+    ownerLabel: varchar("owner_label", { length: 180 }),
+    productTags: jsonb("product_tags").$type<string[]>().notNull().default([]),
     expectedCloseDate: timestamp("expected_close_date", { withTimezone: true }),
     lostReason: varchar("lost_reason", { length: 250 }),
     notes: text("notes"),

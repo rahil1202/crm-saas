@@ -23,6 +23,11 @@ export const createDealSchema = z.object({
   stage: z.string().trim().min(1).max(100).default("new"),
   status: z.enum(["open", "won", "lost"]).default("open"),
   value: z.number().int().min(0).default(0),
+  dealType: z.string().trim().max(120).optional(),
+  priority: z.string().trim().max(80).optional(),
+  referralSource: z.string().trim().max(120).optional(),
+  ownerLabel: z.string().trim().max(180).optional(),
+  productTags: z.array(z.string().trim().min(1).max(50)).default([]),
   expectedCloseDate: z.string().datetime().optional(),
   lostReason: z.string().trim().max(250).optional(),
   notes: z.string().trim().max(4000).optional(),
@@ -35,6 +40,26 @@ export const createDealSchema = z.object({
 
 export const updateDealSchema = createDealSchema.partial();
 export const dealParamSchema = z.object({ dealId: z.string().uuid() });
+
+export const bulkUpdateDealsSchema = z
+  .object({
+    dealIds: z.array(z.string().uuid()).min(1).max(200),
+    status: z.enum(["open", "won", "lost"]).optional(),
+    pipeline: z.string().trim().max(100).optional(),
+    stage: z.string().trim().max(100).optional(),
+    priority: z.string().trim().max(80).nullable().optional(),
+  })
+  .refine(
+    (value) =>
+      value.status !== undefined ||
+      value.pipeline !== undefined ||
+      value.stage !== undefined ||
+      value.priority !== undefined,
+    {
+      message: "At least one bulk update field is required",
+      path: ["status"],
+    },
+  );
 
 export const dealTimelineQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -51,5 +76,6 @@ export type BoardDealsQuery = z.infer<typeof boardDealsSchema>;
 export type DealForecastQuery = z.infer<typeof dealForecastQuerySchema>;
 export type CreateDealInput = z.infer<typeof createDealSchema>;
 export type UpdateDealInput = z.infer<typeof updateDealSchema>;
+export type BulkUpdateDealsInput = z.infer<typeof bulkUpdateDealsSchema>;
 export type DealTimelineQuery = z.infer<typeof dealTimelineQuerySchema>;
 export type CreateDealTimelineInput = z.infer<typeof createDealTimelineSchema>;

@@ -26,7 +26,7 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     description: "Manage workspace footprint, teammate invites, and referral attribution from one admin surface.",
   },
   "/dashboard/contacts": {
-    title: "Contact Directory",
+    title: "Contact",
     description: "Sort, search, and filter contact records with linked lead, deal, task, and campaign history.",
   },
   "/dashboard/deals": {
@@ -107,6 +107,16 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           title: "Contact Profile",
           description: "Detailed contact record with activity, company context, notes, and deal visibility.",
         }
+      : pathname.startsWith("/dashboard/leads/") && pathname !== "/dashboard/leads"
+        ? {
+            title: "Lead Profile",
+            description: "Detailed lead record with timeline, linked records, and edit controls.",
+          }
+        : pathname.startsWith("/dashboard/deals/") && pathname !== "/dashboard/deals"
+          ? {
+              title: "Deal Profile",
+              description: "Detailed deal record with timeline, linked records, and update controls.",
+            }
       : dashboardMeta[pathname]) ?? {
     title: "Dashboard",
     description: "Workspace overview for the active CRM company.",

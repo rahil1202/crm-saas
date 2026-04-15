@@ -7,6 +7,7 @@ import {
   createLead,
   createLeadTimeline,
   deleteLead,
+  getLeadHistory,
   getLeadTimeline,
   getLeadsBoard,
   importLeadsFromCsv,
@@ -32,6 +33,7 @@ leadRoutes.use("*", requireAuth, requireTenant);
 
 leadRoutes.get("/", validateQuery(listLeadsQuerySchema), listLeads);
 leadRoutes.get("/board", validateQuery(boardLeadsQuerySchema), getLeadsBoard);
+leadRoutes.get("/:leadId/history", getLeadHistory);
 leadRoutes.post("/", validateJson(createLeadSchema), createLead);
 leadRoutes.post("/bulk-update", validateJson(bulkUpdateLeadSchema), bulkUpdateLeads);
 leadRoutes.post("/import-csv", validateJson(importLeadCsvSchema), importLeadsFromCsv);
