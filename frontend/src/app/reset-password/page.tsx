@@ -98,7 +98,7 @@ export default function ResetPasswordPage() {
     toast.success("Password updated. Redirecting to sign in.");
     setSubmitting(false);
     setTimeout(() => {
-      router.replace("/login?reset=success");
+      router.replace("/auth/login?reset=success");
     }, 1200);
   };
 
@@ -107,7 +107,7 @@ export default function ResetPasswordPage() {
       title="Choose a new password"
       description="This screen only works after a verified recovery callback. Once saved, the temporary session is cleared and sign-in starts fresh."
       footer={
-        <Link href="/login" className="font-medium text-foreground underline underline-offset-4">
+        <Link href="/auth/login" className="font-medium text-foreground underline underline-offset-4">
           Return to login
         </Link>
       }

@@ -1791,10 +1791,10 @@ export default function SettingsPage() {
                   <CardDescription>Open the recovery flow in a separate tab if you need to test or re-run it.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
-                  <Link href="/forgot-password" className="inline-flex items-center gap-2 text-sm font-medium text-foreground underline underline-offset-4">
+                  <Link href="/auth/forgot-password" className="inline-flex items-center gap-2 text-sm font-medium text-foreground underline underline-offset-4">
                     Reset this account from the recovery flow
                   </Link>
-                  <Link href="/login" className="inline-flex items-center gap-2 text-sm font-medium text-foreground underline underline-offset-4">
+                  <Link href="/auth/login" className="inline-flex items-center gap-2 text-sm font-medium text-foreground underline underline-offset-4">
                     Return to the sign-in screen
                   </Link>
                   <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">

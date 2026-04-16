@@ -70,7 +70,7 @@ function AuthCallbackContent() {
         }
 
         if (type === "recovery") {
-          router.replace("/reset-password");
+          router.replace("/auth/reset-password");
           return;
         }
 

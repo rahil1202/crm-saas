@@ -275,7 +275,7 @@ export function AppShell({
           clearCachedMe();
           clearCompanyCookie();
           clearStoreCookie();
-          router.replace("/login");
+          router.replace("/auth/login");
           return;
         }
 
@@ -350,7 +350,7 @@ export function AppShell({
     clearCompanyCookie();
     clearStoreCookie();
     clearCachedMe();
-    router.replace("/login");
+    router.replace("/auth/login");
   };
 
   const userInitials = useMemo(() => {

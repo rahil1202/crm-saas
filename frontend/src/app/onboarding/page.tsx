@@ -34,7 +34,7 @@ export default function OnboardingPage() {
       const me = await fetchAuthMe();
 
       if (!me) {
-        router.replace("/login");
+        router.replace("/auth/login");
         return;
       }
 

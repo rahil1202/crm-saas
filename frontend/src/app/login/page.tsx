@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
-import { ArrowRight, KeyRound, MailCheck } from "lucide-react";
+import { KeyRound, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
@@ -162,7 +162,7 @@ function LoginPageContent() {
       footer={
         <div className="flex flex-wrap items-center gap-2">
           <span>Need an account?</span>
-          <Link href="/register" className="font-medium text-foreground underline underline-offset-4">
+          <Link href="/auth/register" className="font-medium text-foreground underline underline-offset-4">
             Create one
           </Link>
         </div>
@@ -236,7 +236,7 @@ function LoginPageContent() {
                 <Field>
                   <div className="flex items-center justify-between gap-3">
                     <FieldLabel htmlFor="password">Password</FieldLabel>
-                    <Link href="/forgot-password" className="text-sm font-medium text-foreground underline underline-offset-4">
+                    <Link href="/auth/forgot-password" className="text-sm font-medium text-foreground underline underline-offset-4">
                       Forgot password?
                     </Link>
                   </div>
@@ -270,7 +270,7 @@ function LoginPageContent() {
 
       {/* <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
         <span>Need first-time access instead?</span>
-        <Link href="/register" className="inline-flex items-center gap-2 font-medium text-foreground underline underline-offset-4">
+        <Link href="/auth/register" className="inline-flex items-center gap-2 font-medium text-foreground underline underline-offset-4">
           Register
           <ArrowRight />
         </Link>

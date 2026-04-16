@@ -192,7 +192,7 @@ function RegisterPageContent() {
       footer={
         <div className="flex flex-wrap items-center gap-2">
           <span>Already registered?</span>
-          <Link href="/login" className="font-medium text-foreground underline underline-offset-4">
+          <Link href="/auth/login" className="font-medium text-foreground underline underline-offset-4">
             Sign in
           </Link>
         </div>
@@ -225,7 +225,7 @@ function RegisterPageContent() {
               <MailCheck data-icon="inline-start" />
               {resendingVerification ? "Resending..." : "Resend verification"}
             </Button>
-            <Button type="button" onClick={() => (window.location.href = "/login?registered=success")}>
+            <Button type="button" onClick={() => (window.location.href = "/auth/login?registered=success")}>
               <ArrowRight data-icon="inline-start" />
               Continue to login
             </Button>

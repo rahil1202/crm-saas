@@ -45,7 +45,7 @@ export default function ForgotPasswordPage() {
     <AuthShell
       title="Send a password reset link"
       footer={
-        <Link href="/login" className="inline-flex items-center gap-2 font-medium text-foreground underline underline-offset-4">
+        <Link href="/auth/login" className="inline-flex items-center gap-2 font-medium text-foreground underline underline-offset-4">
           <ArrowLeft />
           Back to login
         </Link>
