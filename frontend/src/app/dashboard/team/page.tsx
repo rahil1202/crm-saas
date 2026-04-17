@@ -231,6 +231,12 @@ const roleModuleOptions = [
   { key: "campaigns", label: "Campaigns" },
   { key: "reports", label: "Reports" },
   { key: "settings", label: "Settings" },
+  { key: "social", label: "Social" },
+  { key: "automation", label: "Automation" },
+  { key: "partners", label: "Partners" },
+  { key: "documents", label: "Documents" },
+  { key: "notifications", label: "Notifications" },
+  { key: "integrations", label: "Integrations" },
 ] as const;
 
 const roleModuleLabelByKey = roleModuleOptions.reduce<Record<string, string>>((acc, item) => {

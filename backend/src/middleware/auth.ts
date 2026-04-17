@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import { companyCustomRoles, companyMemberships, profiles, superAdmins } from "@/db/schema";
 import { verifyAccessToken } from "@/lib/auth";
 import { AppError } from "@/lib/errors";
+import { ensurePartnerMembershipAssignmentsForUser } from "@/lib/partner-role-access";
 import { requireActiveAuthSession } from "@/lib/security";
 import { hasMinimumRole } from "@/middleware/roles";
 import type { CompanyModuleKey, CompanyRole } from "@/types/app";
@@ -77,6 +78,8 @@ export const requireTenant: MiddlewareHandler = async (c, next) => {
 
   const requestedCompanyId = c.req.header("x-company-id") ?? c.req.query("companyId") ?? null;
   const requestedStoreId = c.req.header("x-store-id") ?? c.req.query("storeId") ?? null;
+
+  await ensurePartnerMembershipAssignmentsForUser(user.id, requestedCompanyId);
 
   const memberships = await db
     .select({

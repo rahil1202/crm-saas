@@ -269,6 +269,14 @@ const statusTone: Record<CampaignStatus, "outline" | "secondary" | "default" | "
 };
 
 export function CampaignsListPage() {
+  return <CampaignsListPageContent mode="campaigns" />;
+}
+
+export function CampaignTemplatesPage() {
+  return <CampaignsListPageContent mode="templates" />;
+}
+
+function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" }) {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -303,6 +311,7 @@ export function CampaignsListPage() {
     resetColumns,
     requestSort,
   } = useCrmListState<CampaignFilters, CampaignSortKey, CampaignColumnKey>({
+    defaultTab: mode === "templates" ? "documents" : "all",
     defaultFilters: emptyFilters,
     defaultSortBy: "startDate",
     defaultSortDir: "desc",
@@ -316,12 +325,14 @@ export function CampaignsListPage() {
     lockedColumns: lockedCampaignColumns,
   });
 
+  const effectiveTab = mode === "templates" ? "documents" : tab;
+
   const activeFilterChips = useMemo(
     () =>
       getFilterChips(filters).filter((chip) =>
-        tab === "documents" ? chip.key === "q" || chip.key === "templateType" : chip.key !== "templateType",
+        effectiveTab === "documents" ? chip.key === "q" || chip.key === "templateType" : chip.key !== "templateType",
       ),
-    [filters, tab],
+    [effectiveTab, filters],
   );
 
   useEffect(() => {
@@ -365,7 +376,7 @@ export function CampaignsListPage() {
     params.set("offset", String((page - 1) * limit));
     if (filters.q.trim()) params.set("q", filters.q.trim());
     if (filters.status.trim()) params.set("status", filters.status.trim());
-    if (tab === "mine" && myUserId) params.set("createdBy", myUserId);
+    if (effectiveTab === "mine" && myUserId) params.set("createdBy", myUserId);
 
     try {
       const response = await apiRequest<CampaignListResponse>(`/campaigns/list?${params.toString()}`);
@@ -377,7 +388,7 @@ export function CampaignsListPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters.q, filters.status, limit, myUserId, page, tab]);
+  }, [effectiveTab, filters.q, filters.status, limit, myUserId, page]);
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -402,17 +413,17 @@ export function CampaignsListPage() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (tab === "documents") {
+      if (effectiveTab === "documents") {
         void loadTemplates();
         return;
       }
-      if (tab === "mine" && !myUserId) {
+      if (effectiveTab === "mine" && !myUserId) {
         return;
       }
       void loadCampaigns();
     }, 180);
     return () => window.clearTimeout(timer);
-  }, [loadCampaigns, loadTemplates, myUserId, tab]);
+  }, [effectiveTab, loadCampaigns, loadTemplates, myUserId]);
 
   const sortedCampaigns = useMemo(() => {
     const next = [...campaigns];
@@ -544,14 +555,14 @@ export function CampaignsListPage() {
       params.set("offset", String(nextOffset));
       if (filters.q.trim()) params.set("q", filters.q.trim());
       if (filters.status.trim()) params.set("status", filters.status.trim());
-      if (tab === "mine" && myUserId) params.set("createdBy", myUserId);
+      if (effectiveTab === "mine" && myUserId) params.set("createdBy", myUserId);
       const response = await apiRequest<CampaignListResponse>(`/campaigns/list?${params.toString()}`, { skipCache: true });
       items.push(...response.items);
       nextOffset += response.items.length;
       if (response.items.length === 0 || nextOffset >= response.total) break;
     }
     return items;
-  }, [filters.q, filters.status, myUserId, tab]);
+  }, [effectiveTab, filters.q, filters.status, myUserId]);
 
   const loadAllTemplatesForExport = useCallback(async () => {
     const items: Template[] = [];
@@ -572,15 +583,18 @@ export function CampaignsListPage() {
 
   const handleExport = async () => {
     try {
-      const csv = tab === "documents" ? buildTemplatesCsv(await loadAllTemplatesForExport()) : buildCampaignsCsv(await loadAllCampaignsForExport());
+      const csv =
+        effectiveTab === "documents"
+          ? buildTemplatesCsv(await loadAllTemplatesForExport())
+          : buildCampaignsCsv(await loadAllCampaignsForExport());
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = tab === "documents" ? "campaign-templates.csv" : "campaigns.csv";
+      link.download = effectiveTab === "documents" ? "campaign-templates.csv" : "campaigns.csv";
       link.click();
       URL.revokeObjectURL(url);
-      toast.success(tab === "documents" ? "Templates exported" : "Campaigns exported");
+      toast.success(effectiveTab === "documents" ? "Templates exported" : "Campaigns exported");
     } catch (requestError) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to export data";
       setError(message);
@@ -592,40 +606,46 @@ export function CampaignsListPage() {
     <div className="grid gap-5">
       {error ? (
         <Alert variant="destructive">
-          <AlertTitle>Campaign request failed</AlertTitle>
+          <AlertTitle>{mode === "templates" ? "Template request failed" : "Campaign request failed"}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
 
       <CrmListPageHeader
-        title="Campaigns"
+        title={mode === "templates" ? "Templates" : "Campaigns"}
         actions={
           <>
             <Button type="button" variant="outline" size="sm" onClick={() => void handleExport()}>
               <Download className="size-4" /> Export
             </Button>
-            <Button type="button" variant="secondary" size="sm" disabled title="Campaign import is not available yet">
-              <Import className="size-4" /> Import
-            </Button>
-            <Button type="button" size="sm" onClick={() => router.push("/dashboard/campaigns/add")}>
-              <Plus className="size-4" /> Create
-            </Button>
+            {mode === "campaigns" ? (
+              <>
+                <Button type="button" variant="secondary" size="sm" disabled title="Campaign import is not available yet">
+                  <Import className="size-4" /> Import
+                </Button>
+                <Button type="button" size="sm" onClick={() => router.push("/dashboard/campaigns/add")}>
+                  <Plus className="size-4" /> Create
+                </Button>
+              </>
+            ) : null}
           </>
         }
       />
 
       <section className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
-        <div className="px-4 pt-3">
-          <CrmListViewTabs
-            value={tab}
-            onValueChange={setTab}
-            labels={{ all: "All Campaigns", mine: "My Campaigns", documents: "Templates" }}
-          />
-        </div>
+        {mode === "campaigns" ? (
+          <div className="px-4 pt-3">
+            <CrmListViewTabs
+              value={tab}
+              onValueChange={setTab}
+              labels={{ all: "All Campaigns", mine: "My Campaigns", documents: "Templates" }}
+            />
+          </div>
+        ) : null}
 
         <CrmListToolbar
           searchValue={filters.q}
-          searchPlaceholder={tab === "documents" ? "Search templates" : "Search campaigns"}
+          searchPlaceholder={effectiveTab === "documents" ? "Search templates" : "Search campaigns"}
           onSearchChange={(value) => {
             setPage(1);
             setFilters((current) => ({ ...current, q: value }));
@@ -635,14 +655,14 @@ export function CampaignsListPage() {
           filterCount={activeFilterChips.length}
           onOpenColumns={() => setColumnSettingsOpen(true)}
           onRefresh={() => {
-            if (tab === "documents") {
+            if (effectiveTab === "documents") {
               void loadTemplates();
               return;
             }
             void loadCampaigns();
           }}
           extraContent={
-            tab !== "documents" ? (
+            effectiveTab !== "documents" ? (
               <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-white px-3 py-2 text-sm text-muted-foreground">
                 <Checkbox
                   checked={sortedCampaigns.length > 0 && selectedCampaignIds.length === sortedCampaigns.length}
@@ -680,7 +700,7 @@ export function CampaignsListPage() {
           </div>
         </div>
 
-        {tab === "documents" ? (
+        {effectiveTab === "documents" ? (
           <CrmDataTable
             columns={templateColumns}
             rows={templates}
@@ -754,7 +774,7 @@ export function CampaignsListPage() {
       <CrmFilterDrawer
         open={filterOpen}
         title="Filter"
-        description={tab === "documents" ? "Filter templates by search and type." : "Filter campaigns by search and status."}
+        description={effectiveTab === "documents" ? "Filter templates by search and type." : "Filter campaigns by search and status."}
         onClose={() => setFilterOpen(false)}
         onClear={clearFilterDraft}
         onApply={() => {
@@ -771,12 +791,12 @@ export function CampaignsListPage() {
                 value={filterDraft.q}
                 onChange={(event) => setFilterDraft((current) => ({ ...current, q: event.target.value }))}
                 className="h-10 text-sm"
-                placeholder={tab === "documents" ? "Template name" : "Campaign name"}
+                placeholder={effectiveTab === "documents" ? "Template name" : "Campaign name"}
               />
             </Field>
           </div>
 
-          {tab === "documents" ? (
+          {effectiveTab === "documents" ? (
             <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
               <div className="text-sm font-semibold text-slate-900">Template details</div>
               <Field>
@@ -819,7 +839,7 @@ export function CampaignsListPage() {
       </CrmFilterDrawer>
 
       <CrmColumnSettings
-        open={columnSettingsOpen && tab !== "documents"}
+        open={columnSettingsOpen && effectiveTab !== "documents"}
         description="Choose which campaign columns stay visible in the table."
         columns={campaignColumns.map((column) => ({ key: column.key, label: column.label }))}
         columnVisibility={columnVisibility}
@@ -830,7 +850,7 @@ export function CampaignsListPage() {
       />
 
       <CrmColumnSettings
-        open={columnSettingsOpen && tab === "documents"}
+        open={columnSettingsOpen && effectiveTab === "documents"}
         description="Choose which template columns stay visible in the table."
         columns={templateColumns.map((column) => ({ key: column.key, label: column.label }))}
         columnVisibility={templateColumnVisibility}
@@ -838,7 +858,6 @@ export function CampaignsListPage() {
         onReset={resetTemplateColumns}
         onClose={() => setColumnSettingsOpen(false)}
       />
-
     </div>
   );
 }

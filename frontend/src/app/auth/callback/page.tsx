@@ -12,6 +12,7 @@ import { fetchAuthMe } from "@/lib/auth-client";
 import { getFrontendEnv } from "@/lib/env";
 import { clearPendingIntegrationOauthContext, readPendingIntegrationOauthContext } from "@/lib/integration-oauth";
 import { clearPendingInviteReferralContext, readPendingInviteReferralContext, savePendingInviteReferralContext } from "@/lib/invite-referral";
+import { resolveAuthenticatedRouteFromMe } from "@/lib/partner-access";
 import { supabase } from "@/lib/supabase";
 
 function AuthCallbackContent() {
@@ -154,7 +155,7 @@ function AuthCallbackContent() {
 
         const me = await fetchAuthMe();
         if (!disposed) {
-          router.replace(me?.needsOnboarding ? "/onboarding" : "/dashboard");
+          router.replace(resolveAuthenticatedRouteFromMe(me));
         }
       } catch (caughtError) {
         clearPendingIntegrationOauthContext();

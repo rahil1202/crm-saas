@@ -5,19 +5,24 @@ import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import {
   companies,
+  followUps,
   companyCustomRoles,
   companyMemberships,
   companyPlans,
+  campaigns,
   deals,
   leads,
   partnerCompanies,
   partnerUsers,
   profiles,
   stores,
+  tasks,
+  templates,
 } from "@/db/schema";
 import { assertPasswordPolicy, createManagedSupabaseUser, findManagedSupabaseUserByEmail, updateManagedSupabaseUser } from "@/lib/auth";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
+import { ensurePartnerCustomRole } from "@/lib/partner-role-access";
 import { leavePartnerCompanySchema, partnerCompanyParamSchema, partnerParamSchema, partnerUserParamSchema } from "@/modules/partners/schema";
 import type {
   CreatePartnerInput,
@@ -28,33 +33,6 @@ import type {
   UpdatePartnerInput,
   UpdatePartnerUserInput,
 } from "@/modules/partners/schema";
-import type { CompanyModuleKey } from "@/types/app";
-
-const partnerRoleModules: CompanyModuleKey[] = ["contacts", "leads", "deals", "documents", "reports"];
-
-async function ensurePartnerCustomRole(companyId: string, createdBy: string) {
-  const [existing] = await db
-    .select({ id: companyCustomRoles.id })
-    .from(companyCustomRoles)
-    .where(and(eq(companyCustomRoles.companyId, companyId), eq(companyCustomRoles.name, "Partner"), isNull(companyCustomRoles.deletedAt)))
-    .limit(1);
-
-  if (existing) {
-    return existing.id;
-  }
-
-  const [created] = await db
-    .insert(companyCustomRoles)
-    .values({
-      companyId,
-      name: "Partner",
-      modules: partnerRoleModules,
-      createdBy,
-    })
-    .returning({ id: companyCustomRoles.id });
-
-  return created.id;
-}
 
 async function upsertPartnerAccess(input: {
   companyId: string;
@@ -157,6 +135,56 @@ async function upsertPartnerAccess(input: {
     },
     createdBy: input.createdBy,
   });
+}
+
+async function getActivePartnerAccessOrThrow(input: { userId: string; companyId: string }) {
+  const [partnerAccess] = await db
+    .select({
+      companyId: partnerUsers.companyId,
+      companyName: companies.name,
+      timezone: companies.timezone,
+      currency: companies.currency,
+      partnerCompanyId: partnerUsers.partnerCompanyId,
+      partnerCompanyName: partnerCompanies.name,
+      partnerContactName: partnerCompanies.contactName,
+      partnerEmail: partnerCompanies.email,
+      partnerPhone: partnerCompanies.phone,
+      linkedAt: partnerUsers.createdAt,
+      lastAccessAt: partnerUsers.lastAccessAt,
+      storeId: companyMemberships.storeId,
+      storeName: stores.name,
+    })
+    .from(partnerUsers)
+    .innerJoin(
+      partnerCompanies,
+      and(eq(partnerCompanies.id, partnerUsers.partnerCompanyId), isNull(partnerCompanies.deletedAt)),
+    )
+    .innerJoin(companies, and(eq(companies.id, partnerUsers.companyId), isNull(companies.deletedAt)))
+    .innerJoin(
+      companyMemberships,
+      and(
+        eq(companyMemberships.companyId, partnerUsers.companyId),
+        eq(companyMemberships.userId, input.userId),
+        eq(companyMemberships.status, "active"),
+        isNull(companyMemberships.deletedAt),
+      ),
+    )
+    .leftJoin(stores, eq(stores.id, companyMemberships.storeId))
+    .where(
+      and(
+        eq(partnerUsers.companyId, input.companyId),
+        eq(partnerUsers.authUserId, input.userId),
+        eq(partnerUsers.status, "active"),
+        isNull(partnerUsers.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!partnerAccess) {
+    throw AppError.forbidden("This company is not linked to the authenticated partner account");
+  }
+
+  return partnerAccess;
 }
 
 export async function listMyPartnerCompanies(c: Context<AppEnv>) {
@@ -282,6 +310,212 @@ export async function leaveMyPartnerCompany(c: Context<AppEnv>) {
   });
 }
 
+export async function getMyPartnerDashboard(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const now = new Date();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const partnerAccess = await getActivePartnerAccessOrThrow({
+    userId: user.id,
+    companyId: tenant.companyId,
+  });
+
+  await db
+    .update(partnerUsers)
+    .set({
+      lastAccessAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(partnerUsers.companyId, tenant.companyId),
+        eq(partnerUsers.authUserId, user.id),
+        eq(partnerUsers.partnerCompanyId, partnerAccess.partnerCompanyId),
+        isNull(partnerUsers.deletedAt),
+      ),
+    );
+
+  const [
+    leadRows,
+    dealRows,
+    taskRows,
+    followUpRows,
+    campaignCountRows,
+    templateCountRows,
+    companyContactRows,
+  ] = await Promise.all([
+    db
+      .select({
+        id: leads.id,
+        title: leads.title,
+        fullName: leads.fullName,
+        email: leads.email,
+        status: leads.status,
+        assignedToUserId: leads.assignedToUserId,
+        createdAt: leads.createdAt,
+      })
+      .from(leads)
+      .where(
+        and(
+          eq(leads.companyId, tenant.companyId),
+          eq(leads.partnerCompanyId, partnerAccess.partnerCompanyId),
+          isNull(leads.deletedAt),
+        ),
+      )
+      .orderBy(desc(leads.createdAt)),
+    db
+      .select({
+        id: deals.id,
+        title: deals.title,
+        stage: deals.stage,
+        status: deals.status,
+        value: deals.value,
+        expectedCloseDate: deals.expectedCloseDate,
+        assignedToUserId: deals.assignedToUserId,
+        createdAt: deals.createdAt,
+        updatedAt: deals.updatedAt,
+      })
+      .from(deals)
+      .where(
+        and(
+          eq(deals.companyId, tenant.companyId),
+          eq(deals.partnerCompanyId, partnerAccess.partnerCompanyId),
+          isNull(deals.deletedAt),
+        ),
+      )
+      .orderBy(desc(deals.updatedAt), desc(deals.createdAt)),
+    db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        status: tasks.status,
+        priority: tasks.priority,
+        dueAt: tasks.dueAt,
+      })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.companyId, tenant.companyId),
+          eq(tasks.assignedToUserId, user.id),
+          isNull(tasks.deletedAt),
+        ),
+      )
+      .orderBy(desc(tasks.createdAt)),
+    db
+      .select({
+        id: followUps.id,
+        subject: followUps.subject,
+        channel: followUps.channel,
+        status: followUps.status,
+        scheduledAt: followUps.scheduledAt,
+        leadId: followUps.leadId,
+        dealId: followUps.dealId,
+        createdAt: followUps.createdAt,
+      })
+      .from(followUps)
+      .where(
+        and(
+          eq(followUps.companyId, tenant.companyId),
+          eq(followUps.assignedToUserId, user.id),
+          isNull(followUps.deletedAt),
+        ),
+      )
+      .orderBy(desc(followUps.scheduledAt), desc(followUps.createdAt)),
+    db
+      .select({ count: count() })
+      .from(campaigns)
+      .where(and(eq(campaigns.companyId, tenant.companyId), eq(campaigns.status, "active"), isNull(campaigns.deletedAt))),
+    db
+      .select({ count: count() })
+      .from(templates)
+      .where(and(eq(templates.companyId, tenant.companyId), isNull(templates.deletedAt))),
+    db
+      .select({
+        membershipId: companyMemberships.id,
+        userId: companyMemberships.userId,
+        fullName: profiles.fullName,
+        email: profiles.email,
+        role: companyMemberships.role,
+        customRoleName: companyCustomRoles.name,
+        storeName: stores.name,
+      })
+      .from(companyMemberships)
+      .innerJoin(profiles, eq(profiles.id, companyMemberships.userId))
+      .leftJoin(stores, eq(stores.id, companyMemberships.storeId))
+      .leftJoin(
+        companyCustomRoles,
+        and(eq(companyCustomRoles.id, companyMemberships.customRoleId), isNull(companyCustomRoles.deletedAt)),
+      )
+      .where(
+        and(
+          eq(companyMemberships.companyId, tenant.companyId),
+          eq(companyMemberships.status, "active"),
+          isNull(companyMemberships.deletedAt),
+          or(eq(companyMemberships.role, "owner"), eq(companyMemberships.role, "admin")),
+        ),
+      )
+      .orderBy(companyMemberships.role, profiles.fullName),
+  ]);
+
+  const openTasks = taskRows.filter((task) => task.status !== "done");
+  const overdueTasks = openTasks.filter((task) => task.dueAt && new Date(task.dueAt) <= now).length;
+  const dueTodayTasks = openTasks.filter((task) => task.dueAt && new Date(task.dueAt).toISOString().slice(0, 10) === now.toISOString().slice(0, 10)).length;
+
+  const pendingFollowUps = followUpRows.filter((followUp) => followUp.status === "pending").length;
+  const completedFollowUps30d = followUpRows.filter(
+    (followUp) => followUp.status === "completed" && new Date(followUp.createdAt) >= thirtyDaysAgo,
+  ).length;
+
+  return ok(c, {
+    company: {
+      id: partnerAccess.companyId,
+      name: partnerAccess.companyName,
+      timezone: partnerAccess.timezone,
+      currency: partnerAccess.currency,
+    },
+    partner: {
+      partnerCompanyId: partnerAccess.partnerCompanyId,
+      partnerCompanyName: partnerAccess.partnerCompanyName,
+      partnerContactName: partnerAccess.partnerContactName,
+      partnerEmail: partnerAccess.partnerEmail,
+      partnerPhone: partnerAccess.partnerPhone,
+      linkedAt: partnerAccess.linkedAt,
+      lastAccessAt: partnerAccess.lastAccessAt ?? now,
+      storeId: partnerAccess.storeId,
+      storeName: partnerAccess.storeName,
+    },
+    summary: {
+      assignedLeads: leadRows.length,
+      openDeals: dealRows.filter((deal) => deal.status === "open").length,
+      wonDeals: dealRows.filter((deal) => deal.status === "won").length,
+      wonRevenue: dealRows.filter((deal) => deal.status === "won").reduce((total, deal) => total + deal.value, 0),
+      overdueTasks,
+      dueTodayTasks,
+      pendingFollowUps,
+      completedFollowUps30d,
+      activeCampaigns: campaignCountRows[0]?.count ?? 0,
+      availableTemplates: templateCountRows[0]?.count ?? 0,
+    },
+    recentLeads: leadRows.slice(0, 5),
+    openPipeline: dealRows.filter((deal) => deal.status === "open").slice(0, 5),
+    recentWins: dealRows.filter((deal) => deal.status === "won").slice(0, 5),
+    upcomingFollowUps: followUpRows
+      .filter((followUp) => followUp.status === "pending")
+      .sort((left, right) => new Date(left.scheduledAt).getTime() - new Date(right.scheduledAt).getTime())
+      .slice(0, 5),
+    assignedTasks: taskRows
+      .filter((task) => task.status !== "done")
+      .sort((left, right) => {
+        const leftValue = left.dueAt ? new Date(left.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
+        const rightValue = right.dueAt ? new Date(right.dueAt).getTime() : Number.MAX_SAFE_INTEGER;
+        return leftValue - rightValue;
+      })
+      .slice(0, 5),
+    companyContacts: companyContactRows.slice(0, 6),
+  });
+}
+
 export async function listPartners(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const query = c.get("validatedQuery") as ListPartnersQuery;
@@ -325,6 +559,10 @@ export async function createPartner(c: Context<AppEnv>) {
 
   let notes = body.notes ?? null;
   let managedUserId: string | null = null;
+
+  if (body.password && !body.email) {
+    throw AppError.badRequest("Email is required when creating a partner login");
+  }
 
   if (body.email && !body.contactName) {
     throw AppError.badRequest("Contact person is required when creating a partner login");

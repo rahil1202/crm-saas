@@ -35,6 +35,7 @@ import {
 import { ok } from "@/lib/api";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import { ensurePartnerMembershipAssignmentsForUser } from "@/lib/partner-role-access";
 import { ensureAuthSession, recordSecurityAuditLog, requireActiveAuthSession, revokeAuthSession } from "@/lib/security";
 import {
   buildInviteRegistrationUrl,
@@ -783,6 +784,8 @@ export async function logout(c: Context<AppEnv>) {
 export async function getCurrentUser(c: Context<AppEnv>) {
   const user = c.get("user");
   const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
+
+  await ensurePartnerMembershipAssignmentsForUser(user.id);
 
   const memberships = await db
     .select({

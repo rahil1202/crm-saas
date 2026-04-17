@@ -5,6 +5,7 @@ import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { companyCustomRoles, companyMemberships } from "@/db/schema";
 import { ok } from "@/lib/api";
+import { partnerRoleModules } from "@/lib/company-role-modules";
 import { AppError } from "@/lib/errors";
 import { roleParamSchema } from "@/modules/company-roles/schema";
 import type { CreateCustomRoleInput, UpdateCustomRoleInput } from "@/modules/company-roles/schema";
@@ -32,7 +33,7 @@ const defaultCompanyRoles: Array<{ name: string; modules: string[] }> = [
   },
   {
     name: "Partner",
-    modules: ["contacts", "leads", "deals", "documents", "reports"],
+    modules: partnerRoleModules,
   },
 ];
 

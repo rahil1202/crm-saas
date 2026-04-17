@@ -63,7 +63,7 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   minRole: CompanyRole;
-  moduleKey?: "contacts" | "leads" | "deals" | "tasks" | "documents" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams";
+  moduleKey?: "contacts" | "leads" | "deals" | "tasks" | "documents" | "templates" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams";
   superAdminOnly?: boolean;
   partnerAccessOnly?: boolean;
 };
@@ -78,6 +78,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard/tasks", label: "Tasks", icon: PanelsTopLeft, minRole: "member", moduleKey: "tasks" },
   { href: "/dashboard/partners", label: "Partners", icon: Building2, minRole: "admin", moduleKey: "partners" },
   { href: "/dashboard/campaigns", label: "Campaign", icon: Megaphone, minRole: "admin", moduleKey: "campaigns" },
+  { href: "/dashboard/templates", label: "Templates", icon: FileText, minRole: "admin", moduleKey: "templates" },
   { href: "/dashboard/automation", label: "Automation", icon: Sparkles, minRole: "admin", moduleKey: "automation" },
   { href: "/dashboard/chatbot-flows", label: "Chatbot Flows", icon: Network, minRole: "admin", moduleKey: "automation" },
   { href: "/dashboard/reports", label: "Reports", icon: ChartColumnBig, minRole: "admin", moduleKey: "reports" },
@@ -93,7 +94,7 @@ const navGroups = [
   { id: "home", label: "Home", hrefs: ["/dashboard/company", "/dashboard"] },
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
-  { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
+  { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
   { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/settings", "/dashboard/partners"] },
   { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
 ];
@@ -105,7 +106,8 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
   // },
   marketing: {
     "/dashboard/campaigns": { label: "Campaign", icon: Megaphone },
-    "/dashboard/documents": { label: "Templates", icon: FileText },
+    "/dashboard/templates": { label: "Templates", icon: FileText },
+    "/dashboard/documents": { label: "Files", icon: FileText },
     "/dashboard/notifications": { label: "Forms", icon: Bell },
     "/dashboard/social": { label: "Meta", icon: MessageSquareShare },
   },
@@ -178,7 +180,7 @@ export function AppShell({
         return false;
       }
 
-       if (item.partnerAccessOnly && !partnerUser) {
+      if (item.partnerAccessOnly && !partnerUser) {
         return false;
       }
 

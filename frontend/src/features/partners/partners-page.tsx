@@ -362,6 +362,41 @@ function Modal({
   );
 }
 
+function DeletePartnerModal({
+  partnerName,
+  submitting,
+  onCancel,
+  onConfirm,
+}: {
+  partnerName: string;
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      title="Delete Partner"
+      description={`This will permanently remove ${partnerName} from the workspace.`}
+      onClose={onCancel}
+      maxWidthClassName="max-w-xl"
+    >
+      <div className="grid gap-4">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          This action cannot be undone. Any linked partner profile access for this company will be removed from the admin list.
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="destructive" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={submitting} onClick={onConfirm}>
+            {submitting ? "Deleting..." : "Confirm delete"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function PartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [partnerUsers, setPartnerUsers] = useState<PartnerUser[]>([]);
@@ -1211,24 +1246,12 @@ export default function PartnersPage() {
       ) : null}
 
       {modalMode === "delete" && selectedPartner ? (
-        <Modal
-          title="Delete Partner"
-          description={`Remove ${selectedPartner.name} from the workspace.`}
-          onClose={closeModal}
-          maxWidthClassName="max-w-xl"
-        >
-          <div className="grid gap-3">
-            <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
-            <div className="flex gap-2">
-              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={submitting}>
-                {submitting ? "Deleting..." : "Delete"}
-              </Button>
-              <Button type="button" variant="destructive" onClick={closeModal}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </Modal>
+        <DeletePartnerModal
+          partnerName={selectedPartner.name}
+          submitting={submitting}
+          onCancel={closeModal}
+          onConfirm={() => void handleDelete()}
+        />
       ) : null}
 
       <CrmFilterDrawer

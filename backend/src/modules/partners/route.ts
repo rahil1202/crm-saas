@@ -7,6 +7,7 @@ import {
   deletePartner,
   deletePartnerUser,
   getPartnerDetail,
+  getMyPartnerDashboard,
   leaveMyPartnerCompany,
   listPartners,
   listMyPartnerCompanies,
@@ -29,6 +30,7 @@ import { validateJson, validateQuery } from "@/middleware/common";
 export const partnerRoutes = new Hono<AppEnv>().basePath("/partners");
 
 partnerRoutes.get("/me/companies", requireAuth, listMyPartnerCompanies);
+partnerRoutes.get("/me/dashboard", requireAuth, requireTenant, getMyPartnerDashboard);
 partnerRoutes.delete("/me/companies/:companyId", requireAuth, validateJson(leavePartnerCompanySchema), leaveMyPartnerCompany);
 
 partnerRoutes.get("/", requireAuth, requireTenant, requireModuleAccess("partners"), validateQuery(listPartnersSchema), listPartners);

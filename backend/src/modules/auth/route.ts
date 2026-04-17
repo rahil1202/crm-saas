@@ -35,7 +35,7 @@ import {
   resendVerificationSchema,
   resetPasswordSchema,
 } from "@/modules/auth/schema";
-import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
+import { requireAuth, requireModuleAccess, requireRole, requireTenant } from "@/middleware/auth";
 import { validateJson } from "@/middleware/common";
 import { enforceBodyLimit, rateLimit } from "@/middleware/security";
 import { bodyLimits, routePolicies } from "@/lib/security";
@@ -58,5 +58,5 @@ authRoutes.post("/invite", requireAuth, requireTenant, requireModuleAccess("team
 authRoutes.get("/invites", requireAuth, requireTenant, requireModuleAccess("teams"), listInvites);
 authRoutes.get("/invite/:token", getInviteLookup);
 authRoutes.post("/accept-invite", requireAuth, validateJson(acceptInviteSchema), acceptInvite);
-authRoutes.post("/referrals", requireAuth, requireTenant, requireModuleAccess("teams"), validateJson(createReferralSchema), createReferralLink);
-authRoutes.get("/referrals", requireAuth, requireTenant, requireModuleAccess("teams"), listReferralLinks);
+authRoutes.post("/referrals", requireAuth, requireTenant, requireRole("admin"), requireModuleAccess("teams"), validateJson(createReferralSchema), createReferralLink);
+authRoutes.get("/referrals", requireAuth, requireTenant, requireRole("admin"), requireModuleAccess("teams"), listReferralLinks);

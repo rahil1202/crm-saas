@@ -86,14 +86,14 @@ settingRoutes.patch(
   validateJson(updateNotificationRulesSchema),
   updateNotificationRules,
 );
-settingRoutes.get("/integrations", requireAuth, requireTenant, requireModuleAccess("settings"), getIntegrations);
-settingRoutes.get("/integration-hub", requireAuth, requireTenant, requireModuleAccess("settings"), getIntegrationsHub);
+settingRoutes.get("/integrations", requireAuth, requireTenant, requireModuleAccess("integrations"), getIntegrations);
+settingRoutes.get("/integration-hub", requireAuth, requireTenant, requireModuleAccess("integrations"), getIntegrationsHub);
 settingRoutes.get("/runtime-readiness", requireAuth, requireTenant, requireModuleAccess("settings"), getRuntimeReadiness);
 settingRoutes.patch(
   "/integrations",
   requireAuth,
   requireTenant,
-  requireModuleAccess("settings"),
+  requireModuleAccess("integrations"),
   validateJson(updateIntegrationsSchema),
   updateIntegrations,
 );
@@ -101,7 +101,7 @@ settingRoutes.post(
   "/integrations/oauth/link",
   requireAuth,
   requireTenant,
-  requireModuleAccess("settings"),
+  requireModuleAccess("integrations"),
   validateJson(linkIntegrationOauthSchema),
   linkIntegrationOauth,
 );
@@ -109,7 +109,7 @@ settingRoutes.post(
   "/integrations/oauth/disconnect",
   requireAuth,
   requireTenant,
-  requireModuleAccess("settings"),
+  requireModuleAccess("integrations"),
   validateJson(disconnectIntegrationOauthSchema),
   disconnectIntegrationOauth,
 );

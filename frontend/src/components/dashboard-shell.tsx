@@ -97,6 +97,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Tasks & Follow-ups",
     description: "Task execution workspace with overdue visibility, due-date planning, and month calendar coverage.",
   },
+  "/dashboard/templates": {
+    title: "Templates",
+    description: "Review and manage reusable campaign templates for the active company.",
+  },
 };
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {

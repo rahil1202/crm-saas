@@ -2,18 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  Building2,
-  CalendarDays,
   Copy,
   Mail,
-  MapPin,
   PencilLine,
   Phone,
   ShieldCheck,
-  UserRound,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -117,6 +114,8 @@ type PartnerFormState = {
   notes: string;
 };
 
+type ProfileTab = "overview" | "assignedLeads";
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Not Available";
   return new Intl.DateTimeFormat("en-US", {
@@ -126,14 +125,6 @@ function formatDateTime(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
 }
 
 function DetailItem({
@@ -148,7 +139,7 @@ function DetailItem({
   return (
     <div className="grid gap-1">
       <div className="text-sm text-slate-500">{label}</div>
-      <div className={cn("text-[1.05rem] font-medium text-slate-900", subtle ? "text-slate-400" : "")}>{value}</div>
+      <div className={cn("text-[1.02rem] font-medium text-slate-900", subtle && "text-slate-400")}>{value}</div>
     </div>
   );
 }
@@ -196,10 +187,12 @@ function buildPayload(form: PartnerFormState) {
 
 function Modal({
   title,
+  description,
   children,
   onClose,
 }: {
   title: string;
+  description?: string;
   children: ReactNode;
   onClose: () => void;
 }) {
@@ -208,7 +201,10 @@ function Modal({
       <div className="flex h-full items-start justify-center overflow-y-auto">
         <div className="w-full max-w-5xl overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]">
           <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
-            <div className="text-base font-semibold text-slate-900">{title}</div>
+            <div>
+              <div className="text-base font-semibold text-slate-900">{title}</div>
+              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+            </div>
             <Button type="button" variant="destructive" size="xs" onClick={onClose}>
               Close
             </Button>
@@ -220,15 +216,53 @@ function Modal({
   );
 }
 
+function DeletePartnerModal({
+  partnerName,
+  submitting,
+  onCancel,
+  onConfirm,
+}: {
+  partnerName: string;
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      title="Delete Partner"
+      description={`This will permanently remove ${partnerName} from the workspace.`}
+      onClose={onCancel}
+    >
+      <div className="grid gap-4">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          This action cannot be undone. Confirm only if you want to remove the partner company and its admin-side profile.
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="destructive" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={submitting} onClick={onConfirm}>
+            {submitting ? "Deleting..." : "Confirm delete"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function PartnerProfilePage() {
   const params = useParams<{ partnerId: string }>();
+  const router = useRouter();
   const partnerId = params?.partnerId;
   const [data, setData] = useState<PartnerDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [form, setForm] = useState<PartnerFormState | null>(null);
+  const [tab, setTab] = useState<ProfileTab>("overview");
 
   const loadDetail = useCallback(async () => {
     if (!partnerId) return;
@@ -251,7 +285,14 @@ export default function PartnerProfilePage() {
   }, [loadDetail]);
 
   const metadata = useMemo(() => parsePartnerNotes(data?.partner.notes), [data?.partner.notes]);
-  const locationLabel = [metadata.city, metadata.state, metadata.country].filter(Boolean).join(", ");
+
+  const statusBreakdown = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const lead of data?.recentLeads ?? []) {
+      counts.set(lead.status, (counts.get(lead.status) ?? 0) + 1);
+    }
+    return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [data?.recentLeads]);
 
   const handleSave = async () => {
     if (!data || !form) return;
@@ -272,6 +313,26 @@ export default function PartnerProfilePage() {
       toast.error(message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!data) return;
+
+    setDeleting(true);
+    setError(null);
+    try {
+      await apiRequest(`/partners/${data.partner.id}`, { method: "DELETE" });
+      toast.success("Partner removed");
+      router.push("/dashboard/partners");
+      router.refresh();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete partner";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeleting(false);
+      setShowDeleteModal(false);
     }
   };
 
@@ -297,21 +358,20 @@ export default function PartnerProfilePage() {
         </Alert>
       ) : null}
 
-      <div className="flex items-center gap-3">
-        <Link href="/dashboard/partners" className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
-          <ArrowLeft className="size-4" />
-          Back to Partners
-        </Link>
-      </div>
-
-      <section className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <section className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)_320px]">
         <aside className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
           <div className="border-b border-border/60 px-6 py-6">
-            <Avatar className="size-20 border border-border/60 bg-slate-50">
-              <AvatarFallback className="text-2xl font-semibold text-primary">{getInitials(data.partner.contactName || data.partner.name)}</AvatarFallback>
+            <Link href="/dashboard/partners" className="inline-flex items-center gap-2 text-sm font-medium text-sky-600 transition hover:text-sky-700">
+              <ArrowLeft className="size-4" />
+              Back To Partners
+            </Link>
+
+            <Avatar className="mt-6 size-20 border border-border/60 bg-slate-50">
+              <AvatarFallback className="bg-primary text-2xl font-semibold text-white">{getInitials(data.partner.contactName || data.partner.name)}</AvatarFallback>
             </Avatar>
+
             <div className="mt-5">
-              <div className="text-[1.85rem] font-semibold tracking-[-0.03em] text-slate-900">{data.partner.contactName || data.partner.name}</div>
+              <div className="text-[1.9rem] font-semibold tracking-[-0.03em] text-slate-900">{data.partner.contactName || data.partner.name}</div>
               <div className="mt-1 text-lg text-slate-500">{data.partner.name}</div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Badge variant={data.partner.status === "active" ? "secondary" : "outline"}>{data.partner.status}</Badge>
@@ -319,110 +379,162 @@ export default function PartnerProfilePage() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  if (data.partner.email) {
-                    navigator.clipboard.writeText(data.partner.email);
-                    toast.success("Email copied");
-                  }
-                }}
-                className="inline-flex items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50"
-              >
-                <Mail className="size-4 text-slate-400" />
-                <span className="truncate">{data.partner.email || "No email address"}</span>
-                {data.partner.email ? <Copy className="ml-auto size-4 text-slate-400" /> : null}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (data.partner.email) {
+                  navigator.clipboard.writeText(data.partner.email);
+                  toast.success("Email copied");
+                }
+              }}
+              className="mt-5 inline-flex w-full items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-left text-sm text-sky-600 transition hover:bg-slate-50"
+            >
+              <span className="truncate">{data.partner.email || "No email address"}</span>
+              {data.partner.email ? <Copy className="ml-auto size-4 text-sky-500" /> : null}
+            </button>
           </div>
 
           <div className="grid gap-5 px-6 py-6">
             <div className="text-lg font-semibold text-slate-900">About</div>
-
             <DetailItem label="Contact Person" value={data.partner.contactName || "Not Available"} subtle={!data.partner.contactName} />
             <DetailItem label="Email" value={data.partner.email || "Not Available"} subtle={!data.partner.email} />
             <DetailItem label="Contact" value={data.partner.phone || "Not Available"} subtle={!data.partner.phone} />
             <DetailItem label="Country" value={metadata.country || "Not Available"} subtle={!metadata.country} />
-            <DetailItem label="State" value={metadata.state || "Not Available"} subtle={!metadata.state} />
-            <DetailItem label="City" value={metadata.city || "Not Available"} subtle={!metadata.city} />
           </div>
         </aside>
 
-        <div className="grid gap-5">
-          <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
-            <div className="grid gap-6 border-b border-border/60 px-7 py-6 lg:grid-cols-3">
-              <div className="lg:col-span-3 text-[1.5rem] font-semibold tracking-[-0.03em] text-slate-900">Data Highlights</div>
-              <DetailItem label="Created On" value={formatDateTime(data.partner.createdAt)} />
-              <DetailItem label="Updated At" value={formatDateTime(data.partner.updatedAt)} />
-              <DetailItem label="Last Login" value={formatDateTime(data.summary.lastLoginAt)} subtle={!data.summary.lastLoginAt} />
-              <DetailItem label="Assigned Leads" value={String(data.summary.assignedLeads)} />
-              <DetailItem label="Active Access Users" value={String(data.summary.activeUsers)} />
-              <DetailItem label="Manager Users" value={String(data.summary.managerUsers)} />
+        <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+          <div className="border-b border-border/60 px-5 py-4">
+            <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 p-1">
+              <button
+                type="button"
+                onClick={() => setTab("overview")}
+                className={cn(
+                  "rounded-full px-5 py-2 text-sm font-medium transition",
+                  tab === "overview" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500",
+                )}
+              >
+                Overview
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("assignedLeads")}
+                className={cn(
+                  "rounded-full px-5 py-2 text-sm font-medium transition",
+                  tab === "assignedLeads" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500",
+                )}
+              >
+                Assigned Leads
+              </button>
             </div>
+          </div>
 
-            <div className="grid gap-6 border-b border-border/60 px-7 py-6">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-[1.5rem] font-semibold tracking-[-0.03em] text-slate-900">Personal Details</div>
-                <Button type="button" variant="ghost" size="sm" className="text-sky-600 hover:text-sky-700" onClick={() => setEditing(true)}>
-                  <PencilLine className="size-4" /> Edit
-                </Button>
+          {tab === "overview" ? (
+            <>
+              <div className="grid gap-6 border-b border-border/60 px-7 py-6 lg:grid-cols-3">
+                <div className="lg:col-span-3 text-[1.5rem] font-semibold tracking-[-0.03em] text-slate-900">Data Highlights</div>
+                <DetailItem label="Created On" value={formatDateTime(data.partner.createdAt)} />
+                <DetailItem label="Updated At" value={formatDateTime(data.partner.updatedAt)} />
+                <DetailItem label="Last Login" value={formatDateTime(data.summary.lastLoginAt)} subtle={!data.summary.lastLoginAt} />
+                <DetailItem label="Assigned Leads" value={String(data.summary.assignedLeads)} />
+                <DetailItem label="User Type" value={data.users[0]?.accessLevel || "Not Available"} subtle={!data.users[0]?.accessLevel} />
+                <DetailItem label="Active Users" value={String(data.summary.activeUsers)} />
               </div>
 
-              <div className="grid gap-6 md:grid-cols-3">
-                <DetailItem label="Company Name" value={data.partner.name} />
-                <DetailItem label="Business Type" value={metadata.businessType} />
-                <DetailItem label="Status" value={data.partner.status} />
-                <DetailItem label="Contact Person" value={data.partner.contactName || "Not Available"} subtle={!data.partner.contactName} />
-                <DetailItem label="Email" value={data.partner.email || "Not Available"} subtle={!data.partner.email} />
-                <DetailItem label="Contact" value={data.partner.phone || "Not Available"} subtle={!data.partner.phone} />
-                <DetailItem label="Location" value={locationLabel || "Not Available"} subtle={!locationLabel} />
-                <DetailItem label="NDA Signed" value={metadata.ndaSigned ? "Yes" : "No"} />
-                <DetailItem label="Partnership Agreement" value={metadata.partnershipAgreement ? "Yes" : "No"} />
-              </div>
-            </div>
+              <div className="grid gap-6 border-b border-border/60 px-7 py-6">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-[1.5rem] font-semibold tracking-[-0.03em] text-slate-900">Personal Details</div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="ghost" size="sm" className="text-sky-600 hover:text-sky-700" onClick={() => setEditing(true)}>
+                      <PencilLine className="size-4" /> Edit
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className="text-rose-600 hover:text-rose-700" onClick={() => setShowDeleteModal(true)}>
+                      <Trash2 className="size-4" /> Delete
+                    </Button>
+                  </div>
+                </div>
 
-            <div className="grid gap-6 px-7 py-6 lg:grid-cols-2">
-              <div className="grid gap-4">
-                <div className="text-xl font-semibold text-slate-900">Recent Leads</div>
-                {data.recentLeads.length ? data.recentLeads.map((lead) => (
-                  <Link
-                    key={lead.id}
-                    href={`/dashboard/leads/${lead.id}`}
-                    className="rounded-2xl border border-border/60 bg-slate-50/60 p-4 transition hover:bg-slate-50"
-                  >
+                <div className="grid gap-6 md:grid-cols-3">
+                  <DetailItem label="Name" value={data.partner.contactName || "Not Available"} subtle={!data.partner.contactName} />
+                  <DetailItem label="Email" value={data.partner.email || "Not Available"} subtle={!data.partner.email} />
+                  <DetailItem label="Contact" value={data.partner.phone || "Not Available"} subtle={!data.partner.phone} />
+                  <DetailItem label="NDA Signed" value={metadata.ndaSigned ? "Yes" : "No"} />
+                  <DetailItem label="Partnership Agreement" value={metadata.partnershipAgreement ? "Yes" : "No"} />
+                  <DetailItem label="Business Type" value={metadata.businessType} />
+                </div>
+              </div>
+
+              <div className="grid gap-6 px-7 py-6 lg:grid-cols-2">
+                <div className="grid gap-4">
+                  <div className="text-xl font-semibold text-slate-900">Recent Leads</div>
+                  {data.recentLeads.length ? data.recentLeads.slice(0, 4).map((lead) => (
+                    <Link
+                      key={lead.id}
+                      href={`/dashboard/leads/${lead.id}`}
+                      className="rounded-2xl border border-border/60 bg-slate-50/60 p-4 transition hover:bg-slate-50"
+                    >
+                      <div className="font-medium text-slate-900">{lead.title}</div>
+                      <div className="mt-1 text-sm text-slate-500">{lead.fullName || lead.email || lead.phone || "Lead record"}</div>
+                    </Link>
+                  )) : (
+                    <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">No leads assigned to this partner yet.</div>
+                  )}
+                </div>
+
+                <div className="grid gap-4">
+                  <div className="text-xl font-semibold text-slate-900">Recent Deals</div>
+                  {data.recentDeals.length ? data.recentDeals.slice(0, 4).map((deal) => (
+                    <Link
+                      key={deal.id}
+                      href={`/dashboard/deals/${deal.id}`}
+                      className="rounded-2xl border border-border/60 bg-slate-50/60 p-4 transition hover:bg-slate-50"
+                    >
+                      <div className="font-medium text-slate-900">{deal.title}</div>
+                      <div className="mt-1 text-sm text-slate-500">{deal.stage} • {deal.status}</div>
+                    </Link>
+                  )) : (
+                    <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">No deals linked to this partner yet.</div>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="grid gap-4 px-7 py-6">
+              <div className="text-xl font-semibold text-slate-900">Assigned Leads</div>
+              {data.recentLeads.length ? data.recentLeads.map((lead) => (
+                <Link
+                  key={lead.id}
+                  href={`/dashboard/leads/${lead.id}`}
+                  className="grid gap-3 rounded-2xl border border-border/60 bg-slate-50/60 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+                >
+                  <div>
                     <div className="font-medium text-slate-900">{lead.title}</div>
-                    <div className="mt-1 text-sm text-slate-500">{lead.fullName || lead.email || lead.phone || "Lead record"}</div>
-                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                      <Badge variant="outline">{lead.status}</Badge>
-                      <span>Score {lead.score}</span>
-                      <span>{formatDateTime(lead.createdAt)}</span>
-                    </div>
-                  </Link>
-                )) : (
-                  <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">No leads assigned to this partner yet.</div>
-                )}
-              </div>
+                    <div className="mt-1 text-sm text-slate-500">{lead.fullName || lead.email || "Lead record"}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{lead.status}</Badge>
+                    <Badge variant="secondary">Score {lead.score}</Badge>
+                  </div>
+                </Link>
+              )) : (
+                <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">No leads assigned to this partner yet.</div>
+              )}
+            </div>
+          )}
+        </div>
 
-              <div className="grid gap-4">
-                <div className="text-xl font-semibold text-slate-900">Recent Deals</div>
-                {data.recentDeals.length ? data.recentDeals.map((deal) => (
-                  <Link
-                    key={deal.id}
-                    href={`/dashboard/deals/${deal.id}`}
-                    className="rounded-2xl border border-border/60 bg-slate-50/60 p-4 transition hover:bg-slate-50"
-                  >
-                    <div className="font-medium text-slate-900">{deal.title}</div>
-                    <div className="mt-1 text-sm text-slate-500">{deal.stage} • {formatCurrency(deal.value)}</div>
-                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-                      <Badge variant={deal.status === "won" ? "secondary" : "outline"}>{deal.status}</Badge>
-                      <span>{formatDateTime(deal.createdAt)}</span>
-                    </div>
-                  </Link>
-                )) : (
-                  <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-sm text-muted-foreground">No deals linked to this partner yet.</div>
-                )}
-              </div>
+        <div className="grid gap-5">
+          <div className="rounded-[1.75rem] border border-border/70 bg-white px-6 py-5 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+            <div className="text-[1.4rem] font-semibold text-slate-900">Status Breakdown</div>
+            <div className="mt-5 grid gap-3 text-base">
+              {statusBreakdown.length ? statusBreakdown.map(([status, count]) => (
+                <div key={status} className="flex items-center justify-between gap-3 text-rose-700">
+                  <span className="capitalize">{status}</span>
+                  <span>{count}</span>
+                </div>
+              )) : (
+                <div className="text-sm text-slate-400">Not Available</div>
+              )}
             </div>
           </div>
 
@@ -433,18 +545,12 @@ export default function PartnerProfilePage() {
             </div>
             <div className="grid gap-4 px-7 py-6">
               {data.users.length ? data.users.map((user) => (
-                <div key={user.id} className="grid gap-3 rounded-2xl border border-border/60 bg-slate-50/60 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-                  <div>
-                    <div className="font-medium text-slate-900">{user.fullName}</div>
-                    <div className="mt-1 text-sm text-slate-500">{user.email}{user.title ? ` • ${user.title}` : ""}</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <Badge variant={user.status === "active" ? "secondary" : "outline"}>{user.status}</Badge>
-                      <Badge variant="outline">{user.accessLevel}</Badge>
-                    </div>
-                  </div>
-                  <div className="text-right text-sm text-slate-500">
-                    <div>Last Access</div>
-                    <div className="mt-1 font-medium text-slate-900">{formatDateTime(user.lastAccessAt)}</div>
+                <div key={user.id} className="grid gap-3 rounded-2xl border border-border/60 bg-slate-50/60 p-4">
+                  <div className="font-medium text-slate-900">{user.fullName}</div>
+                  <div className="text-sm text-slate-500">{user.email}</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={user.status === "active" ? "secondary" : "outline"}>{user.status}</Badge>
+                    <Badge variant="outline">{user.accessLevel}</Badge>
                   </div>
                 </div>
               )) : (
@@ -456,7 +562,7 @@ export default function PartnerProfilePage() {
       </section>
 
       {editing && form ? (
-        <Modal title="Edit Partner" onClose={() => setEditing(false)}>
+        <Modal title="Edit Partner" description="Update the partner profile details." onClose={() => setEditing(false)}>
           <div className="grid gap-5">
             <div className="grid gap-4 rounded-2xl border border-border/60 bg-white p-4">
               <div className="text-sm font-semibold text-slate-900">Basic Information</div>
@@ -533,6 +639,15 @@ export default function PartnerProfilePage() {
             </div>
           </div>
         </Modal>
+      ) : null}
+
+      {showDeleteModal ? (
+        <DeletePartnerModal
+          partnerName={data.partner.name}
+          submitting={deleting}
+          onCancel={() => setShowDeleteModal(false)}
+          onConfirm={() => void handleDelete()}
+        />
       ) : null}
     </div>
   );
