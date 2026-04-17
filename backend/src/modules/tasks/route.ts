@@ -25,11 +25,11 @@ import {
   updateFollowUpSchema,
   updateTaskSchema,
 } from "@/modules/tasks/schema";
-import { requireAuth, requireTenant } from "@/middleware/auth";
+import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
 
 export const taskRoutes = new Hono<AppEnv>().basePath("/tasks");
-taskRoutes.use("*", requireAuth, requireTenant);
+taskRoutes.use("*", requireAuth, requireTenant, requireModuleAccess("tasks"));
 
 taskRoutes.get("/", validateQuery(listTasksSchema), listTasks);
 taskRoutes.get("/summary", getTaskSummary);

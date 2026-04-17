@@ -25,11 +25,11 @@ import {
   listLeadsQuerySchema,
   updateLeadSchema,
 } from "@/modules/leads/schema";
-import { requireAuth, requireTenant } from "@/middleware/auth";
+import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
 
 export const leadRoutes = new Hono<AppEnv>().basePath("/leads");
-leadRoutes.use("*", requireAuth, requireTenant);
+leadRoutes.use("*", requireAuth, requireTenant, requireModuleAccess("leads"));
 
 leadRoutes.get("/", validateQuery(listLeadsQuerySchema), listLeads);
 leadRoutes.get("/board", validateQuery(boardLeadsQuerySchema), getLeadsBoard);

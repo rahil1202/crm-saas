@@ -12,11 +12,11 @@ import {
   updateCustomer,
 } from "@/modules/customers/controller";
 import { createCustomerSchema, importCustomerCsvSchema, listCustomersSchema, updateCustomerSchema } from "@/modules/customers/schema";
-import { requireAuth, requireTenant } from "@/middleware/auth";
+import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
 
 export const customerRoutes = new Hono<AppEnv>().basePath("/customers");
-customerRoutes.use("*", requireAuth, requireTenant);
+customerRoutes.use("*", requireAuth, requireTenant, requireModuleAccess("contacts"));
 
 customerRoutes.get("/", validateQuery(listCustomersSchema), listCustomers);
 customerRoutes.get("/:customerId/history", getCustomerHistory);

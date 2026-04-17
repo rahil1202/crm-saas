@@ -77,14 +77,13 @@ const navItems: NavItem[] = [
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell, minRole: "admin" },
   { href: "/dashboard/team", label: "Team", icon: Users, minRole: "admin" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings2, minRole: "admin" },
-  { href: "/dashboard/company-admin", label: "Company Admin", icon: Building2, minRole: "admin" },
   { href: "/dashboard/super-admin", label: "Super Admin", icon: Shield, minRole: "member", superAdminOnly: true },
 ];
 
 const navGroups = [
   { id: "home", label: "Home", hrefs: ["/dashboard"] },
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
-  { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks", "/dashboard/company-admin"] },
+  { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
   { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/settings", "/dashboard/partners"] },
   { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
@@ -95,9 +94,6 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
   //   "/dashboard/automation": { label: "Workflow", icon: Sparkles },
   //   "/dashboard/chatbot-flows": { label: "LinkedIn", icon: HeartHandshake },
   // },
-  crm: {
-    "/dashboard/company-admin": { label: "Companies", icon: Building2 },
-  },
   marketing: {
     "/dashboard/campaigns": { label: "Campaign", icon: Megaphone },
     "/dashboard/documents": { label: "Templates", icon: FileText },
@@ -377,13 +373,13 @@ export function AppShell({
       <div
         className={cn(
           "relative min-h-screen px-4 py-4 transition-[padding] duration-200 lg:h-full lg:min-h-0 lg:px-4 lg:py-4",
-          sidebarExpanded ? "lg:pl-[316px]" : "lg:pl-[120px]",
+          sidebarExpanded ? "lg:pl-[280px]" : "lg:pl-[120px]",
         )}
       >
         <aside
           className={cn(
             "z-40 mb-4 w-full rounded-[2rem] border border-sky-200/70 bg-white p-3 shadow-[0_28px_80px_-42px_rgba(56,122,199,0.26)] transition-[width] duration-200 lg:fixed lg:bottom-4 lg:left-4 lg:top-4 lg:mb-0 lg:overflow-y-auto lg:rounded-[2rem] lg:border lg:p-3",
-            sidebarExpanded ? "lg:w-[280px]" : "lg:w-[84px]",
+            sidebarExpanded ? "lg:w-[240px]" : "lg:w-[84px]",
           )}
         >
           <div className="flex h-full flex-col gap-4 lg:min-h-0">
@@ -394,10 +390,9 @@ export function AppShell({
                 </Link>
                 {sidebarExpanded ? (
                   <div className="min-w-0">
-                    <Link href="/dashboard" className="truncate font-heading text-lg font-semibold text-sky-950 transition-colors hover:text-sky-700">
+                    <Link href="/dashboard" className="truncate font-heading text-sm font-bold text-sky-950 transition-colors hover:text-sky-700">
                       The One CRM
                     </Link>
-                    <div className="truncate text-[0.72rem] uppercase tracking-[0.18em] text-sky-700/80">CRM Workspace</div>
                   </div>
                 ) : null}
               </div>
@@ -434,11 +429,11 @@ export function AppShell({
             ) : null}
 
             <div className="min-h-0 flex-1 overflow-hidden">
-              <nav className="hide-scrollbar flex h-full min-h-0 flex-col gap-5 overflow-y-auto pr-1">
+              <nav className="hide-scrollbar flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
                 {visibleNavGroups.map((group) => (
-                  <div key={group.id} className="grid gap-2 border-t border-sky-200/70 pt-4 first:border-t-0 first:pt-0">
+                  <div key={group.id} className="grid gap-2 border-t border-sky-200/70 pt-1 first:border-t-0 first:pt-0">
                     {sidebarExpanded ? (
-                      <div className="px-2 text-[0.74rem] font-semibold uppercase tracking-[0.1em] text-sky-700/90">
+                      <div className="px-2 text-[0.64rem] font-semibold uppercase tracking-[0.1em] text-sky-700/90">
                         {group.label}
                       </div>
                     ) : null}
@@ -457,15 +452,15 @@ export function AppShell({
                           title={!sidebarExpanded ? item.label : undefined}
                           className={cn(
                             "group relative flex items-center rounded-xl text-sm font-medium transition-all text-sky-900",
-                            sidebarExpanded ? "gap-2 px-2 py-2" : "justify-center px-0 py-2",
+                            sidebarExpanded ? "gap-1 px-2 py-2" : "justify-center px-0 py-2",
                             isActive
-                              ? "bg-sky-100/90 text-sky-900"
+                              ? "bg-sky-200/90 text-sky-900"
                               : "border border-transparent text-sky-800/90 hover:bg-sky-50 hover:text-sky-950",
                           )}
                         >
                           <span
                             className={cn(
-                              "flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors text-sky-700",
+                              "flex size-5 shrink-0 items-center justify-center rounded-lg transition-colors text-sky-700",
                               isActive ? "text-sky-900" : "text-sky-700",
                             )}
                           >
@@ -473,7 +468,7 @@ export function AppShell({
                           </span>
                           {sidebarExpanded ? <span className="truncate">{item.label}</span> : null}
                           {!sidebarExpanded ? (
-                            <span className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-20 -translate-y-1/2 rounded-xl border border-sky-200/80 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 opacity-0 shadow-[0_14px_34px_-20px_rgba(35,86,166,0.35)] transition-opacity group-hover:opacity-100">
+                            <span className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-20 -translate-y-1/2 rounded-xl border border-sky-200/80 bg-white px-2 py-1.5 text-xs font-semibold text-slate-900 opacity-0 shadow-[0_14px_34px_-20px_rgba(35,86,166,0.35)] transition-opacity group-hover:opacity-100">
                               {item.label}
                             </span>
                           ) : null}
@@ -483,25 +478,6 @@ export function AppShell({
                   </div>
                 ))}
               </nav>
-            </div>
-
-            <div className="relative">
-              <div
-                className={cn(
-                  "flex w-full items-center gap-2.5 rounded-[1.5rem] border border-sky-200/70 bg-white p-2.5 text-left text-sky-900",
-                  !sidebarExpanded && "justify-center px-2",
-                )}
-              >
-                <Avatar size="sm">
-                  <AvatarFallback>{userInitials}</AvatarFallback>
-                </Avatar>
-                {sidebarExpanded ? (
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-sky-950">{me?.user.fullName ?? "CRM Operator"}</div>
-                    <div className="truncate text-xs text-sky-700/90">{activeMembership?.companyName ?? "Workspace"}</div>
-                  </div>
-                ) : null}
-              </div>
             </div>
           </div>
         </aside>

@@ -5,15 +5,15 @@ import {
   disconnectIntegrationOauth,
   getCompanyPreferences,
   getCustomFields,
-  getIntegrationsHub,
   getIntegrations,
+  getIntegrationsHub,
   getLeadSources,
-  linkIntegrationOauth,
   getNotificationRules,
   getPipelines,
   getRuntimeReadiness,
   getSettingsOverview,
   getTags,
+  linkIntegrationOauth,
   updateCompanyPreferences,
   updateCustomFields,
   updateIntegrations,
@@ -24,50 +24,92 @@ import {
 } from "@/modules/settings/controller";
 import {
   disconnectIntegrationOauthSchema,
+  linkIntegrationOauthSchema,
   updateCompanyPreferencesSchema,
   updateCustomFieldsSchema,
-  linkIntegrationOauthSchema,
   updateIntegrationsSchema,
   updateLeadSourcesSchema,
   updateNotificationRulesSchema,
   updatePipelineSettingsSchema,
   updateTagsSchema,
 } from "@/modules/settings/schema";
-import { requireAuth, requireRole, requireTenant } from "@/middleware/auth";
+import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson } from "@/middleware/common";
 
 export const settingRoutes = new Hono<AppEnv>().basePath("/settings");
 
 settingRoutes.get("/", getSettingsOverview);
-settingRoutes.get("/pipelines", requireAuth, requireTenant, getPipelines);
-settingRoutes.patch("/pipelines", requireAuth, requireTenant, requireRole("admin"), validateJson(updatePipelineSettingsSchema), updatePipelines);
-settingRoutes.get("/lead-sources", requireAuth, requireTenant, getLeadSources);
-settingRoutes.patch("/lead-sources", requireAuth, requireTenant, requireRole("admin"), validateJson(updateLeadSourcesSchema), updateLeadSources);
-settingRoutes.get("/company-preferences", requireAuth, requireTenant, getCompanyPreferences);
+settingRoutes.get("/pipelines", requireAuth, requireTenant, requireModuleAccess("settings"), getPipelines);
+settingRoutes.patch(
+  "/pipelines",
+  requireAuth,
+  requireTenant,
+  requireModuleAccess("settings"),
+  validateJson(updatePipelineSettingsSchema),
+  updatePipelines,
+);
+settingRoutes.get("/lead-sources", requireAuth, requireTenant, requireModuleAccess("settings"), getLeadSources);
+settingRoutes.patch(
+  "/lead-sources",
+  requireAuth,
+  requireTenant,
+  requireModuleAccess("settings"),
+  validateJson(updateLeadSourcesSchema),
+  updateLeadSources,
+);
+settingRoutes.get("/company-preferences", requireAuth, requireTenant, requireModuleAccess("settings"), getCompanyPreferences);
 settingRoutes.patch(
   "/company-preferences",
   requireAuth,
   requireTenant,
-  requireRole("admin"),
+  requireModuleAccess("settings"),
   validateJson(updateCompanyPreferencesSchema),
   updateCompanyPreferences,
 );
-settingRoutes.get("/custom-fields", requireAuth, requireTenant, getCustomFields);
-settingRoutes.patch("/custom-fields", requireAuth, requireTenant, requireRole("admin"), validateJson(updateCustomFieldsSchema), updateCustomFields);
-settingRoutes.get("/tags", requireAuth, requireTenant, getTags);
-settingRoutes.patch("/tags", requireAuth, requireTenant, requireRole("admin"), validateJson(updateTagsSchema), updateTags);
-settingRoutes.get("/notification-rules", requireAuth, requireTenant, getNotificationRules);
+settingRoutes.get("/custom-fields", requireAuth, requireTenant, requireModuleAccess("settings"), getCustomFields);
+settingRoutes.patch(
+  "/custom-fields",
+  requireAuth,
+  requireTenant,
+  requireModuleAccess("settings"),
+  validateJson(updateCustomFieldsSchema),
+  updateCustomFields,
+);
+settingRoutes.get("/tags", requireAuth, requireTenant, requireModuleAccess("settings"), getTags);
+settingRoutes.patch("/tags", requireAuth, requireTenant, requireModuleAccess("settings"), validateJson(updateTagsSchema), updateTags);
+settingRoutes.get("/notification-rules", requireAuth, requireTenant, requireModuleAccess("settings"), getNotificationRules);
 settingRoutes.patch(
   "/notification-rules",
   requireAuth,
   requireTenant,
-  requireRole("admin"),
+  requireModuleAccess("settings"),
   validateJson(updateNotificationRulesSchema),
   updateNotificationRules,
 );
-settingRoutes.get("/integrations", requireAuth, requireTenant, getIntegrations);
-settingRoutes.get("/integration-hub", requireAuth, requireTenant, getIntegrationsHub);
-settingRoutes.get("/runtime-readiness", requireAuth, requireTenant, getRuntimeReadiness);
-settingRoutes.patch("/integrations", requireAuth, requireTenant, requireRole("admin"), validateJson(updateIntegrationsSchema), updateIntegrations);
-settingRoutes.post("/integrations/oauth/link", requireAuth, requireTenant, requireRole("admin"), validateJson(linkIntegrationOauthSchema), linkIntegrationOauth);
-settingRoutes.post("/integrations/oauth/disconnect", requireAuth, requireTenant, requireRole("admin"), validateJson(disconnectIntegrationOauthSchema), disconnectIntegrationOauth);
+settingRoutes.get("/integrations", requireAuth, requireTenant, requireModuleAccess("settings"), getIntegrations);
+settingRoutes.get("/integration-hub", requireAuth, requireTenant, requireModuleAccess("settings"), getIntegrationsHub);
+settingRoutes.get("/runtime-readiness", requireAuth, requireTenant, requireModuleAccess("settings"), getRuntimeReadiness);
+settingRoutes.patch(
+  "/integrations",
+  requireAuth,
+  requireTenant,
+  requireModuleAccess("settings"),
+  validateJson(updateIntegrationsSchema),
+  updateIntegrations,
+);
+settingRoutes.post(
+  "/integrations/oauth/link",
+  requireAuth,
+  requireTenant,
+  requireModuleAccess("settings"),
+  validateJson(linkIntegrationOauthSchema),
+  linkIntegrationOauth,
+);
+settingRoutes.post(
+  "/integrations/oauth/disconnect",
+  requireAuth,
+  requireTenant,
+  requireModuleAccess("settings"),
+  validateJson(disconnectIntegrationOauthSchema),
+  disconnectIntegrationOauth,
+);

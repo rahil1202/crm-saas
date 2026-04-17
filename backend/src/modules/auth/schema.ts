@@ -3,7 +3,13 @@ import { z } from "zod";
 export const inviteSchema = z.object({
   email: z.string().email(),
   role: z.enum(["owner", "admin", "member"]).default("member"),
+  customRoleId: z.string().uuid().nullable().optional(),
   storeId: z.string().uuid().nullable().optional(),
+  fullName: z.string().trim().min(2).max(180).optional(),
+  phoneNumber: z.string().trim().max(60).optional(),
+  address: z.string().trim().max(240).optional(),
+  governmentId: z.string().trim().max(120).optional(),
+  remark: z.string().trim().max(2000).optional(),
   expiresInDays: z.number().int().min(1).max(30).default(7),
   inviteMessage: z.string().trim().max(2000).nullable().optional(),
 });

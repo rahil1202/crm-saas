@@ -23,11 +23,11 @@ import {
   listDealsSchema,
   updateDealSchema,
 } from "@/modules/deals/schema";
-import { requireAuth, requireTenant } from "@/middleware/auth";
+import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
 
 export const dealRoutes = new Hono<AppEnv>().basePath("/deals");
-dealRoutes.use("*", requireAuth, requireTenant);
+dealRoutes.use("*", requireAuth, requireTenant, requireModuleAccess("deals"));
 
 dealRoutes.get("/", validateQuery(listDealsSchema), listDeals);
 dealRoutes.get("/board", validateQuery(boardDealsSchema), getDealsBoard);

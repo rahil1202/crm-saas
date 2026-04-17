@@ -1,4 +1,20 @@
 export type CompanyRole = "owner" | "admin" | "member";
+export type CompanyModuleKey =
+  | "contacts"
+  | "leads"
+  | "deals"
+  | "templates"
+  | "teams"
+  | "tasks"
+  | "campaigns"
+  | "reports"
+  | "settings"
+  | "social"
+  | "automation"
+  | "partners"
+  | "documents"
+  | "notifications"
+  | "integrations";
 
 export interface AuthUser {
   id: string;
@@ -12,6 +28,8 @@ export interface TenantContext {
   membershipId: string;
   role: CompanyRole;
   storeId: string | null;
+  customRoleId: string | null;
+  customRoleModules: CompanyModuleKey[];
 }
 
 export interface AppVariables {

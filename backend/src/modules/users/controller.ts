@@ -3,7 +3,7 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { companyMemberships, profiles, stores } from "@/db/schema";
+import { companyCustomRoles, companyMemberships, profiles, stores } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { membershipParamSchema } from "@/modules/users/schema";
@@ -41,6 +41,8 @@ export async function getCurrentCompanyUsers(c: Context<AppEnv>) {
       membershipId: companyMemberships.id,
       userId: companyMemberships.userId,
       role: companyMemberships.role,
+      customRoleId: companyMemberships.customRoleId,
+      customRoleName: companyCustomRoles.name,
       status: companyMemberships.status,
       storeId: companyMemberships.storeId,
       storeName: stores.name,
@@ -51,6 +53,7 @@ export async function getCurrentCompanyUsers(c: Context<AppEnv>) {
     .from(companyMemberships)
     .innerJoin(profiles, eq(profiles.id, companyMemberships.userId))
     .leftJoin(stores, eq(stores.id, companyMemberships.storeId))
+    .leftJoin(companyCustomRoles, and(eq(companyCustomRoles.id, companyMemberships.customRoleId), isNull(companyCustomRoles.deletedAt)))
     .where(and(eq(companyMemberships.companyId, tenant.companyId), isNull(companyMemberships.deletedAt)))
     .orderBy(asc(companyMemberships.createdAt));
 
@@ -63,7 +66,7 @@ export async function updateMembership(c: Context<AppEnv>) {
   const params = membershipParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as UpdateMembershipInput;
 
-  if (!body.role && !body.status) {
+  if (!body.role && !body.status && body.customRoleId === undefined) {
     throw AppError.badRequest("At least one membership field must be updated");
   }
 
@@ -83,6 +86,23 @@ export async function updateMembership(c: Context<AppEnv>) {
 
   const nextRole = body.role ?? membership.role;
   const nextStatus = body.status ?? membership.status;
+  let nextCustomRoleId = body.customRoleId === undefined ? membership.customRoleId : body.customRoleId;
+
+  if (nextRole !== "member") {
+    nextCustomRoleId = null;
+  }
+
+  if (nextCustomRoleId) {
+    const [customRole] = await db
+      .select({ id: companyCustomRoles.id })
+      .from(companyCustomRoles)
+      .where(and(eq(companyCustomRoles.id, nextCustomRoleId), eq(companyCustomRoles.companyId, tenant.companyId), isNull(companyCustomRoles.deletedAt)))
+      .limit(1);
+
+    if (!customRole) {
+      throw AppError.badRequest("Invalid custom role selection");
+    }
+  }
 
   if ((membership.role === "owner" && nextRole !== "owner") || (membership.role === "owner" && nextStatus !== "active")) {
     const otherActiveOwnerCount = await countActiveOwners(tenant.companyId, membership.id);
@@ -95,6 +115,7 @@ export async function updateMembership(c: Context<AppEnv>) {
     .update(companyMemberships)
     .set({
       role: nextRole,
+      customRoleId: nextCustomRoleId,
       status: nextStatus,
       updatedAt: new Date(),
       deletedAt: null,

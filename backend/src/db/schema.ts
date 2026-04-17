@@ -374,6 +374,26 @@ export const stores = pgTable(
   }),
 );
 
+export const companyCustomRoles = pgTable(
+  "company_custom_roles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    modules: jsonb("modules").$type<string[]>().notNull().default([]),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("company_custom_roles_company_idx").on(table.companyId),
+    companyNameUnique: uniqueIndex("company_custom_roles_company_name_unique").on(table.companyId, table.name),
+  }),
+);
+
 export const companyMemberships = pgTable(
   "company_memberships",
   {
@@ -385,6 +405,7 @@ export const companyMemberships = pgTable(
       .notNull()
       .references(() => profiles.id, { onDelete: "cascade" }),
     role: companyRoleEnum("role").notNull().default("member"),
+    customRoleId: uuid("custom_role_id").references(() => companyCustomRoles.id, { onDelete: "set null" }),
     status: membershipStatusEnum("status").notNull().default("active"),
     storeId: uuid("store_id").references(() => stores.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -1759,6 +1780,7 @@ export const securityAuditLogs = pgTable(
 export const companyRelations = relations(companies, ({ many }) => ({
   plans: many(companyPlans),
   stores: many(stores),
+  customRoles: many(companyCustomRoles),
   memberships: many(companyMemberships),
   invites: many(companyInvites),
   partners: many(partnerCompanies),

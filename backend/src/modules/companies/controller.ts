@@ -3,7 +3,7 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { companies, companyInvites, companyMemberships, companyPlans, profiles, referralAttributions, referralCodes, stores } from "@/db/schema";
+import { companies, companyCustomRoles, companyInvites, companyMemberships, companyPlans, profiles, referralAttributions, referralCodes, stores } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
@@ -32,6 +32,8 @@ async function loadCompanySnapshot(companyId: string) {
       membershipId: companyMemberships.id,
       userId: companyMemberships.userId,
       role: companyMemberships.role,
+      customRoleId: companyMemberships.customRoleId,
+      customRoleName: companyCustomRoles.name,
       status: companyMemberships.status,
       storeId: companyMemberships.storeId,
       storeName: stores.name,
@@ -42,8 +44,21 @@ async function loadCompanySnapshot(companyId: string) {
     .from(companyMemberships)
     .innerJoin(profiles, eq(profiles.id, companyMemberships.userId))
     .leftJoin(stores, eq(stores.id, companyMemberships.storeId))
+    .leftJoin(companyCustomRoles, and(eq(companyCustomRoles.id, companyMemberships.customRoleId), isNull(companyCustomRoles.deletedAt)))
     .where(and(eq(companyMemberships.companyId, companyId), isNull(companyMemberships.deletedAt)))
     .orderBy(asc(companyMemberships.createdAt));
+
+  const customRoleRows = await db
+    .select({
+      id: companyCustomRoles.id,
+      name: companyCustomRoles.name,
+      modules: companyCustomRoles.modules,
+      createdAt: companyCustomRoles.createdAt,
+      updatedAt: companyCustomRoles.updatedAt,
+    })
+    .from(companyCustomRoles)
+    .where(and(eq(companyCustomRoles.companyId, companyId), isNull(companyCustomRoles.deletedAt)))
+    .orderBy(asc(companyCustomRoles.createdAt));
 
   const inviteRows = await db
     .select({
@@ -127,6 +142,7 @@ async function loadCompanySnapshot(companyId: string) {
     },
     plan: plan ?? null,
     stores: storeRows,
+    customRoles: customRoleRows,
     members: memberRows,
     invites: inviteRows.map((invite) => ({
       ...invite,

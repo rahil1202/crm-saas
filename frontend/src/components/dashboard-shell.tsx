@@ -21,10 +21,6 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Chatbot Flows",
     description: "Build WhatsApp chatbot flows visually, validate them against the backend, and test execution without leaving the canvas.",
   },
-  "/dashboard/company-admin": {
-    title: "Company Admin",
-    description: "Manage workspace footprint, teammate invites, and referral attribution from one admin surface.",
-  },
   "/dashboard/contacts": {
     title: "Contact",
     description: "Sort, search, and filter contact records with linked lead, deal, task, and campaign history.",

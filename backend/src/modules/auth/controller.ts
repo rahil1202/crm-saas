@@ -7,6 +7,7 @@ import { db } from "@/db/client";
 import {
   authRefreshTokens,
   companies,
+  companyCustomRoles,
   companyInvites,
   companyMemberships,
   companyPlans,
@@ -218,12 +219,18 @@ async function acceptInviteForIdentity(input: { token: string; userId: string; e
     throw AppError.forbidden("Invite email does not match authenticated user");
   }
 
+  const inviteCustomRoleId =
+    typeof invite.metadata?.customRoleId === "string" && invite.metadata.customRoleId.length > 0
+      ? invite.metadata.customRoleId
+      : null;
+
   await db
     .insert(companyMemberships)
     .values({
       companyId: invite.companyId,
       userId: input.userId,
       role: invite.role,
+      customRoleId: invite.role === "member" ? inviteCustomRoleId : null,
       storeId: invite.storeId,
       status: "active",
     })
@@ -231,6 +238,7 @@ async function acceptInviteForIdentity(input: { token: string; userId: string; e
       target: [companyMemberships.companyId, companyMemberships.userId],
       set: {
         role: invite.role,
+        customRoleId: invite.role === "member" ? inviteCustomRoleId : null,
         storeId: invite.storeId,
         status: "active",
         deletedAt: null,
@@ -941,6 +949,32 @@ export async function inviteMember(c: Context<AppEnv>) {
     email: user.email,
   });
 
+  let customRoleId: string | null = body.customRoleId ?? null;
+  if (body.role !== "member") {
+    customRoleId = null;
+  }
+
+  if (customRoleId) {
+    const [customRole] = await db
+      .select({ id: companyCustomRoles.id })
+      .from(companyCustomRoles)
+      .where(and(eq(companyCustomRoles.id, customRoleId), eq(companyCustomRoles.companyId, tenant.companyId), isNull(companyCustomRoles.deletedAt)))
+      .limit(1);
+
+    if (!customRole) {
+      throw AppError.badRequest("Invalid custom role selection");
+    }
+  }
+
+  const metadata: Record<string, unknown> = {
+    ...(body.fullName ? { fullName: body.fullName } : {}),
+    ...(body.phoneNumber ? { phoneNumber: body.phoneNumber } : {}),
+    ...(body.address ? { address: body.address } : {}),
+    ...(body.governmentId ? { governmentId: body.governmentId } : {}),
+    ...(body.remark ? { remark: body.remark } : {}),
+    ...(customRoleId ? { customRoleId } : {}),
+  };
+
   const [createdInvite] = await db
     .insert(companyInvites)
     .values({
@@ -950,7 +984,8 @@ export async function inviteMember(c: Context<AppEnv>) {
       storeId: body.storeId ?? null,
       token,
       referralCode: inviterReferralCode.code,
-      inviteMessage: body.inviteMessage ?? null,
+      inviteMessage: body.inviteMessage ?? body.remark ?? null,
+      metadata,
       invitedBy: user.id,
       expiresAt,
     })
