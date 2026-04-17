@@ -123,7 +123,7 @@ function OverlayModal({
               <div className="text-base font-semibold text-slate-900">{title}</div>
               <p className="mt-1 text-sm text-muted-foreground">{description}</p>
             </div>
-            <Button type="button" variant="ghost" size="xs" onClick={onClose}>
+            <Button type="button" variant="destructive" size="xs" onClick={onClose}>
               <X className="size-4" />
             </Button>
           </div>
@@ -513,7 +513,7 @@ export default function LeadProfilePage() {
             </FieldGroup>
             <Field><FieldLabel>Notes</FieldLabel><Textarea value={form.notes} onChange={(event) => setForm((current) => current ? { ...current, notes: event.target.value } : current)} className="min-h-28 text-sm" /></Field>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
+              <Button type="button" variant="destructive" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => void handleSave()} disabled={submitting}>{submitting ? "Saving..." : "Save changes"}</Button>
             </div>
           </div>
@@ -525,7 +525,7 @@ export default function LeadProfilePage() {
           <div className="grid gap-4">
             <Textarea value={note} onChange={(event) => setNote(event.target.value)} className="min-h-28 text-sm" placeholder="Add note" />
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setNoteOpen(false)}>Cancel</Button>
+              <Button type="button" variant="destructive" onClick={() => setNoteOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => void handleAddNote()} disabled={submitting}>{submitting ? "Saving..." : "Add note"}</Button>
             </div>
           </div>

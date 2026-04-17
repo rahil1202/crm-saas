@@ -725,7 +725,7 @@ function Modal({
             </div>
             <div className="flex items-center gap-2">
               {headerActions}
-              <Button type="button" variant="ghost" size="xs" onClick={onClose}>
+              <Button type="button" variant="destructive" size="xs" onClick={onClose}>
                 <X className="size-4" />
               </Button>
             </div>
@@ -1529,7 +1529,7 @@ export default function CustomersPage() {
           maxWidthClassName="max-w-6xl"
           headerActions={
             <>
-              <Button type="button" variant="ghost" size="xs" onClick={closeModal}>
+              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
                 Close
               </Button>
               <Button type="submit" form="create-contact-form" size="xs" disabled={submittingCreate}>
@@ -1931,7 +1931,7 @@ export default function CustomersPage() {
           onClose={closeModal}
           headerActions={
             <>
-              <Button type="button" variant="ghost" size="xs" onClick={closeModal}>
+              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
                 Close
               </Button>
               <Button type="submit" form="edit-contact-form" size="xs" disabled={submittingEdit}>
@@ -2054,7 +2054,7 @@ export default function CustomersPage() {
             </Field>
 
             <div className="flex gap-2">
-              <Button type="button" variant="ghost" onClick={closeModal}>
+              <Button type="button" variant="destructive" onClick={closeModal}>
                 Cancel
               </Button>
             </div>
@@ -2070,7 +2070,7 @@ export default function CustomersPage() {
           maxWidthClassName="max-w-xl"
           headerActions={
             <>
-              <Button type="button" variant="ghost" size="xs" onClick={closeModal}>
+              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
                 Close
               </Button>
               <Button type="submit" form="quick-update-form" size="xs" disabled={submittingQuickUpdate}>
@@ -2131,7 +2131,7 @@ export default function CustomersPage() {
               <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedCustomer.id}>
                 {deletingId === selectedCustomer.id ? "Deleting..." : "Delete"}
               </Button>
-              <Button type="button" variant="ghost" onClick={closeModal}>
+              <Button type="button" variant="destructive" onClick={closeModal}>
                 Cancel
               </Button>
             </div>
@@ -2149,7 +2149,7 @@ export default function CustomersPage() {
               <Button type="button" onClick={() => void handleExport()} disabled={exporting}>
                 {exporting ? "Exporting..." : "Export CSV"}
               </Button>
-              <Button type="button" variant="ghost" onClick={closeModal}>
+              <Button type="button" variant="destructive" onClick={closeModal}>
                 Cancel
               </Button>
             </div>

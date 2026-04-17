@@ -427,7 +427,7 @@ function Modal({
             </div>
             <div className="flex items-center gap-2">
               {headerActions}
-              <Button type="button" variant="ghost" size="xs" onClick={onClose}>
+              <Button type="button" variant="destructive" size="xs" onClick={onClose}>
                 <X className="size-4" />
               </Button>
             </div>
@@ -1207,7 +1207,7 @@ export default function DealsPage() {
           onClose={closeModal}
           headerActions={
             <>
-              <Button type="button" variant="ghost" size="xs" onClick={closeModal}>
+              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
                 Close
               </Button>
               <Button type="submit" form="deal-form" size="xs" disabled={submitting}>
@@ -1359,7 +1359,7 @@ export default function DealsPage() {
               <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedDeal.id}>
                 {deletingId === selectedDeal.id ? "Deleting..." : "Delete"}
               </Button>
-              <Button type="button" variant="ghost" onClick={closeModal}>
+              <Button type="button" variant="destructive" onClick={closeModal}>
                 Cancel
               </Button>
             </div>

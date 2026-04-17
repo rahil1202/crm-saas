@@ -333,7 +333,7 @@ function OverlayModal({
               <div className="text-base font-semibold text-slate-900">{title}</div>
               <p className="mt-1 text-sm text-muted-foreground">{description}</p>
             </div>
-            <Button type="button" variant="ghost" size="xs" onClick={onClose}>
+            <Button type="button" variant="destructive" size="xs" onClick={onClose}>
               <X className="size-4" />
             </Button>
           </div>
@@ -908,7 +908,7 @@ export default function CustomerProfilePage() {
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setModal(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" onClick={() => setModal(null)}>Cancel</Button>
             <Button type="button" onClick={() => void handleContactSave()} disabled={savingContact}>{savingContact ? "Saving..." : "Save changes"}</Button>
           </div>
         </div>
@@ -935,7 +935,7 @@ export default function CustomerProfilePage() {
           </FieldGroup>
           <Field><FieldLabel>Notes</FieldLabel><Textarea value={dealForm.notes} onChange={(event) => setDealForm((current) => ({ ...current, notes: event.target.value }))} className="min-h-24 text-sm" /></Field>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setModal(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" onClick={() => setModal(null)}>Cancel</Button>
             <Button type="button" onClick={() => void handleDealCreate()} disabled={savingDeal}>{savingDeal ? "Adding..." : "Add deal"}</Button>
           </div>
         </div>
@@ -968,7 +968,7 @@ export default function CustomerProfilePage() {
           </FieldGroup>
           <Field><FieldLabel>Description</FieldLabel><Textarea value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} className="min-h-24 text-sm" /></Field>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setModal(null)}>Cancel</Button>
+            <Button type="button" variant="destructive" onClick={() => setModal(null)}>Cancel</Button>
             <Button type="button" onClick={() => void handleTaskCreate()} disabled={savingTask}>{savingTask ? "Adding..." : "Add allocation"}</Button>
           </div>
         </div>

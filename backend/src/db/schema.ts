@@ -752,6 +752,7 @@ export const partnerUsers = pgTable(
     partnerCompanyId: uuid("partner_company_id")
       .notNull()
       .references(() => partnerCompanies.id, { onDelete: "cascade" }),
+    authUserId: uuid("auth_user_id").references(() => profiles.id, { onDelete: "set null" }),
     fullName: varchar("full_name", { length: 180 }).notNull(),
     email: varchar("email", { length: 320 }).notNull(),
     phone: varchar("phone", { length: 40 }),
@@ -782,6 +783,7 @@ export const partnerUsers = pgTable(
   },
   (table) => ({
     partnerEmailUnique: uniqueIndex("partner_users_partner_email_unique").on(table.partnerCompanyId, table.email),
+    companyAuthUserUnique: uniqueIndex("partner_users_company_auth_user_unique").on(table.companyId, table.authUserId),
     byCompanyIdx: index("partner_users_company_idx").on(table.companyId, table.createdAt),
     byPartnerIdx: index("partner_users_partner_idx").on(table.partnerCompanyId, table.createdAt),
     byStatusIdx: index("partner_users_status_idx").on(table.companyId, table.status),

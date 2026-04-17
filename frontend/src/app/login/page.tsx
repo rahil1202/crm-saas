@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAuthMe, resolveAuthenticatedRoute } from "@/lib/auth-client";
+import { resolveAuthenticatedRouteFromMe } from "@/lib/partner-access";
 import { useAsyncForm } from "@/hooks/use-async-form";
 import { apiRequest } from "@/lib/api";
 import { getFrontendEnv } from "@/lib/env";
@@ -53,7 +54,7 @@ function LoginPageContent() {
     const bootstrap = async () => {
       const me = await fetchAuthMe();
       if (me && !disposed) {
-        router.replace(me.needsOnboarding ? "/onboarding" : "/dashboard");
+        router.replace(resolveAuthenticatedRouteFromMe(me));
         return;
       }
 

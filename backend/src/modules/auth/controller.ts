@@ -11,6 +11,8 @@ import {
   companyInvites,
   companyMemberships,
   companyPlans,
+  partnerCompanies,
+  partnerUsers,
   profiles,
   referralAttributions,
   referralCodes,
@@ -789,12 +791,35 @@ export async function getCurrentUser(c: Context<AppEnv>) {
       role: companyMemberships.role,
       status: companyMemberships.status,
       storeId: companyMemberships.storeId,
+      customRoleId: companyMemberships.customRoleId,
+      customRoleName: companyCustomRoles.name,
+      customRoleModules: companyCustomRoles.modules,
       companyName: companies.name,
       storeName: stores.name,
+      isPartnerAccess: partnerUsers.id,
+      partnerCompanyId: partnerUsers.partnerCompanyId,
+      partnerCompanyName: partnerCompanies.name,
     })
     .from(companyMemberships)
     .innerJoin(companies, eq(companies.id, companyMemberships.companyId))
     .leftJoin(stores, eq(stores.id, companyMemberships.storeId))
+    .leftJoin(
+      companyCustomRoles,
+      and(eq(companyCustomRoles.id, companyMemberships.customRoleId), isNull(companyCustomRoles.deletedAt)),
+    )
+    .leftJoin(
+      partnerUsers,
+      and(
+        eq(partnerUsers.companyId, companyMemberships.companyId),
+        eq(partnerUsers.authUserId, companyMemberships.userId),
+        eq(partnerUsers.status, "active"),
+        isNull(partnerUsers.deletedAt),
+      ),
+    )
+    .leftJoin(
+      partnerCompanies,
+      and(eq(partnerCompanies.id, partnerUsers.partnerCompanyId), isNull(partnerCompanies.deletedAt)),
+    )
     .where(
       and(
         eq(companyMemberships.userId, user.id),
@@ -810,7 +835,10 @@ export async function getCurrentUser(c: Context<AppEnv>) {
       fullName: profile?.fullName ?? null,
       isSuperAdmin: user.isSuperAdmin ?? false,
     },
-    memberships,
+    memberships: memberships.map((membership) => ({
+      ...membership,
+      isPartnerAccess: Boolean(membership.isPartnerAccess),
+    })),
     needsOnboarding: memberships.length === 0 && !user.isSuperAdmin,
     isSuperAdmin: user.isSuperAdmin ?? false,
   });

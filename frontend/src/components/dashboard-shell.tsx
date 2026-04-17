@@ -9,6 +9,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "CRM Dashboard",
     description: "Operational overview for pipeline, follow-ups, campaigns, and partner-driven revenue.",
   },
+  "/dashboard/company": {
+    title: "Company",
+    description: "Choose the company you want to work in, review the active company profile, and manage your partner access.",
+  },
   "/dashboard/automation": {
     title: "Automation",
     description: "Trigger-based workflows with multi-step actions and recent execution logs.",

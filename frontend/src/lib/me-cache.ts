@@ -8,6 +8,12 @@ interface Membership {
   role: CompanyRole;
   status: string;
   storeId: string | null;
+  customRoleId?: string | null;
+  customRoleName?: string | null;
+  customRoleModules?: string[];
+  isPartnerAccess?: boolean;
+  partnerCompanyId?: string | null;
+  partnerCompanyName?: string | null;
   companyName: string;
   storeName: string | null;
 }

@@ -6,12 +6,16 @@ import {
   createPartnerUser,
   deletePartner,
   deletePartnerUser,
+  getPartnerDetail,
+  leaveMyPartnerCompany,
   listPartners,
+  listMyPartnerCompanies,
   listPartnerUsers,
   updatePartner,
   updatePartnerUser,
 } from "@/modules/partners/controller";
 import {
+  leavePartnerCompanySchema,
   listPartnersSchema,
   listPartnerUsersSchema,
   partnerSchema,
@@ -23,13 +27,16 @@ import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/au
 import { validateJson, validateQuery } from "@/middleware/common";
 
 export const partnerRoutes = new Hono<AppEnv>().basePath("/partners");
-partnerRoutes.use("*", requireAuth, requireTenant, requireModuleAccess("partners"));
 
-partnerRoutes.get("/", validateQuery(listPartnersSchema), listPartners);
-partnerRoutes.get("/users", validateQuery(listPartnerUsersSchema), listPartnerUsers);
-partnerRoutes.post("/", validateJson(partnerSchema), createPartner);
-partnerRoutes.post("/users", validateJson(partnerUserSchema), createPartnerUser);
-partnerRoutes.patch("/:partnerId", validateJson(updatePartnerSchema), updatePartner);
-partnerRoutes.patch("/users/:partnerUserId", validateJson(updatePartnerUserSchema), updatePartnerUser);
-partnerRoutes.delete("/:partnerId", deletePartner);
-partnerRoutes.delete("/users/:partnerUserId", deletePartnerUser);
+partnerRoutes.get("/me/companies", requireAuth, listMyPartnerCompanies);
+partnerRoutes.delete("/me/companies/:companyId", requireAuth, validateJson(leavePartnerCompanySchema), leaveMyPartnerCompany);
+
+partnerRoutes.get("/", requireAuth, requireTenant, requireModuleAccess("partners"), validateQuery(listPartnersSchema), listPartners);
+partnerRoutes.get("/users", requireAuth, requireTenant, requireModuleAccess("partners"), validateQuery(listPartnerUsersSchema), listPartnerUsers);
+partnerRoutes.get("/:partnerId", requireAuth, requireTenant, requireModuleAccess("partners"), getPartnerDetail);
+partnerRoutes.post("/", requireAuth, requireTenant, requireModuleAccess("partners"), validateJson(partnerSchema), createPartner);
+partnerRoutes.post("/users", requireAuth, requireTenant, requireModuleAccess("partners"), validateJson(partnerUserSchema), createPartnerUser);
+partnerRoutes.patch("/:partnerId", requireAuth, requireTenant, requireModuleAccess("partners"), validateJson(updatePartnerSchema), updatePartner);
+partnerRoutes.patch("/users/:partnerUserId", requireAuth, requireTenant, requireModuleAccess("partners"), validateJson(updatePartnerUserSchema), updatePartnerUser);
+partnerRoutes.delete("/:partnerId", requireAuth, requireTenant, requireModuleAccess("partners"), deletePartner);
+partnerRoutes.delete("/users/:partnerUserId", requireAuth, requireTenant, requireModuleAccess("partners"), deletePartnerUser);

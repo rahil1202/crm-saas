@@ -47,6 +47,12 @@ import {
   setStoreCookie,
 } from "@/lib/cookies";
 import { clearCachedMe, getCachedMe, loadMe as loadCachedMe, type MeResponse } from "@/lib/me-cache";
+import {
+  clearRememberedPartnerCompanySelection,
+  getRememberedPartnerCompanySelection,
+  hasMultiplePartnerCompanies,
+  isPartnerUser,
+} from "@/lib/partner-access";
 import { cn } from "@/lib/utils";
 import websiteLogo from "@/assets/logo-png.png";
 
@@ -57,31 +63,34 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   minRole: CompanyRole;
+  moduleKey?: "contacts" | "leads" | "deals" | "tasks" | "documents" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams";
   superAdminOnly?: boolean;
+  partnerAccessOnly?: boolean;
 };
 
 const navItems: NavItem[] = [
+  { href: "/dashboard/company", label: "Company", icon: Building2, minRole: "member", partnerAccessOnly: true },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, minRole: "member" },
-  { href: "/dashboard/leads", label: "Leads", icon: Target, minRole: "member" },
-  { href: "/dashboard/deals", label: "Deals", icon: BriefcaseBusiness, minRole: "member" },
-  { href: "/dashboard/contacts", label: "Contacts", icon: Users, minRole: "member" },
-  { href: "/dashboard/documents", label: "Files", icon: FileText, minRole: "member" },
-  { href: "/dashboard/tasks", label: "Tasks", icon: PanelsTopLeft, minRole: "member" },
-  { href: "/dashboard/partners", label: "Partners", icon: Building2, minRole: "admin" },
-  { href: "/dashboard/campaigns", label: "Campaign", icon: Megaphone, minRole: "admin" },
-  { href: "/dashboard/automation", label: "Automation", icon: Sparkles, minRole: "admin" },
-  { href: "/dashboard/chatbot-flows", label: "Chatbot Flows", icon: Network, minRole: "admin" },
-  { href: "/dashboard/reports", label: "Reports", icon: ChartColumnBig, minRole: "admin" },
-  { href: "/dashboard/integrations", label: "Integrations", icon: Link2, minRole: "admin" },
-  { href: "/dashboard/social", label: "Social", icon: MessageSquareShare, minRole: "admin" },
-  { href: "/dashboard/notifications", label: "Notifications", icon: Bell, minRole: "admin" },
-  { href: "/dashboard/team", label: "Team", icon: Users, minRole: "admin" },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings2, minRole: "admin" },
+  { href: "/dashboard/leads", label: "Leads", icon: Target, minRole: "member", moduleKey: "leads" },
+  { href: "/dashboard/deals", label: "Deals", icon: BriefcaseBusiness, minRole: "member", moduleKey: "deals" },
+  { href: "/dashboard/contacts", label: "Contacts", icon: Users, minRole: "member", moduleKey: "contacts" },
+  { href: "/dashboard/documents", label: "Files", icon: FileText, minRole: "member", moduleKey: "documents" },
+  { href: "/dashboard/tasks", label: "Tasks", icon: PanelsTopLeft, minRole: "member", moduleKey: "tasks" },
+  { href: "/dashboard/partners", label: "Partners", icon: Building2, minRole: "admin", moduleKey: "partners" },
+  { href: "/dashboard/campaigns", label: "Campaign", icon: Megaphone, minRole: "admin", moduleKey: "campaigns" },
+  { href: "/dashboard/automation", label: "Automation", icon: Sparkles, minRole: "admin", moduleKey: "automation" },
+  { href: "/dashboard/chatbot-flows", label: "Chatbot Flows", icon: Network, minRole: "admin", moduleKey: "automation" },
+  { href: "/dashboard/reports", label: "Reports", icon: ChartColumnBig, minRole: "admin", moduleKey: "reports" },
+  { href: "/dashboard/integrations", label: "Integrations", icon: Link2, minRole: "admin", moduleKey: "integrations" },
+  { href: "/dashboard/social", label: "Social", icon: MessageSquareShare, minRole: "admin", moduleKey: "social" },
+  { href: "/dashboard/notifications", label: "Notifications", icon: Bell, minRole: "admin", moduleKey: "notifications" },
+  { href: "/dashboard/team", label: "Team", icon: Users, minRole: "admin", moduleKey: "teams" },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings2, minRole: "admin", moduleKey: "settings" },
   { href: "/dashboard/super-admin", label: "Super Admin", icon: Shield, minRole: "member", superAdminOnly: true },
 ];
 
 const navGroups = [
-  { id: "home", label: "Home", hrefs: ["/dashboard"] },
+  { id: "home", label: "Home", hrefs: ["/dashboard/company", "/dashboard"] },
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
@@ -120,6 +129,17 @@ function formatBreadcrumbLabel(value: string) {
     .join(" ");
 }
 
+function getMembershipRoleLabel(membership?: {
+  role?: string | null;
+  customRoleName?: string | null;
+} | null) {
+  if (!membership) {
+    return "member";
+  }
+
+  return membership.customRoleName?.trim() || membership.role || "member";
+}
+
 export function AppShell({
   title,
   description,
@@ -145,18 +165,34 @@ export function AppShell({
     () => me?.memberships.find((membership) => membership.membershipId === activeMembershipId) ?? null,
     [activeMembershipId, me?.memberships],
   );
+  const partnerUser = useMemo(() => isPartnerUser(me), [me]);
+  const multiPartnerCompanyUser = useMemo(() => hasMultiplePartnerCompanies(me), [me]);
 
   const visibleNavItems = useMemo(() => {
     const roleRank: Record<CompanyRole, number> = { owner: 3, admin: 2, member: 1 };
     const activeRole = activeMembership?.role ?? "member";
+    const customRoleModules = activeMembership?.customRoleModules ?? [];
+    const hasScopedModules = activeRole === "member" && customRoleModules.length > 0;
     return navItems.filter((item) => {
       if (item.superAdminOnly && !me?.isSuperAdmin) {
         return false;
       }
 
+       if (item.partnerAccessOnly && !partnerUser) {
+        return false;
+      }
+
+      if (!item.partnerAccessOnly && item.href === "/dashboard/settings" && activeMembership?.isPartnerAccess) {
+        return false;
+      }
+
+      if (hasScopedModules && item.moduleKey) {
+        return customRoleModules.includes(item.moduleKey);
+      }
+
       return roleRank[activeRole] >= roleRank[item.minRole];
     });
-  }, [activeMembership?.role, me?.isSuperAdmin]);
+  }, [activeMembership?.customRoleModules, activeMembership?.isPartnerAccess, activeMembership?.role, me?.isSuperAdmin, partnerUser]);
 
   const visibleNavGroups = useMemo(() => {
     const itemMap = new Map(visibleNavItems.map((item) => [item.href, item]));
@@ -271,6 +307,7 @@ export function AppShell({
           clearCachedMe();
           clearCompanyCookie();
           clearStoreCookie();
+          clearRememberedPartnerCompanySelection();
           router.replace("/auth/login");
           return;
         }
@@ -289,6 +326,21 @@ export function AppShell({
       disposed = true;
     };
   }, [router]);
+
+  useEffect(() => {
+    if (loading || !activeMembership || !multiPartnerCompanyUser) {
+      return;
+    }
+
+    if (pathname === "/dashboard/company") {
+      return;
+    }
+
+    const rememberedCompanyId = getRememberedPartnerCompanySelection();
+    if (rememberedCompanyId !== activeMembership.companyId) {
+      router.replace("/dashboard/company");
+    }
+  }, [activeMembership, loading, multiPartnerCompanyUser, pathname, router]);
 
   useEffect(() => {
     setProfileMenuOpen(false);
@@ -346,6 +398,7 @@ export function AppShell({
     clearCompanyCookie();
     clearStoreCookie();
     clearCachedMe();
+    clearRememberedPartnerCompanySelection();
     router.replace("/auth/login");
   };
 
@@ -408,7 +461,7 @@ export function AppShell({
               </Button>
             </div>
 
-            {sidebarExpanded ? (
+            {sidebarExpanded && !partnerUser ? (
               <div className="rounded-[1.5rem] border border-sky-200/70 bg-white p-2.5">
                 <label htmlFor="workspace-picker" className="mb-1.5 block text-[0.64rem] font-semibold uppercase tracking-[0.14em] text-sky-700/90">
                   Active company
@@ -421,7 +474,7 @@ export function AppShell({
                 >
                   {me?.memberships.map((membership) => (
                     <option key={membership.membershipId} value={membership.membershipId}>
-                      {membership.companyName} ({membership.role})
+                      {membership.companyName} ({getMembershipRoleLabel(membership)})
                     </option>
                   ))}
                 </NativeSelect>
@@ -518,7 +571,7 @@ export function AppShell({
                   </Avatar>
                   <div className="hidden min-w-0 text-left lg:block">
                     <div className="max-w-44 truncate text-sm font-semibold text-sky-950">{me?.user.fullName ?? "CRM Operator"}</div>
-                    <div className="text-xs text-sky-700">{activeMembership?.role ?? "member"}</div>
+                    <div className="text-xs text-sky-700">{getMembershipRoleLabel(activeMembership)}</div>
                   </div>
                   <ChevronDown className="size-4 text-sky-600/80" />
                 </button>
@@ -530,14 +583,14 @@ export function AppShell({
                     <div className="truncate text-sm text-muted-foreground">{me?.user.email ?? "No email loaded"}</div>
                       <div className="border my-2"></div>
                       <div className="inline-flex mt-2 mr-2 truncate text-base text-slate-700">{activeMembership?.companyName ?? "Workspace"} </div>
-                      <div className="inline-flex mt-1 text-base uppercase text-primary/70">{activeMembership?.role ?? "member"}</div>
+                      <div className="inline-flex mt-1 text-base uppercase text-primary/70">{getMembershipRoleLabel(activeMembership)}</div>
                     </div>
                     <Link
-                      href="/dashboard/settings"
+                      href={partnerUser ? "/dashboard/company" : "/dashboard/settings"}
                       className="mt-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 transition-colors hover:bg-secondary/65"
                     >
-                      <Settings2 className="size-4 text-primary" />
-                      Settings
+                      {partnerUser ? <Building2 className="size-4 text-primary" /> : <Settings2 className="size-4 text-primary" />}
+                      {partnerUser ? "Company" : "Settings"}
                     </Link>
                     <button
                       type="button"
@@ -578,7 +631,7 @@ export function AppShell({
               </div>
               <button
                 type="button"
-                className="rounded-xl p-2 text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+                className="rounded-xl bg-destructive p-2 text-white transition-colors hover:bg-destructive/90"
                 onClick={() => setConfirmLogoutOpen(false)}
                 aria-label="Close logout confirmation"
               >
@@ -589,7 +642,7 @@ export function AppShell({
             <div className="mt-5 flex items-center justify-between gap-3">
               <Badge variant="outline">{activeMembership?.companyName ?? "Current workspace"}</Badge>
               <div className="flex gap-3">
-                <Button type="button" variant="outline" onClick={() => setConfirmLogoutOpen(false)}>
+                <Button type="button" variant="destructive" onClick={() => setConfirmLogoutOpen(false)}>
                   Cancel
                 </Button>
                 <Button type="button" variant="default" disabled={loggingOut} onClick={() => void handleLogout()}>

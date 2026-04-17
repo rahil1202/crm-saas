@@ -1469,7 +1469,7 @@ export default function TeamPage() {
           <div className="grid gap-4">
             <p className="text-sm text-muted-foreground">Export includes the active team search and applied filters.</p>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setExportModalOpen(false)}>
+              <Button type="button" variant="destructive" onClick={() => setExportModalOpen(false)}>
                 Close
               </Button>
               <Button
@@ -1499,7 +1499,7 @@ export default function TeamPage() {
               <AlertDescription>Use Add New Team to send invites. CSV/XLS import for teams will be wired when backend import endpoints are added.</AlertDescription>
             </Alert>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setImportModalOpen(false)}>
+              <Button type="button" variant="destructive" onClick={() => setImportModalOpen(false)}>
                 Close
               </Button>
               <Button
@@ -1524,7 +1524,7 @@ export default function TeamPage() {
           maxWidthClassName="max-w-xl"
           headerActions={
             <>
-              <Button type="button" variant="ghost" size="xs" onClick={() => setInviteOpen(false)}>
+              <Button type="button" variant="destructive" size="xs" onClick={() => setInviteOpen(false)}>
                 Close
               </Button>
               <Button type="submit" form="invite-team-form" size="xs" disabled={sendingInvite}>
@@ -1646,7 +1646,7 @@ export default function TeamPage() {
             <>
               <Button
                 type="button"
-                variant="ghost"
+                variant="destructive"
                 size="xs"
                 onClick={() => {
                   setMemberModalOpen(false);
@@ -1739,7 +1739,7 @@ export default function TeamPage() {
           maxWidthClassName="max-w-2xl"
           headerActions={
             <>
-              <Button type="button" variant="ghost" size="xs" onClick={() => setRoleEditorOpen(false)}>
+              <Button type="button" variant="destructive" size="xs" onClick={() => setRoleEditorOpen(false)}>
                 Close
               </Button>
               <Button type="button" size="xs" onClick={() => void saveRole()}>

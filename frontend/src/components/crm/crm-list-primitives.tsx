@@ -342,7 +342,7 @@ export function CrmColumnSettings<TColumnKey extends string>({
                 Reset
               </Button>
             ) : null}
-            <Button type="button" variant="ghost" size="xs" onClick={onClose}>
+            <Button type="button" variant="destructive" size="xs" onClick={onClose}>
               <X className="size-4" />
             </Button>
           </div>
@@ -408,7 +408,7 @@ export function CrmFilterDrawer({
                 Apply
               </Button>
             )}
-            <Button type="button" variant="ghost" size="xs" onClick={onClose} aria-label="Close filters">
+            <Button type="button" variant="destructive" size="xs" onClick={onClose} aria-label="Close filters">
               <X className="size-4" />
             </Button>
           </div>

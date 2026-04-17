@@ -351,6 +351,125 @@ export async function registerWithSupabase(input: {
   };
 }
 
+export async function createManagedSupabaseUser(input: {
+  email: string;
+  password: string;
+  fullName: string;
+  emailConfirm?: boolean;
+}): Promise<{
+  userId: string;
+  email: string | null;
+}> {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    },
+    body: JSON.stringify({
+      email: input.email,
+      password: input.password,
+      email_confirm: input.emailConfirm ?? true,
+      user_metadata: {
+        full_name: input.fullName,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { msg?: string; error_description?: string; message?: string } | null;
+    throw AppError.conflict(payload?.msg ?? payload?.message ?? payload?.error_description ?? "Unable to create managed account");
+  }
+
+  const payload = (await response.json()) as {
+    id?: string;
+    email?: string | null;
+  };
+
+  if (!payload.id) {
+    throw AppError.conflict("Supabase did not return the created user");
+  }
+
+  return {
+    userId: payload.id,
+    email: payload.email ?? null,
+  };
+}
+
+export async function findManagedSupabaseUserByEmail(email: string): Promise<{
+  userId: string;
+  email: string | null;
+} | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const perPage = 200;
+  let page = 1;
+
+  for (;;) {
+    const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=${perPage}`, {
+      method: "GET",
+      headers: {
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { msg?: string; error_description?: string; message?: string } | null;
+      throw AppError.badRequest(payload?.msg ?? payload?.message ?? payload?.error_description ?? "Unable to load managed accounts");
+    }
+
+    const payload = (await response.json()) as {
+      users?: Array<{
+        id?: string;
+        email?: string | null;
+      }>;
+    };
+
+    const users = payload.users ?? [];
+    const matchedUser = users.find((user) => user.id && user.email?.toLowerCase() === normalizedEmail);
+
+    if (matchedUser?.id) {
+      return {
+        userId: matchedUser.id,
+        email: matchedUser.email ?? null,
+      };
+    }
+
+    if (users.length < perPage) {
+      return null;
+    }
+
+    page += 1;
+  }
+}
+
+export async function updateManagedSupabaseUser(input: {
+  userId: string;
+  email?: string;
+  password?: string;
+  fullName?: string;
+}) {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/admin/users/${input.userId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    },
+    body: JSON.stringify({
+      ...(input.email ? { email: input.email } : {}),
+      ...(input.password ? { password: input.password } : {}),
+      ...(input.fullName ? { user_metadata: { full_name: input.fullName } } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { msg?: string; error_description?: string; message?: string } | null;
+    throw AppError.badRequest(payload?.msg ?? payload?.message ?? payload?.error_description ?? "Unable to update managed account");
+  }
+}
+
 export async function sendPasswordRecoveryEmail(email: string) {
   const response = await fetch(`${env.SUPABASE_URL}/auth/v1/recover`, {
     method: "POST",

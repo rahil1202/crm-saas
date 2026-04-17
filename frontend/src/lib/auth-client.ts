@@ -1,4 +1,5 @@
 import { getFrontendEnv } from "@/lib/env";
+import { resolveAuthenticatedRouteFromMe } from "@/lib/partner-access";
 
 export interface AuthMePayload {
   needsOnboarding: boolean;
@@ -15,6 +16,12 @@ export interface AuthMePayload {
     role: string;
     status: string;
     storeId: string | null;
+    customRoleId?: string | null;
+    customRoleName?: string | null;
+    customRoleModules?: string[];
+    isPartnerAccess?: boolean;
+    partnerCompanyId?: string | null;
+    partnerCompanyName?: string | null;
     companyName: string;
     storeName: string | null;
   }>;
@@ -49,5 +56,5 @@ export async function resolveAuthenticatedRoute() {
     return "/dashboard";
   }
 
-  return me.needsOnboarding && !me.isSuperAdmin ? "/onboarding" : "/dashboard";
+  return resolveAuthenticatedRouteFromMe(me);
 }

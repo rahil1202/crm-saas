@@ -19,5 +19,5 @@ export function ModuleCard({
       </CardHeader>
       {children ? <CardContent>{children}</CardContent> : null}
     </Card>
-  );
+  );0
 }
