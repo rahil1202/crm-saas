@@ -20,15 +20,20 @@ import {
   superAdmins,
 } from "@/db/schema";
 import {
+  authenticateSupabasePasswordDetailed,
   assertPasswordPolicy,
+  enrollSupabaseTotpFactor,
   hashToken,
   issueSessionTokens,
+  listSupabaseMfaFactors,
   loginWithSupabasePassword,
   loginWithSupabasePasswordSession,
   registerWithSupabase,
   resendSupabaseVerificationEmail,
   sendPasswordRecoveryEmail,
+  unenrollSupabaseMfaFactor,
   updateSupabasePassword,
+  verifySupabaseMfaFactor,
   verifyRefreshToken,
   verifySupabaseAccessToken,
 } from "@/lib/auth";
@@ -54,13 +59,19 @@ import type {
   ExchangeSupabaseInput,
   ForgotPasswordInput,
   InviteInput,
+  InviteParamInput,
   LoginInput,
+  MfaEnrollInput,
+  MfaListInput,
+  MfaUnenrollInput,
+  MfaVerifyEnrollInput,
   OnboardingInput,
   RefreshInput,
   RegisterInput,
   ResendVerificationInput,
   ResetPasswordInput,
 } from "@/modules/auth/schema";
+import { inviteParamSchema } from "@/modules/auth/schema";
 
 const ACCESS_COOKIE = "crm_access_token";
 const REFRESH_COOKIE = "crm_refresh_token";
@@ -1073,6 +1084,220 @@ export async function listInvites(c: Context<AppEnv>) {
         referralCode: item.referralCode,
       }),
     })),
+  });
+}
+
+export async function deleteInvite(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = inviteParamSchema.parse(c.req.param()) as InviteParamInput;
+
+  const [invite] = await db
+    .select({ id: companyInvites.id, status: companyInvites.status })
+    .from(companyInvites)
+    .where(and(eq(companyInvites.id, params.inviteId), eq(companyInvites.companyId, tenant.companyId)))
+    .limit(1);
+
+  if (!invite) {
+    throw AppError.notFound("Invite not found");
+  }
+
+  if (invite.status !== "pending") {
+    throw AppError.conflict("Only pending invites can be deleted");
+  }
+
+  await db.delete(companyInvites).where(eq(companyInvites.id, invite.id));
+
+  return ok(c, {
+    deleted: true,
+    inviteId: invite.id,
+  });
+}
+
+async function resolveSupabaseMfaAccessToken(input: {
+  expectedUserId: string;
+  email: string;
+  currentPassword: string;
+  signInFactorId?: string;
+  signInCode?: string;
+}) {
+  const authResult = await authenticateSupabasePasswordDetailed(input.email, input.currentPassword);
+
+  if (authResult.status === "authenticated") {
+    if (authResult.userId !== input.expectedUserId) {
+      throw AppError.unauthorized("Current password does not match the authenticated account");
+    }
+
+    return {
+      accessToken: authResult.accessToken,
+      mfaRequired: false,
+      factors: [] as Array<{ id: string; factorType: string; status: string; friendlyName: string | null }>,
+    };
+  }
+
+  if (!input.signInFactorId || !input.signInCode) {
+    return {
+      accessToken: null,
+      mfaRequired: true,
+      factors: authResult.factors,
+    };
+  }
+
+  const verified = await verifySupabaseMfaFactor({
+    token: authResult.mfaToken,
+    factorId: input.signInFactorId,
+    code: input.signInCode,
+  });
+
+  if (!verified.accessToken || verified.userId !== input.expectedUserId) {
+    throw AppError.unauthorized("Unable to verify authenticator sign-in");
+  }
+
+  return {
+    accessToken: verified.accessToken,
+    mfaRequired: false,
+    factors: authResult.factors,
+  };
+}
+
+export async function listMfaFactors(c: Context<AppEnv>) {
+  const user = c.get("user");
+  const body = c.get("validatedBody") as MfaListInput;
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
+  const email = profile?.email ?? user.email;
+
+  if (!email) {
+    throw AppError.badRequest("A verified email is required before managing 2FA");
+  }
+
+  const session = await resolveSupabaseMfaAccessToken({
+    expectedUserId: user.id,
+    email,
+    currentPassword: body.currentPassword,
+    signInFactorId: body.signInFactorId,
+    signInCode: body.signInCode,
+  });
+
+  if (session.mfaRequired || !session.accessToken) {
+    return ok(c, {
+      mfaRequired: true,
+      signInFactors: session.factors,
+      factors: [],
+    });
+  }
+
+  const factors = await listSupabaseMfaFactors(session.accessToken);
+  return ok(c, {
+    mfaRequired: false,
+    signInFactors: session.factors,
+    factors,
+  });
+}
+
+export async function enrollMfaFactor(c: Context<AppEnv>) {
+  const user = c.get("user");
+  const body = c.get("validatedBody") as MfaEnrollInput;
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
+  const email = profile?.email ?? user.email;
+
+  if (!email) {
+    throw AppError.badRequest("A verified email is required before managing 2FA");
+  }
+
+  const session = await resolveSupabaseMfaAccessToken({
+    expectedUserId: user.id,
+    email,
+    currentPassword: body.currentPassword,
+    signInFactorId: body.signInFactorId,
+    signInCode: body.signInCode,
+  });
+
+  if (session.mfaRequired || !session.accessToken) {
+    return ok(c, {
+      mfaRequired: true,
+      signInFactors: session.factors,
+      enrollment: null,
+    });
+  }
+
+  const enrollment = await enrollSupabaseTotpFactor(session.accessToken, body.friendlyName, "The One CRM");
+  return ok(c, {
+    mfaRequired: false,
+    signInFactors: session.factors,
+    enrollment,
+  });
+}
+
+export async function verifyMfaEnrollment(c: Context<AppEnv>) {
+  const user = c.get("user");
+  const body = c.get("validatedBody") as MfaVerifyEnrollInput;
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
+  const email = profile?.email ?? user.email;
+
+  if (!email) {
+    throw AppError.badRequest("A verified email is required before managing 2FA");
+  }
+
+  const session = await resolveSupabaseMfaAccessToken({
+    expectedUserId: user.id,
+    email,
+    currentPassword: body.currentPassword,
+    signInFactorId: body.signInFactorId,
+    signInCode: body.signInCode,
+  });
+
+  if (session.mfaRequired || !session.accessToken) {
+    return ok(c, {
+      mfaRequired: true,
+      signInFactors: session.factors,
+      verified: false,
+    });
+  }
+
+  await verifySupabaseMfaFactor({
+    token: session.accessToken,
+    factorId: body.factorId,
+    code: body.code,
+  });
+
+  return ok(c, {
+    mfaRequired: false,
+    signInFactors: session.factors,
+    verified: true,
+  });
+}
+
+export async function unenrollMfaFactor(c: Context<AppEnv>) {
+  const user = c.get("user");
+  const body = c.get("validatedBody") as MfaUnenrollInput;
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
+  const email = profile?.email ?? user.email;
+
+  if (!email) {
+    throw AppError.badRequest("A verified email is required before managing 2FA");
+  }
+
+  const session = await resolveSupabaseMfaAccessToken({
+    expectedUserId: user.id,
+    email,
+    currentPassword: body.currentPassword,
+    signInFactorId: body.signInFactorId,
+    signInCode: body.signInCode,
+  });
+
+  if (session.mfaRequired || !session.accessToken) {
+    return ok(c, {
+      mfaRequired: true,
+      signInFactors: session.factors,
+      removed: false,
+    });
+  }
+
+  await unenrollSupabaseMfaFactor(session.accessToken, body.factorId);
+  return ok(c, {
+    mfaRequired: false,
+    signInFactors: session.factors,
+    removed: true,
+    factorId: body.factorId,
   });
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Download, Plus, Upload, UserCog } from "lucide-react";
+import { Download, Plus, Trash2, Upload, UserCog } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -377,12 +377,6 @@ function buildTeamsCsv(items: TeamRow[]) {
     .join("\n");
 }
 
-function buildInvitesCsv(items: InviteRow[]) {
-  return [["email", "role", "status", "branch", "expires_at"], ...items.map((row) => [row.email, row.role, row.status, row.storeName ?? "Company-wide", row.expiresAt])]
-    .map((line) => line.map((cell) => toCsvCell(cell)).join(","))
-    .join("\n");
-}
-
 function normalizeMembershipStatus(value: string): MembershipStatus {
   return value === "disabled" ? "disabled" : "active";
 }
@@ -443,6 +437,8 @@ export default function TeamPage() {
   const [inviteRoleSelection, setInviteRoleSelection] = useState("member");
   const [inviteStoreId, setInviteStoreId] = useState("");
   const [sendingInvite, setSendingInvite] = useState(false);
+  const [inviteToDelete, setInviteToDelete] = useState<InviteRow | null>(null);
+  const [deletingInvite, setDeletingInvite] = useState(false);
 
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamRow | null>(null);
@@ -582,8 +578,9 @@ export default function TeamPage() {
     }));
   }, [snapshot?.invites]);
 
-  const isTeamsTab = tab === "all";
-  const isInvitedTab = tab === "mine";
+  const isAllTab = tab === "all";
+  const isMineTab = tab === "mine";
+  const isTeamsTab = isAllTab || isMineTab;
   const isRolesTab = tab === "documents";
 
   const filteredTeamRows = useMemo(() => {
@@ -593,6 +590,10 @@ export default function TeamPage() {
 
     const q = filters.q.trim().toLowerCase();
     return teamRows.filter((row) => {
+      if (isMineTab && row.userId !== me?.user.id) {
+        return false;
+      }
+
       if (q) {
         const haystack = `${row.name} ${row.email} ${row.role} ${row.customRoleName ?? ""} ${row.status} ${row.storeName ?? ""}`.toLowerCase();
         if (!haystack.includes(q)) {
@@ -626,40 +627,7 @@ export default function TeamPage() {
 
       return true;
     });
-  }, [filters, isTeamsTab, teamRows]);
-
-  const filteredInviteRows = useMemo(() => {
-    if (!isInvitedTab) {
-      return [];
-    }
-
-    const q = filters.q.trim().toLowerCase();
-    return inviteRows.filter((row) => {
-      if (q) {
-        const haystack = `${row.email} ${row.role} ${row.status} ${row.storeName ?? ""}`.toLowerCase();
-        if (!haystack.includes(q)) {
-          return false;
-        }
-      }
-
-      if (filters.role && row.role !== filters.role) {
-        return false;
-      }
-
-      if (filters.status && row.status !== filters.status) {
-        return false;
-      }
-
-      if (filters.storeId) {
-        const storeName = snapshot?.stores.find((store) => store.id === filters.storeId)?.name;
-        if ((row.storeName ?? "") !== (storeName ?? "")) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [filters.q, filters.role, filters.status, filters.storeId, inviteRows, isInvitedTab, snapshot?.stores]);
+  }, [filters, isMineTab, isTeamsTab, me?.user.id, teamRows]);
 
   const sortedTeamRows = useMemo(() => {
     const next = [...filteredTeamRows];
@@ -668,28 +636,17 @@ export default function TeamPage() {
   }, [filteredTeamRows, sortBy, sortDir]);
 
   const sortedInviteRows = useMemo(() => {
-    const next = [...filteredInviteRows];
+    const next = inviteRows.filter((row) => row.status === "pending");
     next.sort((left, right) => compareValues(getInviteSortValue(left, "expiresAt"), getInviteSortValue(right, "expiresAt"), "asc"));
     return next;
-  }, [filteredInviteRows]);
+  }, [inviteRows]);
 
-  const totalTeamRows = isInvitedTab ? sortedInviteRows.length : sortedTeamRows.length;
+  const totalTeamRows = sortedTeamRows.length;
   const totalTeamPages = Math.max(1, Math.ceil(totalTeamRows / limit));
   const paginatedTeamRows = useMemo<TeamRow[]>(() => {
-    if (!isTeamsTab) {
-      return [];
-    }
     const start = (page - 1) * limit;
     return sortedTeamRows.slice(start, start + limit);
-  }, [isTeamsTab, limit, page, sortedTeamRows]);
-
-  const paginatedInviteRows = useMemo<InviteRow[]>(() => {
-    if (!isInvitedTab) {
-      return [];
-    }
-    const start = (page - 1) * limit;
-    return sortedInviteRows.slice(start, start + limit);
-  }, [isInvitedTab, limit, page, sortedInviteRows]);
+  }, [limit, page, sortedTeamRows]);
 
   useEffect(() => {
     if (page > totalTeamPages) {
@@ -702,10 +659,7 @@ export default function TeamPage() {
     [filters, snapshot?.stores],
   );
 
-  const pendingInviteCount = useMemo(
-    () => snapshot?.invites.filter((invite) => invite.status === "pending").length ?? 0,
-    [snapshot?.invites],
-  );
+  const pendingInviteCount = sortedInviteRows.length;
 
   const roleFilterCount = rolesFilterModule ? 1 : 0;
 
@@ -909,20 +863,41 @@ export default function TeamPage() {
   const handleTeamsExport = () => {
     try {
       if (isRolesTab) {
-        toast.info("Export is available for All Teams and Invited.");
+        toast.info("Export is available for team members only.");
         return;
       }
-      const csv = isInvitedTab ? buildInvitesCsv(sortedInviteRows) : buildTeamsCsv(sortedTeamRows);
+      const csv = buildTeamsCsv(sortedTeamRows);
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = isInvitedTab ? "team-invites.csv" : "teams.csv";
+      link.download = tab === "mine" ? "my-team.csv" : "teams.csv";
       link.click();
       URL.revokeObjectURL(url);
-      toast.success(isInvitedTab ? "Invites exported." : "Teams exported.");
+      toast.success(tab === "mine" ? "My team exported." : "Teams exported.");
     } catch {
-      toast.error(isInvitedTab ? "Unable to export invites." : "Unable to export teams.");
+      toast.error("Unable to export teams.");
+    }
+  };
+
+  const handleDeleteInvite = async () => {
+    if (!inviteToDelete) {
+      return;
+    }
+
+    setDeletingInvite(true);
+    setError(null);
+    try {
+      await apiRequest(`/auth/invites/${inviteToDelete.inviteId}`, { method: "DELETE" });
+      toast.success("Invite deleted.");
+      setInviteToDelete(null);
+      await loadData();
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to delete invite.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingInvite(false);
     }
   };
 
@@ -1176,7 +1151,7 @@ export default function TeamPage() {
             }}
             labels={{
               all: "All Teams",
-              mine: `Invited (${pendingInviteCount})`,
+              mine: "Mine",
               documents: "Roles",
             }}
           />
@@ -1219,7 +1194,7 @@ export default function TeamPage() {
           <>
             <CrmListToolbar
               searchValue={filters.q}
-              searchPlaceholder={isInvitedTab ? "Search invites by email, role, branch" : "Search by name, email, branch, role"}
+              searchPlaceholder={isMineTab ? "Search your profile" : "Search by name, email, branch, role"}
               onSearchChange={(value) => {
                 setPage(1);
                 setFilters((current) => ({ ...current, q: value }));
@@ -1228,7 +1203,7 @@ export default function TeamPage() {
               onOpenFilters={() => setTeamFilterOpen(true)}
               filterCount={activeTeamFilterChips.length}
               onOpenColumns={() => {
-                if (!isInvitedTab) {
+                if (!isMineTab) {
                   setTeamColumnSettingsOpen(true);
                 }
               }}
@@ -1254,36 +1229,50 @@ export default function TeamPage() {
               </div>
             </div>
 
-            {isInvitedTab ? (
-              <CrmDataTable
-                columns={inviteColumns}
-                rows={paginatedInviteRows}
-                rowKey={(row) => row.inviteId}
-                loading={loading}
-                emptyLabel="No pending invites found."
-                columnVisibility={inviteColumnVisibility}
-              />
-            ) : (
-              <CrmDataTable
-                columns={teamColumns}
-                rows={paginatedTeamRows}
-                rowKey={(row) => row.membershipId}
-                loading={loading}
-                emptyLabel="No team members found."
-                columnVisibility={columnVisibility}
-                sortBy={sortBy}
-                sortDir={sortDir}
-                onSort={handleTeamSort}
-                actionColumn={{
-                  header: "Actions",
-                  renderCell: (row) => (
-                    <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => openMemberEditor(row)}>
-                      <UserCog className="size-3.5" /> Manage
-                    </Button>
-                  ),
-                }}
-              />
-            )}
+            <CrmDataTable
+              columns={teamColumns}
+              rows={paginatedTeamRows}
+              rowKey={(row) => row.membershipId}
+              loading={loading}
+              emptyLabel={isMineTab ? "No profile found." : "No team members found."}
+              columnVisibility={columnVisibility}
+              sortBy={sortBy}
+              sortDir={sortDir}
+              onSort={handleTeamSort}
+              actionColumn={{
+                header: "Actions",
+                renderCell: (row) => (
+                  <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => openMemberEditor(row)}>
+                    <UserCog className="size-3.5" /> Manage
+                  </Button>
+                ),
+              }}
+            />
+
+            {isAllTab ? (
+              <div className="grid gap-2 border-t border-border/60 px-4 py-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-900">Pending Invites</h3>
+                  <Badge variant="outline">{pendingInviteCount}</Badge>
+                </div>
+                <CrmDataTable
+                  columns={inviteColumns}
+                  rows={sortedInviteRows}
+                  rowKey={(row) => row.inviteId}
+                  loading={loading}
+                  emptyLabel="No pending invites found."
+                  columnVisibility={inviteColumnVisibility}
+                  actionColumn={{
+                    header: "Actions",
+                    renderCell: (row) => (
+                      <Button type="button" variant="destructive" size="xs" className="h-8" onClick={() => setInviteToDelete(row)}>
+                        <Trash2 className="size-3.5" /> Delete
+                      </Button>
+                    ),
+                  }}
+                />
+              </div>
+            ) : null}
 
             <CrmPaginationBar
               limit={limit}
@@ -1636,6 +1625,35 @@ export default function TeamPage() {
               />
             </Field>
           </form>
+        </Modal>
+      ) : null}
+
+      {inviteToDelete ? (
+        <Modal
+          title="Delete Invite"
+          description="This removes the pending invite from the database."
+          onClose={() => {
+            if (!deletingInvite) {
+              setInviteToDelete(null);
+            }
+          }}
+          maxWidthClassName="max-w-xl"
+          headerActions={
+            <>
+              <Button type="button" variant="destructive" size="xs" onClick={() => setInviteToDelete(null)} disabled={deletingInvite}>
+                Close
+              </Button>
+              <Button type="button" size="xs" onClick={() => void handleDeleteInvite()} disabled={deletingInvite}>
+                {deletingInvite ? "Deleting..." : "Delete Invite"}
+              </Button>
+            </>
+          }
+        >
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">Invite email: {inviteToDelete.email}</p>
+            <p className="text-sm text-muted-foreground">Role: {inviteToDelete.role}</p>
+            <p className="text-sm text-muted-foreground">Expires: {formatDate(inviteToDelete.expiresAt)}</p>
+          </div>
         </Modal>
       ) : null}
 

@@ -1,24 +1,44 @@
 import { z } from "zod";
 
+export const taskAssociationEntityTypeSchema = z.enum(["contact", "lead", "deal", "template", "campaign"]);
+
+export const taskAssociationInputSchema = z.object({
+  entityType: taskAssociationEntityTypeSchema,
+  entityId: z.string().uuid(),
+});
+
 export const listTasksSchema = z.object({
   q: z.string().trim().optional(),
   status: z.enum(["todo", "in_progress", "done", "overdue"]).optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
+  taskType: z.enum(["to_do", "call", "meeting", "follow_up"]).optional(),
   assignedToUserId: z.string().uuid().optional(),
   overdueOnly: z.coerce.boolean().default(false),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+export const listTaskAssigneesSchema = z.object({
+  q: z.string().trim().max(120).optional(),
+});
+
+export const listTaskAssociationOptionsSchema = z.object({
+  entityType: taskAssociationEntityTypeSchema,
+  q: z.string().trim().max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
 export const createTaskSchema = z.object({
   title: z.string().trim().min(1).max(180),
   description: z.string().trim().max(4000).optional(),
+  taskType: z.enum(["to_do", "call", "meeting", "follow_up"]).default("to_do"),
   status: z.enum(["todo", "in_progress", "done", "overdue"]).default("todo"),
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   dueAt: z.string().datetime().optional(),
   reminderMinutesBefore: z.coerce.number().int().min(0).max(60 * 24 * 30).default(24 * 60),
   isRecurring: z.boolean().default(false),
   recurrenceRule: z.string().trim().max(120).optional(),
+  associations: z.array(taskAssociationInputSchema).max(50).optional(),
   assignedToUserId: z.string().uuid().nullable().optional(),
   customerId: z.string().uuid().nullable().optional(),
   dealId: z.string().uuid().nullable().optional(),
@@ -65,6 +85,9 @@ export const taskParamSchema = z.object({ taskId: z.string().uuid() });
 export const followUpParamSchema = z.object({ followUpId: z.string().uuid() });
 
 export type ListTasksQuery = z.infer<typeof listTasksSchema>;
+export type ListTaskAssigneesQuery = z.infer<typeof listTaskAssigneesSchema>;
+export type ListTaskAssociationOptionsQuery = z.infer<typeof listTaskAssociationOptionsSchema>;
+export type TaskAssociationInput = z.infer<typeof taskAssociationInputSchema>;
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type ListFollowUpsQuery = z.infer<typeof listFollowUpsSchema>;
 export type CreateFollowUpInput = z.infer<typeof createFollowUpSchema>;

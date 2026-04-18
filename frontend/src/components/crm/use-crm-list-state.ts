@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ColumnVisibility, CrmListQueryState, CrmListTabKey, CrmSortDirection } from "@/components/crm/types";
 
 type SearchParamsReader = Pick<URLSearchParams, "get">;
+const EMPTY_LOCKED_COLUMNS: readonly string[] = [];
 
 interface UseCrmListStateOptions<TFilters extends Record<string, string>, TSortKey extends string, TColumnKey extends string> {
   defaultTab?: CrmListTabKey;
@@ -52,7 +53,7 @@ export function useCrmListState<
   normalizeSortBy,
   columnStorageKey,
   defaultColumnVisibility,
-  lockedColumns = [],
+  lockedColumns = EMPTY_LOCKED_COLUMNS as readonly TColumnKey[],
 }: UseCrmListStateOptions<TFilters, TSortKey, TColumnKey>) {
   const router = useRouter();
   const pathname = usePathname();
@@ -216,5 +217,74 @@ export function useCrmListState<
     resetColumns,
     requestSort,
     buildQueryString,
+  };
+}
+
+export function usePersistedColumnVisibility<TColumnKey extends string>({
+  storageKey,
+  defaultVisibility,
+  lockedColumns = EMPTY_LOCKED_COLUMNS as readonly TColumnKey[],
+}: {
+  storageKey: string;
+  defaultVisibility: Record<TColumnKey, boolean>;
+  lockedColumns?: readonly TColumnKey[];
+}) {
+  const [columnVisibility, setColumnVisibility] = useState<Record<TColumnKey, boolean>>(defaultVisibility);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const stored = window.localStorage.getItem(storageKey);
+    if (!stored) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as Partial<Record<TColumnKey, boolean>>;
+      setColumnVisibility((current) => {
+        const next = { ...current, ...parsed } as Record<TColumnKey, boolean>;
+        for (const key of lockedColumns) {
+          next[key] = true;
+        }
+        return next;
+      });
+    } catch {
+      window.localStorage.removeItem(storageKey);
+    }
+  }, [lockedColumns, storageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(columnVisibility));
+  }, [columnVisibility, storageKey]);
+
+  const toggleColumn = useCallback(
+    (key: TColumnKey) => {
+      if (lockedColumns.includes(key)) {
+        return;
+      }
+
+      setColumnVisibility((current) => ({
+        ...current,
+        [key]: !current[key],
+      }));
+    },
+    [lockedColumns],
+  );
+
+  const resetColumns = useCallback(() => {
+    setColumnVisibility(defaultVisibility);
+  }, [defaultVisibility]);
+
+  return {
+    columnVisibility,
+    setColumnVisibility,
+    toggleColumn,
+    resetColumns,
   };
 }

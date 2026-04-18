@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { CrmDetailItem } from "@/components/crm/crm-detail-primitives";
+import { CrmConfirmDialog, CrmModalShell } from "@/components/crm/crm-list-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -127,22 +129,7 @@ function formatDateTime(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
-function DetailItem({
-  label,
-  value,
-  subtle,
-}: {
-  label: string;
-  value: string;
-  subtle?: boolean;
-}) {
-  return (
-    <div className="grid gap-1">
-      <div className="text-sm text-slate-500">{label}</div>
-      <div className={cn("text-[1.02rem] font-medium text-slate-900", subtle && "text-slate-400")}>{value}</div>
-    </div>
-  );
-}
+const DetailItem = CrmDetailItem;
 
 function createFormState(partner: Partner): PartnerFormState {
   const metadata = parsePartnerNotes(partner.notes);
@@ -185,70 +172,6 @@ function buildPayload(form: PartnerFormState) {
   };
 }
 
-function Modal({
-  title,
-  description,
-  children,
-  onClose,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
-      <div className="flex h-full items-start justify-center overflow-y-auto">
-        <div className="w-full max-w-5xl overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]">
-          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
-            <div>
-              <div className="text-base font-semibold text-slate-900">{title}</div>
-              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-            </div>
-            <Button type="button" variant="destructive" size="xs" onClick={onClose}>
-              Close
-            </Button>
-          </div>
-          <div className="max-h-[calc(100vh-8rem)] overflow-y-auto px-5 py-4">{children}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DeletePartnerModal({
-  partnerName,
-  submitting,
-  onCancel,
-  onConfirm,
-}: {
-  partnerName: string;
-  submitting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Modal
-      title="Delete Partner"
-      description={`This will permanently remove ${partnerName} from the workspace.`}
-      onClose={onCancel}
-    >
-      <div className="grid gap-4">
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          This action cannot be undone. Confirm only if you want to remove the partner company and its admin-side profile.
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="destructive" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="button" disabled={submitting} onClick={onConfirm}>
-            {submitting ? "Deleting..." : "Confirm delete"}
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 export default function PartnerProfilePage() {
   const params = useParams<{ partnerId: string }>();
@@ -562,7 +485,7 @@ export default function PartnerProfilePage() {
       </section>
 
       {editing && form ? (
-        <Modal title="Edit Partner" description="Update the partner profile details." onClose={() => setEditing(false)}>
+        <CrmModalShell open title="Edit Partner" description="Update the partner profile details." onClose={() => setEditing(false)} maxWidthClassName="max-w-5xl">
           <div className="grid gap-5">
             <div className="grid gap-4 rounded-2xl border border-border/60 bg-white p-4">
               <div className="text-sm font-semibold text-slate-900">Basic Information</div>
@@ -638,12 +561,16 @@ export default function PartnerProfilePage() {
               </Button>
             </div>
           </div>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       {showDeleteModal ? (
-        <DeletePartnerModal
-          partnerName={data.partner.name}
+        <CrmConfirmDialog
+          open
+          title="Delete Partner"
+          description={`This will permanently remove ${data.partner.name} from the workspace.`}
+          warning="This action cannot be undone. Confirm only if you want to remove the partner company and its admin-side profile."
+          confirmLabel="Confirm delete"
           submitting={deleting}
           onCancel={() => setShowDeleteModal(false)}
           onConfirm={() => void handleDelete()}

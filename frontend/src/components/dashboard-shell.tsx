@@ -121,7 +121,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               title: "Deal Profile",
               description: "Detailed deal record with timeline, linked records, and update controls.",
             }
-      : dashboardMeta[pathname]) ?? {
+          : pathname.startsWith("/dashboard/tasks/") && pathname !== "/dashboard/tasks"
+            ? {
+                title: "Task Detail",
+                description: "Review task details, assignment, and due-date context with edit and delete controls.",
+              }
+       : dashboardMeta[pathname]) ?? {
     title: "Dashboard",
     description: "Workspace overview for the active CRM company.",
   };

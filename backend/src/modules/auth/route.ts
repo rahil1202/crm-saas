@@ -5,8 +5,11 @@ import {
   acceptInvite,
   changePassword,
   createReferralLink,
+  deleteInvite,
   createGoogleAuthUrl,
+  enrollMfaFactor,
   exchangeSupabaseSession,
+  listMfaFactors,
   forgotPassword,
   getInviteLookup,
   getCurrentUser,
@@ -20,6 +23,8 @@ import {
   register,
   resendVerification,
   resetPassword,
+  unenrollMfaFactor,
+  verifyMfaEnrollment,
 } from "@/modules/auth/controller";
 import {
   acceptInviteSchema,
@@ -28,6 +33,10 @@ import {
   exchangeSupabaseSchema,
   forgotPasswordSchema,
   inviteSchema,
+  mfaEnrollSchema,
+  mfaListSchema,
+  mfaUnenrollSchema,
+  mfaVerifyEnrollSchema,
   loginSchema,
   onboardingSchema,
   refreshSchema,
@@ -50,12 +59,17 @@ authRoutes.post("/forgot-password", enforceBodyLimit(bodyLimits.authSensitive), 
 authRoutes.post("/resend-verification", validateJson(resendVerificationSchema), resendVerification);
 authRoutes.post("/reset-password", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(resetPasswordSchema), resetPassword);
 authRoutes.post("/change-password", requireAuth, enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(changePasswordSchema), changePassword);
+authRoutes.post("/mfa/factors", requireAuth, validateJson(mfaListSchema), listMfaFactors);
+authRoutes.post("/mfa/enroll", requireAuth, validateJson(mfaEnrollSchema), enrollMfaFactor);
+authRoutes.post("/mfa/verify-enrollment", requireAuth, validateJson(mfaVerifyEnrollSchema), verifyMfaEnrollment);
+authRoutes.post("/mfa/unenroll", requireAuth, validateJson(mfaUnenrollSchema), unenrollMfaFactor);
 authRoutes.post("/refresh", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.authSensitive), validateJson(refreshSchema), refreshSession);
 authRoutes.post("/logout", logout);
 authRoutes.get("/me", requireAuth, getCurrentUser);
 authRoutes.post("/onboarding", requireAuth, validateJson(onboardingSchema), onboarding);
 authRoutes.post("/invite", requireAuth, requireTenant, requireModuleAccess("teams"), validateJson(inviteSchema), inviteMember);
 authRoutes.get("/invites", requireAuth, requireTenant, requireModuleAccess("teams"), listInvites);
+authRoutes.delete("/invites/:inviteId", requireAuth, requireTenant, requireModuleAccess("teams"), deleteInvite);
 authRoutes.get("/invite/:token", getInviteLookup);
 authRoutes.post("/accept-invite", requireAuth, validateJson(acceptInviteSchema), acceptInvite);
 authRoutes.post("/referrals", requireAuth, requireTenant, requireRole("admin"), requireModuleAccess("teams"), validateJson(createReferralSchema), createReferralLink);

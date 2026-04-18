@@ -6,9 +6,12 @@ import {
   createTask,
   deleteFollowUp,
   deleteTask,
+  getTaskById,
   getTaskCalendar,
   getTaskReminders,
   getTaskSummary,
+  listTaskAssociationOptions,
+  listTaskAssignees,
   listFollowUps,
   listTasks,
   sendTaskReminder,
@@ -18,6 +21,8 @@ import {
 import {
   createFollowUpSchema,
   createTaskSchema,
+  listTaskAssociationOptionsSchema,
+  listTaskAssigneesSchema,
   listFollowUpsSchema,
   listTasksSchema,
   taskCalendarQuerySchema,
@@ -32,10 +37,13 @@ export const taskRoutes = new Hono<AppEnv>().basePath("/tasks");
 taskRoutes.use("*", requireAuth, requireTenant, requireModuleAccess("tasks"));
 
 taskRoutes.get("/", validateQuery(listTasksSchema), listTasks);
+taskRoutes.get("/assignees", validateQuery(listTaskAssigneesSchema), listTaskAssignees);
+taskRoutes.get("/association-options", validateQuery(listTaskAssociationOptionsSchema), listTaskAssociationOptions);
 taskRoutes.get("/summary", getTaskSummary);
 taskRoutes.get("/calendar", validateQuery(taskCalendarQuerySchema), getTaskCalendar);
 taskRoutes.get("/reminders", validateQuery(taskReminderQuerySchema), getTaskReminders);
 taskRoutes.get("/follow-ups", validateQuery(listFollowUpsSchema), listFollowUps);
+taskRoutes.get("/:taskId", getTaskById);
 taskRoutes.post("/", validateJson(createTaskSchema), createTask);
 taskRoutes.post("/follow-ups", validateJson(createFollowUpSchema), createFollowUp);
 taskRoutes.post("/:taskId/send-reminder", sendTaskReminder);

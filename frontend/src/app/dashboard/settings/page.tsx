@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Building2, Clock3, KeyRound, LifeBuoy, MailCheck, MapPinned, Palette, ShieldCheck, UserPlus, Users, Workflow } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Building2, Clock3, KeyRound, MapPinned, Palette, QrCode, ShieldCheck, Smartphone, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -152,6 +151,57 @@ interface RuntimeReadiness {
   };
 }
 
+type MfaFactor = {
+  id: string;
+  factorType: string;
+  status: string;
+  friendlyName: string | null;
+};
+
+type MfaSignInFactor = {
+  id: string;
+  factorType: string;
+  status: string;
+  friendlyName: string | null;
+};
+
+function SettingsModal({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
+      <div className="flex h-full items-start justify-center overflow-y-auto">
+        <div className="w-full max-w-3xl rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_70px_-32px_rgba(15,23,42,0.4)]">
+          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
+            <div>
+              <h3 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h3>
+              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+            </div>
+            <Button type="button" variant="destructive" size="xs" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+          <div className="max-h-[calc(100vh-10rem)] overflow-y-auto px-5 py-4">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [me, setMe] = useState<AuthMePayload | null>(null);
   const [companySnapshot, setCompanySnapshot] = useState<CompanySnapshot | null>(null);
@@ -170,6 +220,25 @@ export default function SettingsPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submittingPassword, setSubmittingPassword] = useState(false);
+  const [changePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
+
+  const [mfaModalOpen, setMfaModalOpen] = useState(false);
+  const [mfaCurrentPassword, setMfaCurrentPassword] = useState("");
+  const [mfaSignInFactorId, setMfaSignInFactorId] = useState("");
+  const [mfaSignInCode, setMfaSignInCode] = useState("");
+  const [mfaSignInRequired, setMfaSignInRequired] = useState(false);
+  const [mfaSignInFactors, setMfaSignInFactors] = useState<MfaSignInFactor[]>([]);
+  const [mfaFactors, setMfaFactors] = useState<MfaFactor[]>([]);
+  const [mfaLoading, setMfaLoading] = useState(false);
+  const [mfaFriendlyName, setMfaFriendlyName] = useState("Authenticator App");
+  const [mfaEnrollment, setMfaEnrollment] = useState<{
+    id: string;
+    qrCode: string | null;
+    secret: string | null;
+    uri: string | null;
+  } | null>(null);
+  const [mfaVerifyCode, setMfaVerifyCode] = useState("");
+  const [mfaSubmitting, setMfaSubmitting] = useState(false);
 
   const [companyName, setCompanyName] = useState("");
   const [timezone, setTimezone] = useState("");
@@ -285,6 +354,183 @@ export default function SettingsPage() {
       setError(message);
     } finally {
       setSubmittingPassword(false);
+    }
+  };
+
+  const buildMfaSessionPayload = () => ({
+    currentPassword: mfaCurrentPassword,
+    ...(mfaSignInFactorId.trim() ? { signInFactorId: mfaSignInFactorId.trim() } : {}),
+    ...(mfaSignInCode.trim() ? { signInCode: mfaSignInCode.trim() } : {}),
+  });
+
+  const handleLoadMfaFactors = async () => {
+    if (!mfaCurrentPassword.trim()) {
+      toast.error("Current password is required to manage 2FA.");
+      return;
+    }
+
+    setMfaLoading(true);
+    setError(null);
+    try {
+      const response = await apiRequest<{
+        mfaRequired: boolean;
+        signInFactors: MfaSignInFactor[];
+        factors: MfaFactor[];
+      }>("/auth/mfa/factors", {
+        method: "POST",
+        body: JSON.stringify(buildMfaSessionPayload()),
+      });
+
+      setMfaSignInRequired(response.mfaRequired);
+      setMfaSignInFactors(response.signInFactors ?? []);
+      if (!response.mfaRequired) {
+        setMfaFactors(response.factors ?? []);
+        if ((response.factors ?? []).length === 0) {
+          toast.info("No 2FA factors are enabled yet.");
+        }
+      } else {
+        toast.info("Enter your authenticator sign-in code to continue 2FA management.");
+      }
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to load 2FA factors.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
+  const handleStartMfaEnrollment = async () => {
+    if (!mfaCurrentPassword.trim()) {
+      toast.error("Current password is required.");
+      return;
+    }
+
+    setMfaSubmitting(true);
+    setError(null);
+    try {
+      const response = await apiRequest<{
+        mfaRequired: boolean;
+        signInFactors: MfaSignInFactor[];
+        enrollment: {
+          id: string;
+          qrCode: string | null;
+          secret: string | null;
+          uri: string | null;
+        } | null;
+      }>("/auth/mfa/enroll", {
+        method: "POST",
+        body: JSON.stringify({
+          ...buildMfaSessionPayload(),
+          friendlyName: mfaFriendlyName.trim() || "Authenticator App",
+        }),
+      });
+
+      setMfaSignInRequired(response.mfaRequired);
+      setMfaSignInFactors(response.signInFactors ?? []);
+
+      if (response.mfaRequired || !response.enrollment) {
+        toast.info("Authenticator sign-in verification is required before enrolling another factor.");
+        return;
+      }
+
+      setMfaEnrollment(response.enrollment);
+      setMfaVerifyCode("");
+      toast.success("Scan the QR code with Google or Microsoft Authenticator and verify the code.");
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to start 2FA enrollment.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setMfaSubmitting(false);
+    }
+  };
+
+  const handleVerifyMfaEnrollment = async () => {
+    if (!mfaEnrollment?.id) {
+      toast.error("Start authenticator enrollment first.");
+      return;
+    }
+
+    if (!mfaVerifyCode.trim()) {
+      toast.error("Enter the 6-digit authenticator code.");
+      return;
+    }
+
+    setMfaSubmitting(true);
+    setError(null);
+    try {
+      const response = await apiRequest<{
+        mfaRequired: boolean;
+        signInFactors: MfaSignInFactor[];
+        verified: boolean;
+      }>("/auth/mfa/verify-enrollment", {
+        method: "POST",
+        body: JSON.stringify({
+          ...buildMfaSessionPayload(),
+          factorId: mfaEnrollment.id,
+          code: mfaVerifyCode.trim(),
+        }),
+      });
+
+      setMfaSignInRequired(response.mfaRequired);
+      setMfaSignInFactors(response.signInFactors ?? []);
+
+      if (response.mfaRequired || !response.verified) {
+        toast.info("Authenticator sign-in verification is required before enrollment verification.");
+        return;
+      }
+
+      setMfaEnrollment(null);
+      setMfaVerifyCode("");
+      toast.success("Authenticator 2FA enabled.");
+      await handleLoadMfaFactors();
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to verify authenticator code.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setMfaSubmitting(false);
+    }
+  };
+
+  const handleUnenrollMfaFactor = async (factorId: string) => {
+    if (!mfaCurrentPassword.trim()) {
+      toast.error("Current password is required.");
+      return;
+    }
+
+    setMfaSubmitting(true);
+    setError(null);
+    try {
+      const response = await apiRequest<{
+        mfaRequired: boolean;
+        signInFactors: MfaSignInFactor[];
+        removed: boolean;
+      }>("/auth/mfa/unenroll", {
+        method: "POST",
+        body: JSON.stringify({
+          ...buildMfaSessionPayload(),
+          factorId,
+        }),
+      });
+
+      setMfaSignInRequired(response.mfaRequired);
+      setMfaSignInFactors(response.signInFactors ?? []);
+
+      if (response.mfaRequired || !response.removed) {
+        toast.info("Authenticator sign-in verification is required before removing a factor.");
+        return;
+      }
+
+      toast.success("2FA factor removed.");
+      await handleLoadMfaFactors();
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to remove 2FA factor.";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setMfaSubmitting(false);
     }
   };
 
@@ -955,10 +1201,7 @@ export default function SettingsPage() {
             <TabsTrigger value="custom-fields">Custom Fields</TabsTrigger>
             <TabsTrigger value="tags">Tags</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="integrations">Integrations</TabsTrigger>
-            <TabsTrigger value="team">Team</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
-            <TabsTrigger value="recovery">Recovery</TabsTrigger>
           </TabsList>
 
           <TabsContent value="company" className="flex flex-col gap-6">

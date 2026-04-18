@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState, type ReactNode } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download, Import, PencilLine, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,13 +9,16 @@ import {
   CrmColumnSettings,
   CrmDataTable,
   CrmFilterDrawer,
+  CrmAppliedFiltersBar,
   CrmListPageHeader,
   CrmListToolbar,
   CrmListViewTabs,
+  CrmModalShell,
   CrmPaginationBar,
 } from "@/components/crm/crm-list-primitives";
+import { downloadCsvFile, toCsvCell } from "@/components/crm/csv-export";
 import type { ColumnDefinition, CrmListTabKey } from "@/components/crm/types";
-import { useCrmListState } from "@/components/crm/use-crm-list-state";
+import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/use-crm-list-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -193,6 +196,10 @@ type CustomerFilterChip = {
   value: string;
 };
 
+type CustomerTableRow = Customer & {
+  details: ReturnType<typeof parseContactNotes>;
+};
+
 const rowsPerPageOptions = [10, 20, 50, 100] as const;
 const columnStorageKey = "crm-saas-customers-columns";
 const documentColumnStorageKey = "crm-saas-customer-documents-columns";
@@ -261,7 +268,7 @@ const emptyCustomerFilters: CustomerFilters = {
 const customerTableColumns: Array<{
   key: CustomerSortKey;
   width: string;
-  render: (customer: Customer) => ReactNode;
+  render: (customer: CustomerTableRow) => ReactNode;
 }> = [
   {
     key: "name",
@@ -293,22 +300,22 @@ const customerTableColumns: Array<{
   {
     key: "title",
     width: "min-w-[180px]",
-    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{parseContactNotes(customer.notes).title ?? "-"}</div>,
+    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{customer.details.title ?? "-"}</div>,
   },
   {
     key: "remarks",
     width: "min-w-[260px]",
-    render: (customer) => <div className="max-w-[260px] truncate text-[0.82rem] text-muted-foreground">{parseContactNotes(customer.notes).remarks ?? "-"}</div>,
+    render: (customer) => <div className="max-w-[260px] truncate text-[0.82rem] text-muted-foreground">{customer.details.remarks ?? "-"}</div>,
   },
   {
     key: "callRemark",
     width: "min-w-[200px]",
-    render: (customer) => <div className="max-w-[200px] truncate text-[0.82rem] text-muted-foreground">{parseContactNotes(customer.notes).callRemark ?? "-"}</div>,
+    render: (customer) => <div className="max-w-[200px] truncate text-[0.82rem] text-muted-foreground">{customer.details.callRemark ?? "-"}</div>,
   },
   {
     key: "callStatus",
     width: "min-w-[140px]",
-    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{parseContactNotes(customer.notes).callStatus ?? "-"}</div>,
+    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{customer.details.callStatus ?? "-"}</div>,
   },
   {
     key: "productTags",
@@ -330,17 +337,17 @@ const customerTableColumns: Array<{
   {
     key: "country",
     width: "min-w-[120px]",
-    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{parseContactNotes(customer.notes).country ?? "-"}</div>,
+    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{customer.details.country ?? "-"}</div>,
   },
   {
     key: "source",
     width: "min-w-[140px]",
-    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{parseContactNotes(customer.notes).source ?? "-"}</div>,
+    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{customer.details.source ?? "-"}</div>,
   },
   {
     key: "status",
     width: "min-w-[120px]",
-    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{parseContactNotes(customer.notes).status ?? "-"}</div>,
+    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{customer.details.status ?? "-"}</div>,
   },
   {
     key: "createdAt",
@@ -412,11 +419,6 @@ function parseTags(value: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-function toCsvCell(value: string | null | undefined) {
-  const raw = value ?? "";
-  return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
 }
 
 function buildCustomersCsv(items: Customer[]) {
@@ -699,44 +701,6 @@ function initialColumnVisibility(): CustomerColumnVisibility {
   };
 }
 
-function Modal({
-  title,
-  description,
-  onClose,
-  children,
-  maxWidthClassName = "max-w-2xl",
-  headerActions,
-}: {
-  title: string;
-  description?: string;
-  onClose: () => void;
-  children: ReactNode;
-  maxWidthClassName?: string;
-  headerActions?: ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
-      <div className="flex h-full items-start justify-center overflow-y-auto">
-        <div className={cn("w-full overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]", maxWidthClassName)}>
-          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
-            <div>
-              <div className="text-base font-semibold text-slate-900">{title}</div>
-              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-            </div>
-            <div className="flex items-center gap-2">
-              {headerActions}
-              <Button type="button" variant="destructive" size="xs" onClick={onClose}>
-                <X className="size-4" />
-              </Button>
-            </div>
-          </div>
-          <div className="max-h-[calc(100vh-7.5rem)] overflow-y-auto px-5 py-4">{children}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function CustomersPage() {
   const companyId = getCompanyCookie();
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -763,7 +727,14 @@ export default function CustomersPage() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
-  const [documentColumnVisibility, setDocumentColumnVisibility] = useState<DocumentColumnVisibility>(defaultDocumentColumnVisibility);
+  const {
+    columnVisibility: documentColumnVisibility,
+    toggleColumn: toggleDocumentColumn,
+    resetColumns: resetDocumentColumns,
+  } = usePersistedColumnVisibility<DocumentColumnKey>({
+    storageKey: documentColumnStorageKey,
+    defaultVisibility: defaultDocumentColumnVisibility,
+  });
   const {
     tab,
     setTab,
@@ -799,9 +770,13 @@ export default function CustomersPage() {
   });
 
   const offset = (page - 1) * limit;
+  const customersWithDetails = useMemo<CustomerTableRow[]>(
+    () => customers.map((customer) => ({ ...customer, details: parseContactNotes(customer.notes) })),
+    [customers],
+  );
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const startRow = total === 0 ? 0 : offset + 1;
-  const endRow = total === 0 ? 0 : Math.min(offset + (tab === "documents" ? documents.length : customers.length), total);
+  const endRow = total === 0 ? 0 : Math.min(offset + (tab === "documents" ? documents.length : customersWithDetails.length), total);
   const activeFilterChips = getCustomerFilterChips(filters).filter((chip) => tab === "documents" ? chip.key === "q" || chip.key === "documentFolder" : chip.key !== "documentFolder");
   const activeFilterCount = activeFilterChips.length;
 
@@ -898,31 +873,6 @@ export default function CustomersPage() {
     }
   }, [loading, page, total, totalPages]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const stored = window.localStorage.getItem(documentColumnStorageKey);
-    if (!stored) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<DocumentColumnVisibility>;
-      setDocumentColumnVisibility((current) => ({ ...current, ...parsed }));
-    } catch {
-      window.localStorage.removeItem(documentColumnStorageKey);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem(documentColumnStorageKey, JSON.stringify(documentColumnVisibility));
-  }, [documentColumnVisibility]);
-
   const closeModal = () => {
     setModalMode(null);
     setSelectedCustomer(null);
@@ -977,18 +927,7 @@ export default function CustomersPage() {
     setColumnSettingsOpen(true);
   };
 
-  const toggleDocumentColumn = (key: DocumentColumnKey) => {
-    setDocumentColumnVisibility((current) => ({
-      ...current,
-      [key]: !current[key],
-    }));
-  };
-
-  const resetDocumentColumns = () => {
-    setDocumentColumnVisibility(defaultDocumentColumnVisibility);
-  };
-
-  const customerColumns: Array<ColumnDefinition<Customer, Exclude<CustomerColumnKey, "actions">, CustomerSortKey>> =
+  const customerColumns: Array<ColumnDefinition<CustomerTableRow, Exclude<CustomerColumnKey, "actions">, CustomerSortKey>> =
     customerTableColumns.map((column) => ({
       key: column.key,
       label: customerColumnLabels[column.key],
@@ -996,8 +935,6 @@ export default function CustomersPage() {
       sortable: true,
       sortKey: column.key,
       renderCell: (customer) => {
-        const customerDetails = parseContactNotes(customer.notes);
-
         if (column.key === "remarks") {
           return (
             <button
@@ -1006,7 +943,7 @@ export default function CustomersPage() {
               className="group flex w-full items-start rounded-xl border border-transparent px-2 py-2 text-left transition-colors hover:border-sky-200 hover:bg-sky-50/70"
             >
               <div className="min-w-0">
-                <div className="max-w-[260px] truncate text-[0.82rem] text-muted-foreground">{customerDetails.remarks ?? "-"}</div>
+                <div className="max-w-[260px] truncate text-[0.82rem] text-muted-foreground">{customer.details.remarks ?? "-"}</div>
                 <div className="mt-1 text-[0.68rem] font-medium uppercase tracking-[0.12em] text-sky-700/80 opacity-0 transition-opacity group-hover:opacity-100">
                   Edit remarks
                 </div>
@@ -1019,7 +956,7 @@ export default function CustomersPage() {
           return (
             <button type="button" onClick={() => openQuickUpdate(customer)} className="group inline-flex w-full justify-start">
               <span className="inline-flex max-w-full items-center rounded-full border border-sky-200/70 bg-sky-50 px-2.5 py-1 text-[0.76rem] font-medium text-sky-900 transition-colors group-hover:border-sky-300 group-hover:bg-sky-100">
-                <span className="truncate">{customerDetails.callRemark ?? "Not Started"}</span>
+                <span className="truncate">{customer.details.callRemark ?? "Not Started"}</span>
               </span>
             </button>
           );
@@ -1029,7 +966,7 @@ export default function CustomersPage() {
           return (
             <button type="button" onClick={() => openQuickUpdate(customer)} className="group inline-flex w-full justify-start">
               <span className="inline-flex max-w-full items-center rounded-full border border-slate-200/80 bg-slate-50 px-2.5 py-1 text-[0.76rem] font-medium text-slate-800 transition-colors group-hover:border-sky-300 group-hover:bg-sky-50 group-hover:text-sky-900">
-                <span className="truncate">{customerDetails.callStatus ?? "Not Started"}</span>
+                <span className="truncate">{customer.details.callStatus ?? "Not Started"}</span>
               </span>
             </button>
           );
@@ -1229,13 +1166,7 @@ export default function CustomersPage() {
         tab === "documents"
           ? buildDocumentsCsv(await loadAllDocumentsForExport())
           : buildCustomersCsv(await loadAllForExport());
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = tab === "documents" ? "contact-documents.csv" : "contacts.csv";
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadCsvFile(csv, tab === "documents" ? "contact-documents.csv" : "contacts.csv");
       toast.success(tab === "documents" ? "Documents exported." : "Contacts exported.");
       closeModal();
     } catch (caughtError) {
@@ -1397,28 +1328,7 @@ export default function CustomersPage() {
           }}
         />
 
-        <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
-          <div className="flex flex-wrap gap-2">
-            {activeFilterChips.length ? (
-              activeFilterChips.map((chip) => (
-                <div key={chip.key} className="inline-flex max-w-full items-center gap-2 rounded-full border border-sky-200/80 bg-white px-3 py-1 text-[0.72rem] font-medium text-slate-800 shadow-sm">
-                  <span className="text-slate-500">{chip.label}:</span>
-                  <span className="max-w-[16rem] truncate text-slate-900">{chip.value}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeAppliedFilter(chip.key)}
-                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
-                    aria-label={`Remove ${chip.label} filter`}
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div className="text-xs text-muted-foreground">No active filters.</div>
-            )}
-          </div>
-        </div>
+        <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} />
 
         {tab === "documents" ? (
           <CrmDataTable
@@ -1445,7 +1355,7 @@ export default function CustomersPage() {
         ) : (
           <CrmDataTable
             columns={customerColumns}
-            rows={customers}
+            rows={customersWithDetails}
             rowKey={(record) => record.id}
             loading={loading}
             emptyLabel="No contacts found."
@@ -1522,7 +1432,8 @@ export default function CustomersPage() {
       )}
 
       {modalMode === "create" ? (
-        <Modal
+        <CrmModalShell
+          open
           title="Add New Contact"
           description="Capture the contact profile in a compact, form-first layout."
           onClose={closeModal}
@@ -1672,11 +1583,12 @@ export default function CustomersPage() {
               <Textarea value={createForm.notes} onChange={(event) => setCreateForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Add extra context for the team..." className="min-h-24 text-sm" />
             </Field>
           </form>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       {modalMode === "import" ? (
-        <Modal
+        <CrmModalShell
+          open
           title="Import Contacts"
           description="Preview data before importing. Paste CSV/XLS text, upload a sheet, or upload a PDF."
           onClose={closeModal}
@@ -1806,7 +1718,7 @@ export default function CustomersPage() {
               )}
             </div>
           </form>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       <CrmFilterDrawer
@@ -1925,7 +1837,8 @@ export default function CustomersPage() {
       </CrmFilterDrawer>
 
       {modalMode === "edit" && selectedCustomer ? (
-        <Modal
+        <CrmModalShell
+          open
           title="Edit Contact"
           description="Update the selected contact."
           onClose={closeModal}
@@ -2059,11 +1972,12 @@ export default function CustomersPage() {
               </Button>
             </div>
           </form>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       {modalMode === "quickUpdate" && selectedCustomer ? (
-        <Modal
+        <CrmModalShell
+          open
           title="Update Call Details"
           description={`Quick update for ${selectedCustomer.fullName}.`}
           onClose={closeModal}
@@ -2120,11 +2034,11 @@ export default function CustomersPage() {
               </Field>
             </div>
           </form>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       {modalMode === "delete" && selectedCustomer ? (
-        <Modal title="Delete Contact" description={`Remove ${selectedCustomer.fullName} from the workspace.`} onClose={closeModal} maxWidthClassName="max-w-xl">
+        <CrmModalShell open title="Delete Contact" description={`Remove ${selectedCustomer.fullName} from the workspace.`} onClose={closeModal} maxWidthClassName="max-w-xl">
           <div className="grid gap-3">
             <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
             <div className="flex gap-2">
@@ -2136,11 +2050,11 @@ export default function CustomersPage() {
               </Button>
             </div>
           </div>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       {modalMode === "export" ? (
-        <Modal title="Export Contacts" description="Download the currently filtered contacts as CSV." onClose={closeModal} maxWidthClassName="max-w-xl">
+        <CrmModalShell open title="Export Contacts" description="Download the currently filtered contacts as CSV." onClose={closeModal} maxWidthClassName="max-w-xl">
           <div className="grid gap-3">
             <div className="rounded-2xl border border-border/60 bg-slate-50/70 p-4 text-sm text-muted-foreground">
               Export includes the active search and email filters, not just the current page.
@@ -2154,7 +2068,7 @@ export default function CustomersPage() {
               </Button>
             </div>
           </div>
-        </Modal>
+        </CrmModalShell>
       ) : null}
     </div>
   );

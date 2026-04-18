@@ -1,21 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Import, PencilLine, Plus, Trash2, X, Download } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Import, PencilLine, Plus, Trash2, Download } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  CrmAppliedFiltersBar,
   CrmColumnSettings,
   CrmDataTable,
   CrmFilterDrawer,
   CrmListPageHeader,
   CrmListToolbar,
   CrmListViewTabs,
+  CrmModalShell,
   CrmPaginationBar,
 } from "@/components/crm/crm-list-primitives";
+import { downloadCsvFile, toCsvCell } from "@/components/crm/csv-export";
 import type { ColumnDefinition } from "@/components/crm/types";
-import { useCrmListState } from "@/components/crm/use-crm-list-state";
+import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/use-crm-list-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +30,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
 import { getCompanyCookie } from "@/lib/cookies";
 import { loadMe } from "@/lib/me-cache";
-import { cn } from "@/lib/utils";
 
 type DealStatus = "open" | "won" | "lost";
 type SortDirection = "asc" | "desc";
@@ -350,11 +352,6 @@ function normalizeSortKey(value: string | null): DealSortKey {
   return allowed.includes(value as DealSortKey) ? (value as DealSortKey) : "closedDate";
 }
 
-function toCsvCell(value: string | null | undefined) {
-  const raw = value ?? "";
-  return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
-}
-
 function buildDealsCsv(items: Deal[]) {
   return [
     ["id", "title", "status", "pipeline", "stage", "value", "deal_type", "priority", "referral_source", "owner_label", "expected_close_date", "notes", "created_at", "updated_at"],
@@ -396,49 +393,6 @@ function buildDocumentsCsv(items: DocumentItem[]) {
     .join("\n");
 }
 
-function Modal({
-  title,
-  description,
-  children,
-  onClose,
-  headerActions,
-  maxWidthClassName = "max-w-5xl",
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-  onClose: () => void;
-  headerActions?: ReactNode;
-  maxWidthClassName?: string;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
-      <div className="flex h-full items-start justify-center overflow-y-auto">
-        <div
-          className={cn(
-            "w-full overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]",
-            maxWidthClassName,
-          )}
-        >
-          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
-            <div>
-              <div className="text-base font-semibold text-slate-900">{title}</div>
-              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-            </div>
-            <div className="flex items-center gap-2">
-              {headerActions}
-              <Button type="button" variant="destructive" size="xs" onClick={onClose}>
-                <X className="size-4" />
-              </Button>
-            </div>
-          </div>
-          <div className="max-h-[calc(100vh-7.5rem)] overflow-y-auto px-5 py-4">{children}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function DealsPage() {
   const companyId = getCompanyCookie();
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -457,7 +411,14 @@ export default function DealsPage() {
   const [contacts, setContacts] = useState<ContactListResponse["items"]>([]);
   const [leadOptions, setLeadOptions] = useState<LeadListResponse["items"]>([]);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
-  const [documentColumnVisibility, setDocumentColumnVisibility] = useState<DocumentColumnVisibility>(defaultDocumentColumnVisibility);
+  const {
+    columnVisibility: documentColumnVisibility,
+    toggleColumn: toggleDocumentColumn,
+    resetColumns: resetDocumentColumns,
+  } = usePersistedColumnVisibility<DocumentColumnKey>({
+    storageKey: dealDocumentColumnStorageKey,
+    defaultVisibility: defaultDocumentColumnVisibility,
+  });
   const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkPipeline, setBulkPipeline] = useState("");
@@ -653,35 +614,6 @@ export default function DealsPage() {
   const closeModal = () => {
     setModalMode(null);
     setSelectedDeal(null);
-  };
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(dealDocumentColumnStorageKey);
-    if (!stored) return;
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<DocumentColumnVisibility>;
-      setDocumentColumnVisibility((current) => ({ ...current, ...parsed }));
-    } catch {
-      window.localStorage.removeItem(dealDocumentColumnStorageKey);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(dealDocumentColumnStorageKey, JSON.stringify(documentColumnVisibility));
-  }, [documentColumnVisibility]);
-
-  const toggleDocumentColumn = (key: DocumentColumnKey) => {
-    setDocumentColumnVisibility((current) => ({
-      ...current,
-      [key]: !current[key],
-    }));
-  };
-
-  const resetDocumentColumns = () => {
-    setDocumentColumnVisibility(defaultDocumentColumnVisibility);
   };
 
   const openCreateModal = () => {
@@ -982,13 +914,7 @@ export default function DealsPage() {
         tab === "documents"
           ? buildDocumentsCsv(await loadAllDealDocumentsForExport())
           : buildDealsCsv(await loadAllDealsForExport());
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = tab === "documents" ? "deal-documents.csv" : "deals.csv";
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadCsvFile(csv, tab === "documents" ? "deal-documents.csv" : "deals.csv");
       toast.success(tab === "documents" ? "Documents exported" : "Deals exported");
     } catch (requestError) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to export data";
@@ -1107,30 +1033,7 @@ export default function DealsPage() {
           }
         />
 
-        <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
-          <div className="flex flex-wrap gap-2">
-            {activeFilterChips.length ? (
-              activeFilterChips.map((chip) => (
-                <button
-                  key={`${chip.key}-${chip.value}`}
-                  type="button"
-                  onClick={() => removeAppliedFilter(chip.key)}
-                  className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-sky-200 hover:text-sky-700"
-                >
-                  <span>{chip.label}: {chip.value}</span>
-                  <X className="size-3.5" />
-                </button>
-              ))
-            ) : (
-              <div className="text-xs text-muted-foreground">No active filters.</div>
-            )}
-            {activeFilterChips.length ? (
-              <Button type="button" variant="ghost" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={clearAllFilters}>
-                Clear all
-              </Button>
-            ) : null}
-          </div>
-        </div>
+        <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} onClear={clearAllFilters} />
 
         {tab === "documents" ? (
           <CrmDataTable
@@ -1201,7 +1104,8 @@ export default function DealsPage() {
       </section>
 
       {(modalMode === "create" || modalMode === "edit") ? (
-        <Modal
+        <CrmModalShell
+          open
           title={modalMode === "edit" ? "Edit Deal" : "Create New Deal"}
           description={modalMode === "edit" ? "Update any deal detail and save it back to the database." : "Create a new deal with the same structured layout as the reference UI."}
           onClose={closeModal}
@@ -1348,11 +1252,11 @@ export default function DealsPage() {
               </div>
             </div>
           </form>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       {modalMode === "delete" && selectedDeal ? (
-        <Modal title="Delete Deal" description={`Remove ${selectedDeal.title} from the workspace.`} onClose={closeModal} maxWidthClassName="max-w-xl">
+        <CrmModalShell open title="Delete Deal" description={`Remove ${selectedDeal.title} from the workspace.`} onClose={closeModal} maxWidthClassName="max-w-xl">
           <div className="grid gap-3">
             <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
             <div className="flex gap-2">
@@ -1364,7 +1268,7 @@ export default function DealsPage() {
               </Button>
             </div>
           </div>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       <CrmFilterDrawer

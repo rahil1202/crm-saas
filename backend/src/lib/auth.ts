@@ -19,6 +19,26 @@ interface SupabasePasswordSession extends SupabaseIdentity {
   accessToken: string;
 }
 
+export interface SupabaseMfaFactor {
+  id: string;
+  factorType: string;
+  status: string;
+  friendlyName: string | null;
+}
+
+export type SupabasePasswordAuthResult =
+  | {
+      status: "authenticated";
+      accessToken: string;
+      userId: string;
+      email: string | null;
+    }
+  | {
+      status: "mfa_required";
+      mfaToken: string;
+      factors: SupabaseMfaFactor[];
+    };
+
 export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
@@ -286,6 +306,190 @@ async function createSupabasePasswordSession(email: string, password: string): P
     userId: payload.user.id,
     email: payload.user.email ?? null,
   };
+}
+
+export async function authenticateSupabasePasswordDetailed(email: string, password: string): Promise<SupabasePasswordAuthResult> {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        code?: string;
+        error?: string;
+        error_description?: string;
+        access_token?: string;
+        user?: { id?: string; email?: string | null };
+        mfa_token?: string;
+        factors?: Array<{ id?: string; factor_type?: string; status?: string; friendly_name?: string | null }>;
+      }
+    | null;
+
+  if (response.ok && payload?.user?.id && payload?.access_token) {
+    return {
+      status: "authenticated",
+      accessToken: payload.access_token,
+      userId: payload.user.id,
+      email: payload.user.email ?? null,
+    };
+  }
+
+  if ((payload?.code === "mfa_required" || payload?.error === "mfa_required") && payload?.mfa_token) {
+    return {
+      status: "mfa_required",
+      mfaToken: payload.mfa_token,
+      factors: (payload.factors ?? [])
+        .filter((item): item is { id: string; factor_type: string; status: string; friendly_name?: string | null } =>
+          Boolean(item.id && item.factor_type && item.status),
+        )
+        .map((item) => ({
+          id: item.id,
+          factorType: item.factor_type,
+          status: item.status,
+          friendlyName: item.friendly_name ?? null,
+        })),
+    };
+  }
+
+  throw AppError.unauthorized(payload?.error_description ?? payload?.error ?? "Invalid email or password");
+}
+
+function supabaseAuthHeaders(token: string) {
+  return {
+    "Content-Type": "application/json",
+    apikey: env.SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+export async function listSupabaseMfaFactors(accessToken: string) {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/factors`, {
+    method: "GET",
+    headers: supabaseAuthHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    throw AppError.badRequest("Unable to load MFA factors");
+  }
+
+  const payload = (await response.json()) as {
+    all?: Array<{ id?: string; factor_type?: string; status?: string; friendly_name?: string | null }>;
+  };
+
+  return (payload.all ?? [])
+    .filter((item): item is { id: string; factor_type: string; status: string; friendly_name?: string | null } =>
+      Boolean(item.id && item.factor_type && item.status),
+    )
+    .map((item) => ({
+      id: item.id,
+      factorType: item.factor_type,
+      status: item.status,
+      friendlyName: item.friendly_name ?? null,
+    }));
+}
+
+export async function enrollSupabaseTotpFactor(accessToken: string, friendlyName?: string, issuer?: string) {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/factors`, {
+    method: "POST",
+    headers: supabaseAuthHeaders(accessToken),
+    body: JSON.stringify({
+      factor_type: "totp",
+      friendly_name: friendlyName || "Authenticator",
+      issuer: issuer || "The One CRM",
+    }),
+  });
+
+  if (!response.ok) {
+    throw AppError.badRequest("Unable to start MFA enrollment");
+  }
+
+  const payload = (await response.json()) as {
+    id?: string;
+    factor_type?: string;
+    friendly_name?: string | null;
+    status?: string;
+    totp?: {
+      qr_code?: string;
+      secret?: string;
+      uri?: string;
+    };
+  };
+
+  if (!payload.id || payload.factor_type !== "totp") {
+    throw AppError.badRequest("MFA enrollment payload is invalid");
+  }
+
+  return {
+    id: payload.id,
+    factorType: payload.factor_type,
+    status: payload.status ?? "unverified",
+    friendlyName: payload.friendly_name ?? null,
+    qrCode: payload.totp?.qr_code ?? null,
+    secret: payload.totp?.secret ?? null,
+    uri: payload.totp?.uri ?? null,
+  };
+}
+
+export async function verifySupabaseMfaFactor(input: { token: string; factorId: string; code: string }) {
+  const challengeResponse = await fetch(`${env.SUPABASE_URL}/auth/v1/factors/${input.factorId}/challenge`, {
+    method: "POST",
+    headers: supabaseAuthHeaders(input.token),
+    body: JSON.stringify({ channel: "totp" }),
+  });
+
+  if (!challengeResponse.ok) {
+    throw AppError.badRequest("Unable to create MFA challenge");
+  }
+
+  const challengePayload = (await challengeResponse.json()) as { id?: string };
+  if (!challengePayload.id) {
+    throw AppError.badRequest("MFA challenge identifier missing");
+  }
+
+  const verifyResponse = await fetch(`${env.SUPABASE_URL}/auth/v1/factors/${input.factorId}/verify`, {
+    method: "POST",
+    headers: supabaseAuthHeaders(input.token),
+    body: JSON.stringify({
+      challenge_id: challengePayload.id,
+      code: input.code,
+    }),
+  });
+
+  if (!verifyResponse.ok) {
+    throw AppError.badRequest("Invalid authenticator code");
+  }
+
+  const verifyPayload = (await verifyResponse.json().catch(() => null)) as
+    | {
+        access_token?: string;
+        user?: {
+          id?: string;
+          email?: string | null;
+        };
+      }
+    | null;
+
+  return {
+    accessToken: verifyPayload?.access_token ?? null,
+    userId: verifyPayload?.user?.id ?? null,
+    email: verifyPayload?.user?.email ?? null,
+  };
+}
+
+export async function unenrollSupabaseMfaFactor(accessToken: string, factorId: string) {
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/factors/${factorId}`, {
+    method: "DELETE",
+    headers: supabaseAuthHeaders(accessToken),
+  });
+
+  if (!response.ok) {
+    throw AppError.badRequest("Unable to remove MFA factor");
+  }
 }
 
 export async function loginWithSupabasePassword(email: string, password: string): Promise<SupabaseIdentity> {

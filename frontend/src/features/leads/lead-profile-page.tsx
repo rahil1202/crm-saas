@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, CircleDot, Mail, PencilLine, Phone, Plus, Target, X } from "lucide-react";
+import { ArrowLeft, CircleDot, Mail, PencilLine, Phone, Plus, Target } from "lucide-react";
 import { toast } from "sonner";
 
+import { CrmDetailItem } from "@/components/crm/crm-detail-primitives";
+import { CrmModalShell } from "@/components/crm/crm-list-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -115,22 +117,9 @@ function OverlayModal({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
-      <div className="flex h-full items-start justify-center overflow-y-auto">
-        <div className="w-full max-w-3xl overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]">
-          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
-            <div>
-              <div className="text-base font-semibold text-slate-900">{title}</div>
-              <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-            </div>
-            <Button type="button" variant="destructive" size="xs" onClick={onClose}>
-              <X className="size-4" />
-            </Button>
-          </div>
-          <div className="max-h-[calc(100vh-8rem)] overflow-y-auto px-5 py-4">{children}</div>
-        </div>
-      </div>
-    </div>
+    <CrmModalShell open title={title} description={description} onClose={onClose} maxWidthClassName="max-w-3xl">
+      {children}
+    </CrmModalShell>
   );
 }
 
@@ -164,14 +153,7 @@ function InfoGrid({
   );
 }
 
-function DetailItem({ label, value, subtle }: { label: string; value: ReactNode; subtle?: boolean }) {
-  return (
-    <div className="grid gap-1">
-      <div className="text-[0.8rem] font-medium text-slate-500">{label}</div>
-      <div className={cn("text-[0.95rem] text-slate-900", subtle && "text-slate-400")}>{value}</div>
-    </div>
-  );
-}
+const DetailItem = CrmDetailItem;
 
 export default function LeadProfilePage() {
   const params = useParams<{ leadId: string }>();

@@ -95,7 +95,7 @@ const navGroups = [
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
-  { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/settings", "/dashboard/partners"] },
+  { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/partners", "/dashboard/settings"] },
   { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
 ];
 
@@ -228,6 +228,9 @@ export function AppShell({
       items.push({ href: pathname, label: title });
     } else if (pathname.startsWith("/dashboard/deals/")) {
       items.push({ href: "/dashboard/deals", label: "Deals" });
+      items.push({ href: pathname, label: title });
+    } else if (pathname.startsWith("/dashboard/tasks/")) {
+      items.push({ href: "/dashboard/tasks", label: "Tasks" });
       items.push({ href: pathname, label: title });
     } else if (pathname !== "/dashboard") {
       items.push({

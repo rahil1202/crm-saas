@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Copy,
   Download,
@@ -18,19 +18,23 @@ import {
   Trash2,
   UserRound,
   WandSparkles,
-  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  CrmAppliedFiltersBar,
   CrmColumnSettings,
+  CrmConfirmDialog,
   CrmDataTable,
   CrmFilterDrawer,
   CrmListPageHeader,
   CrmListToolbar,
+  CrmModalShell,
   CrmPaginationBar,
 } from "@/components/crm/crm-list-primitives";
+import { downloadCsvFile } from "@/components/crm/csv-export";
 import type { ColumnDefinition } from "@/components/crm/types";
+import { useCrmListState } from "@/components/crm/use-crm-list-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -44,7 +48,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest } from "@/lib/api";
 import { getInitials } from "@/lib/auth-ui";
 import { loadMe } from "@/lib/me-cache";
-import { cn } from "@/lib/utils";
 import {
   buildPartnerNotes,
   emptyPartnerMetadata,
@@ -99,7 +102,6 @@ type PartnerTableRow = Partner & {
 };
 
 type ModalMode = "create" | "edit" | "delete" | "import" | "filter" | null;
-type PartnerTab = "all" | "mine";
 type PartnerColumnKey =
   | "partner"
   | "businessType"
@@ -309,6 +311,38 @@ async function loadAllPartners() {
   }
 }
 
+function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): PartnerFilters {
+  return {
+    q: params.get("q") ?? "",
+    status: params.get("status") ?? "",
+    businessType: params.get("businessType") ?? "",
+    contactName: params.get("contactName") ?? "",
+    email: params.get("email") ?? "",
+    country: params.get("country") ?? "",
+    state: params.get("state") ?? "",
+    city: params.get("city") ?? "",
+    ndaSigned: params.get("ndaSigned") ?? "",
+    partnershipAgreement: params.get("partnershipAgreement") ?? "",
+  };
+}
+
+function writeFiltersToSearchParams(params: URLSearchParams, filters: PartnerFilters) {
+  if (filters.q.trim()) params.set("q", filters.q.trim());
+  if (filters.status.trim()) params.set("status", filters.status.trim());
+  if (filters.businessType.trim()) params.set("businessType", filters.businessType.trim());
+  if (filters.contactName.trim()) params.set("contactName", filters.contactName.trim());
+  if (filters.email.trim()) params.set("email", filters.email.trim());
+  if (filters.country.trim()) params.set("country", filters.country.trim());
+  if (filters.state.trim()) params.set("state", filters.state.trim());
+  if (filters.city.trim()) params.set("city", filters.city.trim());
+  if (filters.ndaSigned.trim()) params.set("ndaSigned", filters.ndaSigned.trim());
+  if (filters.partnershipAgreement.trim()) params.set("partnershipAgreement", filters.partnershipAgreement.trim());
+}
+
+function normalizePartnerSortKey(value: string | null): PartnerSortKey {
+  return partnerSortKeys.includes(value as PartnerSortKey) ? (value as PartnerSortKey) : "updatedAt";
+}
+
 function compareValues(a: string | number, b: string | number, direction: PartnerSortDirection) {
   if (typeof a === "number" && typeof b === "number") {
     return direction === "asc" ? a - b : b - a;
@@ -317,84 +351,6 @@ function compareValues(a: string | number, b: string | number, direction: Partne
   return direction === "asc"
     ? String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" })
     : String(b).localeCompare(String(a), undefined, { numeric: true, sensitivity: "base" });
-}
-
-function Modal({
-  title,
-  description,
-  children,
-  onClose,
-  headerActions,
-  maxWidthClassName = "max-w-5xl",
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-  onClose: () => void;
-  headerActions?: ReactNode;
-  maxWidthClassName?: string;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
-      <div className="flex h-full items-start justify-center overflow-y-auto">
-        <div
-          className={cn(
-            "w-full overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]",
-            maxWidthClassName,
-          )}
-        >
-          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
-            <div>
-              <div className="text-base font-semibold text-slate-900">{title}</div>
-              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-            </div>
-            <div className="flex items-center gap-2">
-              {headerActions}
-              <Button type="button" variant="destructive" size="xs" onClick={onClose}>
-                <X className="size-4" />
-              </Button>
-            </div>
-          </div>
-          <div className="max-h-[calc(100vh-7.5rem)] overflow-y-auto px-5 py-4">{children}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DeletePartnerModal({
-  partnerName,
-  submitting,
-  onCancel,
-  onConfirm,
-}: {
-  partnerName: string;
-  submitting: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Modal
-      title="Delete Partner"
-      description={`This will permanently remove ${partnerName} from the workspace.`}
-      onClose={onCancel}
-      maxWidthClassName="max-w-xl"
-    >
-      <div className="grid gap-4">
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-          This action cannot be undone. Any linked partner profile access for this company will be removed from the admin list.
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="destructive" onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button type="button" disabled={submitting} onClick={onConfirm}>
-            {submitting ? "Deleting..." : "Confirm delete"}
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
 }
 
 export default function PartnersPage() {
@@ -406,17 +362,44 @@ export default function PartnersPage() {
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
   const [form, setForm] = useState<PartnerFormState>(createEmptyPartnerForm);
-  const [tab, setTab] = useState<PartnerTab>("all");
-  const [filters, setFilters] = useState<PartnerFilters>(emptyPartnerFilters);
-  const [filterDraft, setFilterDraft] = useState<PartnerFilters>(emptyPartnerFilters);
-  const [sortBy, setSortBy] = useState<PartnerSortKey>("updatedAt");
-  const [sortDir, setSortDir] = useState<PartnerSortDirection>("desc");
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState<number>(10);
   const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [columnVisibility, setColumnVisibility] = useState<PartnerColumnVisibility>(defaultPartnerColumnVisibility);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const {
+    tab,
+    setTab,
+    filters,
+    setFilters,
+    filterDraft,
+    setFilterDraft,
+    page,
+    setPage,
+    limit,
+    setLimit,
+    sortBy,
+    sortDir,
+    columnVisibility,
+    applyFilterDraft,
+    clearFilterDraft,
+    clearAllFilters,
+    removeAppliedFilter,
+    toggleColumn,
+    resetColumns,
+    requestSort,
+  } = useCrmListState<PartnerFilters, PartnerSortKey, PartnerColumnKey>({
+    defaultFilters: emptyPartnerFilters,
+    defaultSortBy: "updatedAt",
+    defaultSortDir: "desc",
+    defaultLimit: rowsPerPageOptions[0],
+    rowsPerPageOptions,
+    parseFilters: readFiltersFromSearchParams,
+    writeFilters: writeFiltersToSearchParams,
+    normalizeSortBy: normalizePartnerSortKey,
+    columnStorageKey,
+    defaultColumnVisibility: defaultPartnerColumnVisibility,
+    lockedColumns: lockedPartnerColumns,
+  });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -441,30 +424,6 @@ export default function PartnersPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(columnStorageKey);
-    if (!stored) return;
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<PartnerColumnVisibility>;
-      setColumnVisibility((current) => {
-        const next = { ...current, ...parsed };
-        for (const key of lockedPartnerColumns) {
-          next[key] = true;
-        }
-        return next;
-      });
-    } catch {
-      window.localStorage.removeItem(columnStorageKey);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(columnStorageKey, JSON.stringify(columnVisibility));
-  }, [columnVisibility]);
 
   const partnerRows = useMemo<PartnerTableRow[]>(() => {
     const userCounts = new Map<string, { total: number; active: number }>();
@@ -858,13 +817,7 @@ export default function PartnersPage() {
         ),
       ].join("\n");
 
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "partners.csv";
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadCsvFile(csv, "partners.csv");
       toast.success("Partners exported");
     } catch {
       toast.error("Unable to export partners");
@@ -872,44 +825,9 @@ export default function PartnersPage() {
   };
 
   const applyFilters = () => {
-    setFilters(filterDraft);
+    applyFilterDraft();
     setPage(1);
     setModalMode(null);
-  };
-
-  const clearFilterDraft = () => {
-    setFilterDraft(emptyPartnerFilters);
-  };
-
-  const clearAllFilters = () => {
-    setFilters(emptyPartnerFilters);
-    setFilterDraft(emptyPartnerFilters);
-    setPage(1);
-  };
-
-  const removeAppliedFilter = (key: PartnerFilterKey) => {
-    setFilters((current) => ({ ...current, [key]: "" }));
-    setFilterDraft((current) => ({ ...current, [key]: "" }));
-    setPage(1);
-  };
-
-  const toggleColumn = (key: PartnerColumnKey) => {
-    if (lockedPartnerColumns.includes(key as Exclude<PartnerColumnKey, "actions">)) return;
-    setColumnVisibility((current) => ({ ...current, [key]: !current[key] }));
-  };
-
-  const resetColumns = () => {
-    setColumnVisibility(defaultPartnerColumnVisibility);
-  };
-
-  const requestSort = (key: PartnerSortKey) => {
-    setPage(1);
-    if (sortBy === key) {
-      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setSortBy(key);
-    setSortDir("asc");
   };
 
   return (
@@ -940,7 +858,7 @@ export default function PartnersPage() {
 
       <section className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
         <div className="px-4 pt-3">
-          <Tabs value={tab} onValueChange={(value) => { setTab(value as PartnerTab); setPage(1); }}>
+          <Tabs value={tab} onValueChange={(value) => { setTab(value as "all" | "mine"); setPage(1); }}>
             <TabsList variant="line" className="border-b border-border/60 p-0">
               <TabsTrigger value="all" className="rounded-none px-4 py-3 text-sm">
                 Partner List
@@ -971,30 +889,7 @@ export default function PartnersPage() {
           }
         />
 
-        <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
-          <div className="flex flex-wrap gap-2">
-            {activeFilterChips.length ? (
-              activeFilterChips.map((chip) => (
-                <button
-                  key={`${chip.key}-${chip.value}`}
-                  type="button"
-                  onClick={() => removeAppliedFilter(chip.key)}
-                  className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-sky-200 hover:text-sky-700"
-                >
-                  <span>{chip.label}: {chip.value}</span>
-                  <X className="size-3.5" />
-                </button>
-              ))
-            ) : (
-              <div className="text-xs text-muted-foreground">No active filters.</div>
-            )}
-            {activeFilterChips.length ? (
-              <Button type="button" variant="ghost" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={clearAllFilters}>
-                Clear all
-              </Button>
-            ) : null}
-          </div>
-        </div>
+        <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} onClear={clearAllFilters} />
 
         <CrmDataTable
           columns={partnerColumns}
@@ -1049,7 +944,8 @@ export default function PartnersPage() {
       </section>
 
       {(modalMode === "create" || modalMode === "edit") ? (
-        <Modal
+        <CrmModalShell
+          open
           title={modalMode === "edit" ? "Edit Partner" : "Add Partner"}
           description="Capture the partner company, primary contact, location, and agreement details."
           onClose={closeModal}
@@ -1226,11 +1122,12 @@ export default function PartnersPage() {
               </FieldGroup>
             </div>
           </div>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       {modalMode === "import" ? (
-        <Modal
+        <CrmModalShell
+          open
           title="Import Partners"
           description="Partner CSV import will be wired in the next backend pass."
           onClose={closeModal}
@@ -1242,12 +1139,16 @@ export default function PartnersPage() {
               The list, filters, add modal, export flow, and profile page are now in place. Bulk partner import is still pending backend support.
             </AlertDescription>
           </Alert>
-        </Modal>
+        </CrmModalShell>
       ) : null}
 
       {modalMode === "delete" && selectedPartner ? (
-        <DeletePartnerModal
-          partnerName={selectedPartner.name}
+        <CrmConfirmDialog
+          open
+          title="Delete Partner"
+          description={`This will permanently remove ${selectedPartner.name} from the workspace.`}
+          warning="This action cannot be undone. Any linked partner profile access for this company will be removed from the admin list."
+          confirmLabel="Confirm delete"
           submitting={submitting}
           onCancel={closeModal}
           onConfirm={() => void handleDelete()}

@@ -114,6 +114,130 @@ export function CrmListToolbar({
   );
 }
 
+export function CrmAppliedFiltersBar<TFilterKey extends string>({
+  chips,
+  onRemove,
+  onClear,
+  emptyLabel = "No active filters.",
+}: {
+  chips: Array<{ key: TFilterKey; label: string; value: string }>;
+  onRemove: (key: TFilterKey) => void;
+  onClear?: () => void;
+  emptyLabel?: string;
+}) {
+  return (
+    <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
+      <div className="flex flex-wrap gap-2">
+        {chips.length ? (
+          chips.map((chip) => (
+            <div key={`${chip.key}-${chip.value}`} className="inline-flex max-w-full items-center gap-2 rounded-full border border-sky-200/80 bg-white px-3 py-1 text-[0.72rem] font-medium text-slate-800 shadow-sm">
+              <span className="text-slate-500">{chip.label}:</span>
+              <span className="max-w-[16rem] truncate text-slate-900">{chip.value}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(chip.key)}
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                aria-label={`Remove ${chip.label} filter`}
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="text-xs text-muted-foreground">{emptyLabel}</div>
+        )}
+        {chips.length && onClear ? (
+          <Button type="button" variant="ghost" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={onClear}>
+            Clear all
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function CrmModalShell({
+  open,
+  title,
+  description,
+  children,
+  onClose,
+  maxWidthClassName = "max-w-3xl",
+  headerActions,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  onClose: () => void;
+  maxWidthClassName?: string;
+  headerActions?: ReactNode;
+}) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
+      <div className="flex h-full items-start justify-center overflow-y-auto">
+        <div className={cn("w-full overflow-hidden rounded-[1.5rem] border border-border/70 bg-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.45)]", maxWidthClassName)}>
+          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
+            <div>
+              <div className="text-base font-semibold text-slate-900">{title}</div>
+              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+            </div>
+            <div className="flex items-center gap-2">
+              {headerActions}
+              <Button type="button" variant="destructive" size="xs" onClick={onClose}>
+                <X className="size-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="max-h-[calc(100vh-7.5rem)] overflow-y-auto px-5 py-4">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function CrmConfirmDialog({
+  open,
+  title,
+  description,
+  warning,
+  confirmLabel,
+  cancelLabel = "Cancel",
+  submitting,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  warning: ReactNode;
+  confirmLabel: string;
+  cancelLabel?: string;
+  submitting?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <CrmModalShell open={open} title={title} description={description} onClose={onCancel} maxWidthClassName="max-w-xl">
+      <div className="grid gap-4">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{warning}</div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="destructive" onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+          <Button type="button" disabled={submitting} onClick={onConfirm}>
+            {submitting ? "Working..." : confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </CrmModalShell>
+  );
+}
+
 function SortIcon({ active, direction }: { active: boolean; direction: CrmSortDirection }) {
   if (!active) {
     return <ArrowUpDown className="size-3.5" />;

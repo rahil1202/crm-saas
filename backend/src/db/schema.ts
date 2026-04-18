@@ -649,6 +649,7 @@ export const tasks = pgTable(
     assignedToUserId: uuid("assigned_to_user_id").references(() => profiles.id, { onDelete: "set null" }),
     title: varchar("title", { length: 180 }).notNull(),
     description: text("description"),
+    taskType: varchar("task_type", { length: 40 }).notNull().default("to_do"),
     status: taskStatusEnum("status").notNull().default("todo"),
     priority: taskPriorityEnum("priority").notNull().default("medium"),
     dueAt: timestamp("due_at", { withTimezone: true }),
@@ -667,6 +668,7 @@ export const tasks = pgTable(
   (table) => ({
     byCompanyIdx: index("tasks_company_idx").on(table.companyId),
     byStatusIdx: index("tasks_company_status_idx").on(table.companyId, table.status),
+    byTypeIdx: index("tasks_company_type_idx").on(table.companyId, table.taskType),
     byDueIdx: index("tasks_due_idx").on(table.dueAt),
   }),
 );
@@ -701,6 +703,38 @@ export const followUps = pgTable(
     byCompanyIdx: index("follow_ups_company_idx").on(table.companyId, table.scheduledAt),
     byStatusIdx: index("follow_ups_status_idx").on(table.companyId, table.status),
     byAssignedIdx: index("follow_ups_assigned_idx").on(table.companyId, table.assignedToUserId),
+  }),
+);
+
+export const taskAssociations = pgTable(
+  "task_associations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    entityType: varchar("entity_type", { length: 30 }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    entityLabel: varchar("entity_label", { length: 220 }).notNull(),
+    entitySubtitle: varchar("entity_subtitle", { length: 320 }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byTaskIdx: index("task_associations_task_idx").on(table.taskId),
+    byCompanyIdx: index("task_associations_company_idx").on(table.companyId, table.entityType),
+    byEntityIdx: index("task_associations_entity_idx").on(table.companyId, table.entityType, table.entityId),
+    taskEntityUnique: uniqueIndex("task_associations_task_entity_unique").on(
+      table.companyId,
+      table.taskId,
+      table.entityType,
+      table.entityId,
+    ),
   }),
 );
 

@@ -22,6 +22,31 @@ export const inviteLookupSchema = z.object({
   token: z.string().min(1),
 });
 
+export const inviteParamSchema = z.object({
+  inviteId: z.string().uuid(),
+});
+
+const mfaSessionSchema = z.object({
+  currentPassword: z.string().min(1),
+  signInFactorId: z.string().uuid().optional(),
+  signInCode: z.string().trim().min(6).max(12).optional(),
+});
+
+export const mfaListSchema = mfaSessionSchema;
+
+export const mfaEnrollSchema = mfaSessionSchema.extend({
+  friendlyName: z.string().trim().min(2).max(80).optional(),
+});
+
+export const mfaVerifyEnrollSchema = mfaSessionSchema.extend({
+  factorId: z.string().uuid(),
+  code: z.string().trim().min(6).max(12),
+});
+
+export const mfaUnenrollSchema = mfaSessionSchema.extend({
+  factorId: z.string().uuid(),
+});
+
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
@@ -96,6 +121,11 @@ export const onboardingSchema = z.object({
 export type InviteInput = z.infer<typeof inviteSchema>;
 export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
 export type InviteLookupInput = z.infer<typeof inviteLookupSchema>;
+export type InviteParamInput = z.infer<typeof inviteParamSchema>;
+export type MfaListInput = z.infer<typeof mfaListSchema>;
+export type MfaEnrollInput = z.infer<typeof mfaEnrollSchema>;
+export type MfaVerifyEnrollInput = z.infer<typeof mfaVerifyEnrollSchema>;
+export type MfaUnenrollInput = z.infer<typeof mfaUnenrollSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type ExchangeSupabaseInput = z.infer<typeof exchangeSupabaseSchema>;

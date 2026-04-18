@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Import, Play, Plus, Trash2, X } from "lucide-react";
+import { Download, Import, Play, Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import {
+  CrmAppliedFiltersBar,
   CrmColumnSettings,
   CrmDataTable,
   CrmFilterDrawer,
@@ -14,8 +15,9 @@ import {
   CrmListViewTabs,
   CrmPaginationBar,
 } from "@/components/crm/crm-list-primitives";
+import { downloadCsvFile, toCsvCell } from "@/components/crm/csv-export";
 import type { ColumnDefinition } from "@/components/crm/types";
-import { useCrmListState } from "@/components/crm/use-crm-list-state";
+import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/use-crm-list-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -222,11 +224,6 @@ function getFilterChips(filters: CampaignFilters) {
   return chips;
 }
 
-function toCsvCell(value: string | null | undefined) {
-  const raw = value ?? "";
-  return /[",\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
-}
-
 function buildCampaignsCsv(items: Campaign[]) {
   return [
     ["campaign_name", "type", "status", "source_type", "time_span", "start_date", "last_run", "list_name", "total_recipients", "partner", "template"],
@@ -286,8 +283,15 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [templateColumnVisibility, setTemplateColumnVisibility] = useState(defaultTemplateColumnVisibility);
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
+  const {
+    columnVisibility: templateColumnVisibility,
+    toggleColumn: toggleTemplateColumn,
+    resetColumns: resetTemplateColumns,
+  } = usePersistedColumnVisibility<TemplateColumnKey>({
+    storageKey: templateColumnStorageKey,
+    defaultVisibility: defaultTemplateColumnVisibility,
+  });
 
   const {
     tab,
@@ -340,32 +344,6 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
       .then((me) => setMyUserId(me.user.id))
       .catch(() => setMyUserId(null));
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(templateColumnStorageKey);
-    if (!stored) return;
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<Record<TemplateColumnKey, boolean>>;
-      setTemplateColumnVisibility((current) => ({ ...current, ...parsed }));
-    } catch {
-      window.localStorage.removeItem(templateColumnStorageKey);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(templateColumnStorageKey, JSON.stringify(templateColumnVisibility));
-  }, [templateColumnVisibility]);
-
-  const toggleTemplateColumn = (key: TemplateColumnKey) => {
-    setTemplateColumnVisibility((current) => ({ ...current, [key]: !current[key] }));
-  };
-
-  const resetTemplateColumns = () => {
-    setTemplateColumnVisibility(defaultTemplateColumnVisibility);
-  };
 
   const loadCampaigns = useCallback(async () => {
     setLoading(true);
@@ -587,13 +565,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
         effectiveTab === "documents"
           ? buildTemplatesCsv(await loadAllTemplatesForExport())
           : buildCampaignsCsv(await loadAllCampaignsForExport());
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = effectiveTab === "documents" ? "campaign-templates.csv" : "campaigns.csv";
-      link.click();
-      URL.revokeObjectURL(url);
+      downloadCsvFile(csv, effectiveTab === "documents" ? "campaign-templates.csv" : "campaigns.csv");
       toast.success(effectiveTab === "documents" ? "Templates exported" : "Campaigns exported");
     } catch (requestError) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to export data";
@@ -675,30 +647,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
           }
         />
 
-        <div className="grid gap-3 border-b border-border/60 bg-gradient-to-r from-slate-50 via-white to-sky-50/70 px-4 py-4">
-          <div className="flex flex-wrap gap-2">
-            {activeFilterChips.length ? (
-              activeFilterChips.map((chip) => (
-                <button
-                  key={`${chip.key}-${chip.value}`}
-                  type="button"
-                  onClick={() => removeAppliedFilter(chip.key)}
-                  className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-sky-200 hover:text-sky-700"
-                >
-                  <span>{chip.label}: {chip.value}</span>
-                  <X className="size-3.5" />
-                </button>
-              ))
-            ) : (
-              <div className="text-xs text-muted-foreground">No active filters.</div>
-            )}
-            {activeFilterChips.length ? (
-              <Button type="button" variant="ghost" size="sm" className="h-7 rounded-full px-3 text-xs" onClick={clearAllFilters}>
-                Clear all
-              </Button>
-            ) : null}
-          </div>
-        </div>
+        <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} onClear={clearAllFilters} />
 
         {effectiveTab === "documents" ? (
           <CrmDataTable
