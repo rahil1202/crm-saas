@@ -58,6 +58,7 @@ export const sequenceStatusEnum = pgEnum("sequence_status", ["draft", "active", 
 export const sequenceStepChannelEnum = pgEnum("sequence_step_channel", ["email", "whatsapp"]);
 export const sequenceRunStatusEnum = pgEnum("sequence_run_status", ["queued", "running", "completed", "failed", "skipped", "canceled"]);
 export const authSessionStatusEnum = pgEnum("auth_session_status", ["active", "revoked", "expired"]);
+export const formStatusEnum = pgEnum("form_status", ["draft", "published", "archived"]);
 
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
@@ -1272,6 +1273,106 @@ export const notifications = pgTable(
     byCompanyIdx: index("notifications_company_idx").on(table.companyId, table.createdAt),
     byTypeIdx: index("notifications_type_idx").on(table.companyId, table.type),
     byReadIdx: index("notifications_read_idx").on(table.companyId, table.readAt),
+  }),
+);
+
+export const forms = pgTable(
+  "forms",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 180 }).notNull(),
+    slug: varchar("slug", { length: 220 }).notNull(),
+    websiteDomain: varchar("website_domain", { length: 255 }),
+    description: text("description"),
+    status: formStatusEnum("status").notNull().default("draft"),
+    schema: jsonb("schema")
+      .$type<Array<{
+        id: string;
+        type: "text" | "email" | "phone" | "textarea" | "select" | "radio" | "checkbox" | "url";
+        name: string;
+        label: string;
+        placeholder?: string;
+        helpText?: string;
+        required: boolean;
+        width?: "full" | "half";
+        options?: string[];
+      }>>()
+      .notNull()
+      .default([]),
+    themeSettings: jsonb("theme_settings")
+      .$type<{
+        heading: string;
+        subheading: string;
+        submitButtonText: string;
+        primaryColor: string;
+        backgroundColor: string;
+      }>()
+      .notNull()
+      .default({
+        heading: "",
+        subheading: "",
+        submitButtonText: "Submit",
+        primaryColor: "#0ea5e9",
+        backgroundColor: "#ffffff",
+      }),
+    responseSettings: jsonb("response_settings")
+      .$type<{
+        mode: "message";
+        messageTitle: string;
+        messageBody: string;
+        captchaEnabled: boolean;
+      }>()
+      .notNull()
+      .default({
+        mode: "message",
+        messageTitle: "Thank you",
+        messageBody: "Your response has been submitted successfully.",
+        captchaEnabled: true,
+      }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    slugUnique: uniqueIndex("forms_slug_unique").on(table.slug),
+    byCompanyStatusIdx: index("forms_company_status_updated_idx").on(table.companyId, table.status, table.updatedAt),
+    byCompanyUpdatedIdx: index("forms_company_updated_idx").on(table.companyId, table.updatedAt),
+  }),
+);
+
+export const formResponses = pgTable(
+  "form_responses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    formId: uuid("form_id")
+      .notNull()
+      .references(() => forms.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    linkedLeadId: uuid("linked_lead_id").references(() => leads.id, { onDelete: "set null" }),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    fullName: varchar("full_name", { length: 180 }),
+    email: varchar("email", { length: 320 }),
+    phone: varchar("phone", { length: 40 }),
+    websiteDomain: varchar("website_domain", { length: 255 }),
+    sourceUrl: text("source_url"),
+    referer: text("referer"),
+    userAgent: text("user_agent"),
+    ipHash: varchar("ip_hash", { length: 128 }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byFormSubmittedIdx: index("form_responses_form_submitted_idx").on(table.formId, table.submittedAt),
+    byLeadIdx: index("form_responses_linked_lead_idx").on(table.linkedLeadId),
+    byCompanySubmittedIdx: index("form_responses_company_submitted_idx").on(table.companyId, table.submittedAt),
   }),
 );
 

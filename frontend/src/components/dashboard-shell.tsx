@@ -33,6 +33,14 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Deals",
     description: "Tenant-scoped deals workspace with timeline tracking for lifecycle changes.",
   },
+  "/dashboard/forms": {
+    title: "Forms",
+    description: "Create hosted lead capture forms, publish them, and review response submissions from one workspace.",
+  },
+  "/dashboard/forms/new": {
+    title: "New Form",
+    description: "Build a multi-step form, configure submission behavior, and publish a hosted or embedded version.",
+  },
   "/dashboard/documents": {
     title: "Files and documents",
     description: "Search uploaded files, manage shared folders, and keep lead and deal attachments in one company-scoped index.",
@@ -130,6 +138,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 title: "Task Detail",
                 description: "Review task details, assignment, and due-date context with edit and delete controls.",
               }
+            : pathname.startsWith("/dashboard/forms/") && pathname !== "/dashboard/forms" && pathname !== "/dashboard/forms/new"
+              ? {
+                  title: "Form Detail",
+                  description: "Review live configuration, hosted link, embed snippet, and captured responses for this form.",
+                }
        : dashboardMeta[pathname]) ?? {
     title: "Dashboard",
     description: "Workspace overview for the active CRM company.",

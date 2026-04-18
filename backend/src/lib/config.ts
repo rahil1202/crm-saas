@@ -72,6 +72,7 @@ const envSchema = z.object({
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().default(""),
   WHATSAPP_APP_SECRET: z.string().default(""),
   WHATSAPP_GRAPH_API_VERSION: z.string().default("v23.0"),
+  TURNSTILE_SECRET_KEY: z.string().default(""),
 });
 
 export const env = envSchema.parse(process.env);

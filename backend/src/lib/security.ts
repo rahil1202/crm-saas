@@ -68,6 +68,36 @@ export const routePolicies = {
       },
     ],
   } satisfies RateLimitPolicy,
+  publicFormSubmit: {
+    name: "public_form_submit",
+    rules: [
+      {
+        scope: "public_form_submit:ip",
+        limit: 12,
+        windowSeconds: 60,
+        resolveKey: ({ clientIp }) => clientIp || "unknown",
+      },
+      {
+        scope: "public_form_submit:email",
+        limit: 6,
+        windowSeconds: 300,
+        resolveKey: ({ body }) => {
+          if (!body || typeof body !== "object" || !("values" in body)) {
+            return null;
+          }
+          const values = (body as { values?: unknown }).values;
+          if (!values || typeof values !== "object") {
+            return null;
+          }
+          const emailValue = (values as Record<string, unknown>).email;
+          const email = typeof emailValue === "string"
+            ? emailValue.trim().toLowerCase()
+            : null;
+          return email && email.length > 0 ? email : null;
+        },
+      },
+    ],
+  } satisfies RateLimitPolicy,
   tenantRead: {
     name: "tenant_read",
     rules: [

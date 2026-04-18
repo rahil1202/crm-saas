@@ -30,6 +30,7 @@ import {
   Shield,
   Sparkles,
   Target,
+  TextCursorInput,
   Users,
   X,
 } from "lucide-react";
@@ -63,7 +64,7 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   minRole: CompanyRole;
-  moduleKey?: "contacts" | "leads" | "deals" | "tasks" | "documents" | "templates" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams";
+  moduleKey?: "contacts" | "leads" | "deals" | "forms" | "tasks" | "documents" | "templates" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams";
   superAdminOnly?: boolean;
   partnerAccessOnly?: boolean;
 };
@@ -82,6 +83,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard/automation", label: "Automation", icon: Sparkles, minRole: "admin", moduleKey: "automation" },
   { href: "/dashboard/chatbot-flows", label: "Chatbot Flows", icon: Network, minRole: "admin", moduleKey: "automation" },
   { href: "/dashboard/reports", label: "Reports", icon: ChartColumnBig, minRole: "admin", moduleKey: "reports" },
+  { href: "/dashboard/forms", label: "Forms", icon: TextCursorInput, minRole: "admin", moduleKey: "forms" },
   { href: "/dashboard/integrations", label: "Integrations", icon: Link2, minRole: "admin", moduleKey: "integrations" },
   { href: "/dashboard/social", label: "Social", icon: MessageSquareShare, minRole: "admin", moduleKey: "social" },
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell, minRole: "admin", moduleKey: "notifications" },
@@ -97,7 +99,7 @@ const navGroups = [
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
   { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/partners", "/dashboard/settings", "/dashboard/invite"] },
-  { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
+  { id: "addons", label: "Add Ons", hrefs: ["/dashboard/forms", "/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
 ];
 
 const navGroupItemOverrides: Record<string, Record<string, { label?: string; icon?: NavItem["icon"] }>> = {
@@ -109,7 +111,7 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
     "/dashboard/campaigns": { label: "Campaign", icon: Megaphone },
     "/dashboard/templates": { label: "Templates", icon: FileText },
     "/dashboard/documents": { label: "Files", icon: FileText },
-    "/dashboard/notifications": { label: "Forms", icon: Bell },
+    "/dashboard/notifications": { label: "Notifications", icon: Bell },
     "/dashboard/social": { label: "Meta", icon: MessageSquareShare },
   },
   users: {
@@ -119,6 +121,7 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
     "/dashboard/invite": { label: "Invite", icon: HeartHandshake },
   },
   addons: {
+    "/dashboard/forms": { label: "Forms", icon: TextCursorInput },
     "/dashboard/integrations": { label: "Integration", icon: Puzzle },
     "/dashboard/reports": { label: "Academy", icon: GraduationCap },
     "/dashboard/super-admin": { label: "Customization", icon: ScanSearch },
@@ -233,6 +236,9 @@ export function AppShell({
       items.push({ href: pathname, label: title });
     } else if (pathname.startsWith("/dashboard/tasks/")) {
       items.push({ href: "/dashboard/tasks", label: "Tasks" });
+      items.push({ href: pathname, label: title });
+    } else if (pathname.startsWith("/dashboard/forms/")) {
+      items.push({ href: "/dashboard/forms", label: "Forms" });
       items.push({ href: pathname, label: title });
     } else if (pathname !== "/dashboard") {
       items.push({

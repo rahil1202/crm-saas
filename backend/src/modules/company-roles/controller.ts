@@ -13,23 +13,23 @@ import type { CreateCustomRoleInput, UpdateCustomRoleInput } from "@/modules/com
 const defaultCompanyRoles: Array<{ name: string; modules: string[] }> = [
   {
     name: "Owner",
-    modules: ["contacts", "leads", "deals", "templates", "teams", "tasks", "campaigns", "reports", "settings", "social", "automation", "partners", "documents", "notifications", "integrations"],
+    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "campaigns", "reports", "settings", "social", "automation", "partners", "documents", "notifications", "integrations"],
   },
   {
     name: "Admin",
-    modules: ["contacts", "leads", "deals", "templates", "teams", "tasks", "campaigns", "reports", "settings", "social", "automation", "partners", "documents", "notifications", "integrations"],
+    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "campaigns", "reports", "settings", "social", "automation", "partners", "documents", "notifications", "integrations"],
   },
   {
     name: "Sub-Admin",
-    modules: ["contacts", "leads", "deals", "templates", "teams", "tasks", "campaigns", "reports", "settings", "documents", "notifications"],
+    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "campaigns", "reports", "settings", "documents", "notifications"],
   },
   {
     name: "Sales Team",
-    modules: ["contacts", "leads", "deals", "tasks", "reports", "documents"],
+    modules: ["contacts", "leads", "deals", "forms", "tasks", "reports", "documents"],
   },
   {
     name: "Employee",
-    modules: ["contacts", "leads", "tasks", "documents"],
+    modules: ["contacts", "leads", "forms", "tasks", "documents"],
   },
   {
     name: "Partner",

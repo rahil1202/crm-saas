@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Building2, Clock3, KeyRound, MapPinned, Palette, QrCode, ShieldCheck, Smartphone, Workflow } from "lucide-react";
+import { Building2, Clock3, KeyRound, LifeBuoy, MailCheck, MapPinned, Palette, QrCode, ShieldCheck, Smartphone, UserPlus, Users, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";

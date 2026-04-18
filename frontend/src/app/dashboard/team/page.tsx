@@ -225,6 +225,7 @@ const roleModuleOptions = [
   { key: "contacts", label: "Contacts" },
   { key: "leads", label: "Leads" },
   { key: "deals", label: "Deals" },
+  { key: "forms", label: "Forms" },
   { key: "templates", label: "Templates" },
   { key: "teams", label: "Teams" },
   { key: "tasks", label: "Tasks" },

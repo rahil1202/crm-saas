@@ -3,6 +3,7 @@ export type CompanyModuleKey =
   | "contacts"
   | "leads"
   | "deals"
+  | "forms"
   | "templates"
   | "teams"
   | "tasks"

@@ -67,6 +67,12 @@ export const crmModules: CrmModuleDefinition[] = [
     capabilities: ["Lead reports", "Deal reports", "Forecast", "Partner performance"],
   },
   {
+    slug: "forms",
+    title: "Forms",
+    summary: "Hosted and embeddable lead capture forms with submission inbox, publishing, and CRM lead attribution.",
+    capabilities: ["Builder", "Hosted links", "Embed", "Responses"],
+  },
+  {
     slug: "integrations",
     title: "Integrations",
     summary: "Guided provider setup for email, MTA, WhatsApp, LinkedIn, document intake, and shared webhook policy.",
