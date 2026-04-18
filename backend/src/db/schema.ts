@@ -16,6 +16,8 @@ import {
 export const companyRoleEnum = pgEnum("company_role", ["owner", "admin", "member"]);
 export const membershipStatusEnum = pgEnum("membership_status", ["active", "invited", "disabled"]);
 export const inviteStatusEnum = pgEnum("invite_status", ["pending", "accepted", "revoked", "expired"]);
+export const externalInviteChannelEnum = pgEnum("external_invite_channel", ["email", "whatsapp", "link"]);
+export const externalInviteStatusEnum = pgEnum("external_invite_status", ["pending", "completed", "canceled"]);
 export const referralAttributionStatusEnum = pgEnum("referral_attribution_status", [
   "captured",
   "registered",
@@ -497,6 +499,38 @@ export const referralAttributions = pgTable(
     codeEmailUnique: uniqueIndex("referral_attributions_code_email_unique").on(table.referralCodeId, table.referredEmail),
     companyStatusIdx: index("referral_attributions_company_status_idx").on(table.companyId, table.status, table.createdAt),
     referrerIdx: index("referral_attributions_referrer_idx").on(table.referrerUserId, table.createdAt),
+  }),
+);
+
+export const externalInvites = pgTable(
+  "external_invites",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    storeId: uuid("store_id").references(() => stores.id, { onDelete: "set null" }),
+    channel: externalInviteChannelEnum("channel").notNull().default("email"),
+    status: externalInviteStatusEnum("status").notNull().default("pending"),
+    contactName: varchar("contact_name", { length: 180 }),
+    email: varchar("email", { length: 320 }),
+    phone: varchar("phone", { length: 40 }),
+    inviteLinkToken: varchar("invite_link_token", { length: 120 }).notNull(),
+    message: text("message"),
+    invitedBy: uuid("invited_by")
+      .notNull()
+      .references(() => profiles.id),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    inviteLinkTokenUnique: uniqueIndex("external_invites_link_token_unique").on(table.inviteLinkToken),
+    companyCreatedIdx: index("external_invites_company_created_idx").on(table.companyId, table.createdAt),
+    companyStatusIdx: index("external_invites_company_status_idx").on(table.companyId, table.status, table.createdAt),
+    expiresIdx: index("external_invites_expires_idx").on(table.expiresAt),
   }),
 );
 
@@ -1819,6 +1853,7 @@ export const companyRelations = relations(companies, ({ many }) => ({
   customRoles: many(companyCustomRoles),
   memberships: many(companyMemberships),
   invites: many(companyInvites),
+  externalInvites: many(externalInvites),
   partners: many(partnerCompanies),
   partnerUsers: many(partnerUsers),
   campaigns: many(campaigns),

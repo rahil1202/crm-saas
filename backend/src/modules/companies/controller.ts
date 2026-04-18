@@ -3,12 +3,20 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { companies, companyCustomRoles, companyInvites, companyMemberships, companyPlans, profiles, referralAttributions, referralCodes, stores } from "@/db/schema";
+import { companies, companyCustomRoles, companyInvites, companyMemberships, companyPlans, externalInvites, profiles, referralAttributions, referralCodes, stores } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
-import { companyParamSchema, storeParamSchema } from "@/modules/companies/schema";
-import type { CreateStoreInput, UpdateCompanyInput, UpdateCompanyPlanInput, UpdateStoreInput } from "@/modules/companies/schema";
+import { companyParamSchema, externalInviteLookupParamSchema, externalInviteParamSchema, storeParamSchema } from "@/modules/companies/schema";
+import type { CreateExternalInviteInput, CreateStoreInput, UpdateCompanyInput, UpdateCompanyPlanInput, UpdateExternalInviteInput, UpdateStoreInput } from "@/modules/companies/schema";
+
+function buildExternalInviteUrl(token: string) {
+  return `${env.FRONTEND_URL}/register?externalInvite=${encodeURIComponent(token)}`;
+}
+
+function isExternalInviteExpired(input: { expiresAt: Date; status: string }) {
+  return input.status === "pending" && input.expiresAt.getTime() <= Date.now();
+}
 
 async function loadCompanySnapshot(companyId: string) {
   const [company] = await db
@@ -130,6 +138,33 @@ async function loadCompanySnapshot(companyId: string) {
 
   const [plan] = await db.select().from(companyPlans).where(eq(companyPlans.companyId, companyId)).limit(1);
 
+  const externalInviteRows = await db
+    .select({
+      externalInviteId: externalInvites.id,
+      channel: externalInvites.channel,
+      status: externalInvites.status,
+      contactName: externalInvites.contactName,
+      email: externalInvites.email,
+      phone: externalInvites.phone,
+      message: externalInvites.message,
+      storeId: externalInvites.storeId,
+      storeName: stores.name,
+      invitedBy: externalInvites.invitedBy,
+      inviterName: profiles.fullName,
+      inviterEmail: profiles.email,
+      expiresAt: externalInvites.expiresAt,
+      completedAt: externalInvites.completedAt,
+      createdAt: externalInvites.createdAt,
+      updatedAt: externalInvites.updatedAt,
+      inviteLinkToken: externalInvites.inviteLinkToken,
+      metadata: externalInvites.metadata,
+    })
+    .from(externalInvites)
+    .leftJoin(profiles, eq(profiles.id, externalInvites.invitedBy))
+    .leftJoin(stores, eq(stores.id, externalInvites.storeId))
+    .where(eq(externalInvites.companyId, companyId))
+    .orderBy(desc(externalInvites.createdAt));
+
   return {
     company: {
       id: company.id,
@@ -153,6 +188,10 @@ async function loadCompanySnapshot(companyId: string) {
       referralUrl: `${env.FRONTEND_URL}/register?referralCode=${encodeURIComponent(item.code)}`,
     })),
     referralAttributions: referralAttributionRows,
+    externalInvites: externalInviteRows.map((invite) => ({
+      ...invite,
+      inviteUrl: buildExternalInviteUrl(invite.inviteLinkToken),
+    })),
   };
 }
 
@@ -273,6 +312,147 @@ export async function updateStore(c: Context<AppEnv>) {
 
   return ok(c, {
     store: updatedStore,
+  });
+}
+
+export async function createExternalInvite(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const body = c.get("validatedBody") as CreateExternalInviteInput;
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+  const [createdInvite] = await db
+    .insert(externalInvites)
+    .values({
+      companyId: tenant.companyId,
+      storeId: body.storeId ?? null,
+      channel: body.channel,
+      status: "pending",
+      contactName: body.contactName?.trim() || null,
+      email: body.email?.trim().toLowerCase() || null,
+      phone: body.phone?.trim() || null,
+      message: body.message?.trim() || null,
+      invitedBy: user.id,
+      inviteLinkToken: crypto.randomUUID(),
+      expiresAt,
+      metadata: body.metadata ?? {},
+    })
+    .returning();
+
+  return ok(c, {
+    externalInviteId: createdInvite.id,
+    inviteUrl: buildExternalInviteUrl(createdInvite.inviteLinkToken),
+    status: createdInvite.status,
+    expiresAt: createdInvite.expiresAt,
+  }, 201);
+}
+
+export async function updateExternalInvite(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as UpdateExternalInviteInput;
+  const params = externalInviteParamSchema.parse(c.req.param());
+
+  const [existingInvite] = await db
+    .select()
+    .from(externalInvites)
+    .where(and(eq(externalInvites.id, params.externalInviteId), eq(externalInvites.companyId, tenant.companyId)))
+    .limit(1);
+
+  if (!existingInvite) {
+    throw AppError.notFound("External invite not found");
+  }
+
+  if (isExternalInviteExpired(existingInvite) && body.status === "completed") {
+    throw AppError.conflict("Expired invites cannot be completed");
+  }
+
+  const nextStatus = body.status ?? existingInvite.status;
+
+  const [updatedInvite] = await db
+    .update(externalInvites)
+    .set({
+      status: nextStatus,
+      completedAt: nextStatus === "completed" ? existingInvite.completedAt ?? new Date() : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(externalInvites.id, existingInvite.id))
+    .returning();
+
+  return ok(c, {
+    externalInviteId: updatedInvite.id,
+    status: updatedInvite.status,
+    completedAt: updatedInvite.completedAt,
+  });
+}
+
+export async function deleteExternalInvite(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = externalInviteParamSchema.parse(c.req.param());
+
+  const [existingInvite] = await db
+    .select({ id: externalInvites.id })
+    .from(externalInvites)
+    .where(and(eq(externalInvites.id, params.externalInviteId), eq(externalInvites.companyId, tenant.companyId)))
+    .limit(1);
+
+  if (!existingInvite) {
+    throw AppError.notFound("External invite not found");
+  }
+
+  await db.delete(externalInvites).where(eq(externalInvites.id, existingInvite.id));
+
+  return ok(c, { deleted: true });
+}
+
+export async function getExternalInviteLookup(c: Context<AppEnv>) {
+  const params = externalInviteLookupParamSchema.parse(c.req.param());
+
+  const [invite] = await db
+    .select({
+      externalInviteId: externalInvites.id,
+      channel: externalInvites.channel,
+      status: externalInvites.status,
+      contactName: externalInvites.contactName,
+      email: externalInvites.email,
+      phone: externalInvites.phone,
+      message: externalInvites.message,
+      expiresAt: externalInvites.expiresAt,
+      createdAt: externalInvites.createdAt,
+      companyName: companies.name,
+      storeName: stores.name,
+      inviterName: profiles.fullName,
+      inviterEmail: profiles.email,
+    })
+    .from(externalInvites)
+    .innerJoin(companies, eq(companies.id, externalInvites.companyId))
+    .leftJoin(stores, eq(stores.id, externalInvites.storeId))
+    .leftJoin(profiles, eq(profiles.id, externalInvites.invitedBy))
+    .where(eq(externalInvites.inviteLinkToken, params.token))
+    .limit(1);
+
+  if (!invite || invite.status !== "pending" || isExternalInviteExpired(invite)) {
+    return ok(c, {
+      valid: false,
+      invite: null,
+    });
+  }
+
+  return ok(c, {
+    valid: true,
+    invite: {
+      externalInviteId: invite.externalInviteId,
+      channel: invite.channel,
+      contactName: invite.contactName,
+      email: invite.email,
+      phone: invite.phone,
+      message: invite.message,
+      expiresAt: invite.expiresAt,
+      createdAt: invite.createdAt,
+      companyName: invite.companyName,
+      storeName: invite.storeName,
+      inviterName: invite.inviterName,
+      inviterEmail: invite.inviterEmail,
+    },
   });
 }
 

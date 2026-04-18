@@ -87,6 +87,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell, minRole: "admin", moduleKey: "notifications" },
   { href: "/dashboard/team", label: "Team", icon: Users, minRole: "admin", moduleKey: "teams" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings2, minRole: "admin", moduleKey: "settings" },
+  { href: "/dashboard/invite", label: "Invite", icon: HeartHandshake, minRole: "member" },
   { href: "/dashboard/super-admin", label: "Super Admin", icon: Shield, minRole: "member", superAdminOnly: true },
 ];
 
@@ -95,7 +96,7 @@ const navGroups = [
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
-  { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/partners", "/dashboard/settings"] },
+  { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/partners", "/dashboard/settings", "/dashboard/invite"] },
   { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
 ];
 
@@ -115,6 +116,7 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
     "/dashboard/team": { label: "Teams", icon: Users },
     "/dashboard/settings": { label: "Settings", icon: Settings2 },
     "/dashboard/partners": { label: "Partners", icon: HeartHandshake },
+    "/dashboard/invite": { label: "Invite", icon: HeartHandshake },
   },
   addons: {
     "/dashboard/integrations": { label: "Integration", icon: Puzzle },

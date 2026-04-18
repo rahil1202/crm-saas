@@ -46,7 +46,47 @@ export const companyParamSchema = z.object({
   companyId: z.string().uuid(),
 });
 
+export const createExternalInviteSchema = z.object({
+  channel: z.enum(["email", "whatsapp", "link"]),
+  contactName: z.string().trim().max(180).optional(),
+  email: z.string().trim().email().optional(),
+  phone: z.string().trim().max(40).optional(),
+  message: z.string().trim().max(2000).optional(),
+  storeId: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).superRefine((value, ctx) => {
+  if (value.channel === "email" && !value.email) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["email"],
+      message: "Email is required for email invites.",
+    });
+  }
+
+  if (value.channel === "whatsapp" && !value.phone) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["phone"],
+      message: "Phone number is required for WhatsApp invites.",
+    });
+  }
+});
+
+export const updateExternalInviteSchema = z.object({
+  status: z.enum(["pending", "completed", "canceled"]).optional(),
+});
+
+export const externalInviteParamSchema = z.object({
+  externalInviteId: z.string().uuid(),
+});
+
+export const externalInviteLookupParamSchema = z.object({
+  token: z.string().trim().min(1).max(120),
+});
+
 export type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;
 export type CreateStoreInput = z.infer<typeof createStoreSchema>;
 export type UpdateStoreInput = z.infer<typeof updateStoreSchema>;
 export type UpdateCompanyPlanInput = z.infer<typeof updateCompanyPlanSchema>;
+export type CreateExternalInviteInput = z.infer<typeof createExternalInviteSchema>;
+export type UpdateExternalInviteInput = z.infer<typeof updateExternalInviteSchema>;

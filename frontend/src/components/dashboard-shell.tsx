@@ -61,6 +61,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Webhooks Integration",
     description: "Configure inbound/outbound endpoints and signing hints.",
   },
+  "/dashboard/invite": {
+    title: "Invites",
+    description: "Send invites to outside users, track delivery state, and manage shareable invite links from one workspace.",
+  },
   "/dashboard/leads": {
     title: "Leads",
     description: "Import, triage, and convert tenant-scoped leads from one workspace.",

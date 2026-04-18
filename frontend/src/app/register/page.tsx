@@ -35,9 +35,28 @@ interface InviteLookupResponse {
   } | null;
 }
 
+interface ExternalInviteLookupResponse {
+  valid: boolean;
+  invite: {
+    externalInviteId: string;
+    channel: "email" | "whatsapp" | "link";
+    contactName: string | null;
+    email: string | null;
+    phone: string | null;
+    message: string | null;
+    expiresAt: string;
+    createdAt: string;
+    companyName: string;
+    storeName: string | null;
+    inviterName: string | null;
+    inviterEmail: string | null;
+  } | null;
+}
+
 function RegisterPageContent() {
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("inviteToken");
+  const externalInviteToken = searchParams.get("externalInvite");
   const referralCodeFromUrl = searchParams.get("referralCode");
 
   const [fullName, setFullName] = useState("");
@@ -49,7 +68,9 @@ function RegisterPageContent() {
   const [resendingVerification, setResendingVerification] = useState(false);
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
   const [inviteLookup, setInviteLookup] = useState<InviteLookupResponse["invite"] | null>(null);
+  const [externalInviteLookup, setExternalInviteLookup] = useState<ExternalInviteLookupResponse["invite"] | null>(null);
   const [inviteWarning, setInviteWarning] = useState<string | null>(null);
+  const [externalInviteModalOpen, setExternalInviteModalOpen] = useState(false);
   const { submitting, formError, fieldErrors, clearFieldError, runSubmit } = useAsyncForm();
 
   const referralCode = referralCodeFromUrl ?? inviteLookup?.referralCode ?? null;
@@ -110,6 +131,44 @@ function RegisterPageContent() {
       disposed = true;
     };
   }, [inviteToken]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    const loadExternalInvite = async () => {
+      if (!externalInviteToken) {
+        setExternalInviteLookup(null);
+        return;
+      }
+
+      try {
+        const response = await apiRequest<ExternalInviteLookupResponse>(`/companies/external-invite/${encodeURIComponent(externalInviteToken)}`);
+        if (disposed) {
+          return;
+        }
+
+        if (!response.valid || !response.invite) {
+          setExternalInviteLookup(null);
+          setInviteWarning("This external invite link is invalid or has expired after 7 days.");
+          return;
+        }
+
+        setExternalInviteLookup(response.invite);
+        setExternalInviteModalOpen(true);
+      } catch {
+        if (!disposed) {
+          setExternalInviteLookup(null);
+          setInviteWarning("External invite validation is unavailable right now. Please try again.");
+        }
+      }
+    };
+
+    void loadExternalInvite();
+
+    return () => {
+      disposed = true;
+    };
+  }, [externalInviteToken]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -184,6 +243,12 @@ function RegisterPageContent() {
     }
   };
 
+  const referralEntryLabel =
+    externalInviteLookup?.inviterName ??
+    externalInviteLookup?.inviterEmail ??
+    externalInviteLookup?.companyName ??
+    null;
+
   return (
     <AuthShell
       // badge="Register"
@@ -200,6 +265,45 @@ function RegisterPageContent() {
     >
       <FormErrorSummary title="Registration failed" error={formError ?? (!acknowledged && successEmail == null ? null : formError)} />
 
+      {externalInviteLookup && externalInviteModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-sm">
+          <Card className="w-full max-w-lg border-sky-200/80 bg-white">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Badge className="border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-50">Referral Invite</Badge>
+              </div>
+              <CardTitle>You arrived from an invite link</CardTitle>
+              <CardDescription>
+                This registration page was opened from a referral or outside-user invite sent by <strong>{referralEntryLabel}</strong>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 text-sm text-slate-700">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <div>
+                  Recipient: <strong>{externalInviteLookup.contactName || externalInviteLookup.email || externalInviteLookup.phone || "Outside user"}</strong>
+                </div>
+                <div>
+                  Company: <strong>{externalInviteLookup.companyName}</strong>
+                </div>
+                <div>
+                  Valid until: <strong>{new Date(externalInviteLookup.expiresAt).toLocaleString()}</strong>
+                </div>
+              </div>
+              {externalInviteLookup.message ? (
+                <div className="rounded-2xl border border-sky-100 bg-sky-50 px-4 py-3 text-sky-900">
+                  {externalInviteLookup.message}
+                </div>
+              ) : null}
+            </CardContent>
+            <div className="flex justify-end px-5 pb-5">
+              <Button type="button" onClick={() => setExternalInviteModalOpen(false)}>
+                Continue to Register
+              </Button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
       {successEmail ? (
         <div className="flex flex-col gap-5">
           <Alert>
@@ -209,13 +313,15 @@ function RegisterPageContent() {
               Open the verification email sent to <strong>{successEmail}</strong>. Once the link is confirmed, this account can continue directly into onboarding.
             </AlertDescription>
           </Alert>
-          {inviteLookup || referralCode ? (
+          {inviteLookup || externalInviteLookup || referralCode ? (
             <Alert>
               <CheckCircle2 />
               <AlertTitle>Invite or referral captured</AlertTitle>
               <AlertDescription>
                 {inviteLookup
                   ? `This account will try to accept the ${inviteLookup.role} invite for ${inviteLookup.email} after verification.`
+                  : externalInviteLookup
+                    ? `This link is valid for ${externalInviteLookup.companyName} until ${new Date(externalInviteLookup.expiresAt).toLocaleString()}.`
                   : "Referral attribution is saved and will continue after verification."}
               </AlertDescription>
             </Alert>
@@ -241,6 +347,16 @@ function RegisterPageContent() {
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+            {externalInviteLookup ? (
+              <Alert className="border-sky-200 bg-sky-50/80">
+                <CheckCircle2 />
+                <AlertTitle>Referral invite detected</AlertTitle>
+                <AlertDescription>
+                  You opened this page from a referral or invite link sent by <strong>{referralEntryLabel}</strong>. This invite is valid until{" "}
+                  <strong>{new Date(externalInviteLookup.expiresAt).toLocaleString()}</strong>.
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {inviteLookup ? (
               <Alert>
                 <CheckCircle2 />
@@ -248,6 +364,18 @@ function RegisterPageContent() {
                 <AlertDescription>
                   {inviteLookup.email} is invited as <strong>{inviteLookup.role}</strong>.
                   {inviteLookup.inviteMessage ? ` Message: ${inviteLookup.inviteMessage}` : ""}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+            {externalInviteLookup ? (
+                <Alert>
+                  <CheckCircle2 />
+                  <AlertTitle>External invite recognized</AlertTitle>
+                  <AlertDescription>
+                  {externalInviteLookup.contactName || externalInviteLookup.email || externalInviteLookup.phone || "This contact"} was invited by{" "}
+                  <strong>{referralEntryLabel}</strong>.
+                  {externalInviteLookup.message ? ` Message: ${externalInviteLookup.message}` : ""} This link is valid until{" "}
+                  <strong>{new Date(externalInviteLookup.expiresAt).toLocaleString()}</strong>.
                 </AlertDescription>
               </Alert>
             ) : null}
