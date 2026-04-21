@@ -1,7 +1,10 @@
 import { app } from "@/app/route";
+import { runMigrations } from "@/db/scripts/migrate";
 import { startAutomationRuntimeWorker } from "@/lib/automation-runtime";
 import { checkSupabaseConnection } from "@/lib/auth";
 import { env } from "@/lib/config";
+
+await runMigrations();
 
 Bun.serve({
   port: env.PORT,

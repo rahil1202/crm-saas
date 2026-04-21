@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "@/app/route";
 import {
   createForm,
+  deleteForm,
   exportResponses,
   getFormDetail,
   listForms,
@@ -26,5 +27,6 @@ formRoutes.get("/:formId", getFormDetail);
 formRoutes.patch("/:formId", rateLimit(routePolicies.tenantWrite), enforceBodyLimit(bodyLimits.tenantDefault), validateJson(updateFormSchema), updateForm);
 formRoutes.post("/:formId/publish", rateLimit(routePolicies.tenantWrite), publishForm);
 formRoutes.post("/:formId/unpublish", rateLimit(routePolicies.tenantWrite), unpublishForm);
+formRoutes.delete("/:formId", rateLimit(routePolicies.tenantWrite), deleteForm);
 formRoutes.get("/:formId/responses", validateQuery(listFormResponsesSchema), listResponses);
 formRoutes.get("/:formId/export", exportResponses);

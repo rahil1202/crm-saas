@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Plus } from "lucide-react";
+import { Download, PencilLine, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -26,6 +26,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { ApiError, apiRequest } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { FormListItem, FormListResponse } from "@/features/forms/types";
+import { CrmConfirmDialog } from "@/components/crm/crm-list-primitives";
 
 type FormColumnKey = "name" | "status" | "domain" | "submissions" | "lastSubmission" | "updatedAt" | "actions";
 type FormSortKey = Exclude<FormColumnKey, "actions">;
@@ -48,6 +49,18 @@ const defaultColumnVisibility: Record<FormColumnKey, boolean> = {
 const lockedColumns: FormColumnKey[] = ["name"];
 const emptyFilters: FormFilters = { q: "", status: "", websiteDomain: "" };
 
+function mapStatusFilterToApiStatus(status: string) {
+  if (status === "active") return "published";
+  if (status === "inactive") return "archived";
+  return "";
+}
+
+function mapStatusLabel(status: string) {
+  if (status === "active") return "Active";
+  if (status === "inactive") return "Inactive";
+  return status;
+}
+
 function formatDate(value: string | null) {
   if (!value) return "—";
   return new Date(value).toLocaleString();
@@ -58,6 +71,8 @@ export default function FormsListPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<FormListItem | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnOpen, setColumnOpen] = useState(false);
   const {
@@ -106,7 +121,8 @@ export default function FormsListPage() {
     setError(null);
     const params = new URLSearchParams();
     if (filters.q) params.set("q", filters.q);
-    if (filters.status) params.set("status", filters.status);
+    const apiStatus = mapStatusFilterToApiStatus(filters.status);
+    if (apiStatus) params.set("status", apiStatus);
     if (filters.websiteDomain) params.set("websiteDomain", filters.websiteDomain);
     params.set("limit", String(limit));
     params.set("offset", String((page - 1) * limit));
@@ -145,6 +161,21 @@ export default function FormsListPage() {
     }
   }, [filters, limit, page, sortBy, sortDir]);
 
+  const deleteForm = useCallback(async (formId: string, formName: string) => {
+    setDeletingId(formId);
+    setError(null);
+    try {
+      await apiRequest<{ id: string }>(`/forms/${formId}`, { method: "DELETE" });
+      toast.success(`${formName} archived.`);
+      setDeleteTarget(null);
+      await loadForms();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to archive form.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [loadForms]);
+
   useEffect(() => {
     void loadForms();
   }, [loadForms]);
@@ -153,7 +184,7 @@ export default function FormsListPage() {
     () =>
       [
         filters.q ? { key: "q" as const, label: "Search", value: filters.q } : null,
-        filters.status ? { key: "status" as const, label: "Status", value: filters.status } : null,
+        filters.status ? { key: "status" as const, label: "Status", value: mapStatusLabel(filters.status) } : null,
         filters.websiteDomain ? { key: "websiteDomain" as const, label: "Domain", value: filters.websiteDomain } : null,
       ].filter(Boolean) as Array<{ key: keyof FormFilters; label: string; value: string }>,
     [filters],
@@ -213,8 +244,21 @@ export default function FormsListPage() {
       key: "actions",
       label: "Actions",
       renderCell: (record) => (
-        <div className="flex gap-2">
-          <Link href={`/dashboard/forms/${record.id}`} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>Open</Link>
+        <div className="flex items-center gap-2">
+          <Link href={`/dashboard/forms/${record.id}`} className={cn(buttonVariants({ variant: "outline", size: "icon-sm" }))} aria-label={`Edit ${record.name}`} title={`Edit ${record.name}`}>
+            <PencilLine className="size-4" />
+          </Link>
+          <Button
+            type="button"
+            variant="destructive"
+            size="icon-sm"
+            onClick={() => setDeleteTarget(record)}
+            disabled={deletingId === record.id}
+            aria-label={`Delete ${record.name}`}
+            title={`Delete ${record.name}`}
+          >
+            <Trash2 className="size-4" />
+          </Button>
         </div>
       ),
     },
@@ -312,9 +356,8 @@ export default function FormsListPage() {
             <FieldLabel htmlFor="forms-filter-status">Status</FieldLabel>
             <NativeSelect id="forms-filter-status" value={filterDraft.status} onChange={(event) => setFilterDraft((current) => ({ ...current, status: event.target.value }))}>
               <option value="">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="published">Published</option>
-              <option value="archived">Archived</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
             </NativeSelect>
           </Field>
           <Field>
@@ -342,6 +385,25 @@ export default function FormsListPage() {
         lockedColumns={lockedColumns}
         onToggleColumn={toggleColumn}
         onReset={resetColumns}
+      />
+
+      <CrmConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Archive form"
+        description={deleteTarget ? `${deleteTarget.name} will be marked inactive. Responses and stored data will remain intact.` : undefined}
+        warning="This only archives the form. It does not delete submissions or related CRM data."
+        confirmLabel="Archive form"
+        submitting={deleteTarget ? deletingId === deleteTarget.id : false}
+        onConfirm={() => {
+          if (deleteTarget) {
+            void deleteForm(deleteTarget.id, deleteTarget.name);
+          }
+        }}
+        onCancel={() => {
+          if (!deletingId) {
+            setDeleteTarget(null);
+          }
+        }}
       />
     </div>
   );

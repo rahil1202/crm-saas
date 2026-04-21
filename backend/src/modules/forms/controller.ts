@@ -376,6 +376,20 @@ export async function exportResponses(c: Context<AppEnv>) {
   return ok(c, { items });
 }
 
+export async function deleteForm(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const { formId } = formParamSchema.parse(c.req.param());
+  const current = await getFormOrThrow(tenant.companyId, formId);
+
+  const [deleted] = await db
+    .update(forms)
+    .set({ status: "archived", updatedAt: new Date() })
+    .where(eq(forms.id, current.id))
+    .returning({ id: forms.id });
+
+  return ok(c, { id: deleted.id });
+}
+
 export async function getPublicForm(c: Context<AppEnv>) {
   const { slug } = publicFormSlugSchema.parse(c.req.param());
   const [item] = await db

@@ -17,7 +17,7 @@ async function ensureMigrationsTable() {
   `;
 }
 
-async function run() {
+export async function runMigrations() {
   await ensureMigrationsTable();
 
   const files = readdirSync(migrationsDir)
@@ -39,14 +39,19 @@ async function run() {
     const sql = readFileSync(join(migrationsDir, file), "utf8");
     console.log(`Applying migration: ${basename(file)}`);
     await pgClient.unsafe(sql);
-    await pgClient`INSERT INTO drizzle_migrations (filename) VALUES (${file})`;
+    await pgClient`INSERT INTO drizzle_migrations (filename) VALUES (${file}) ON CONFLICT (filename) DO NOTHING`;
   }
 
   console.log("Migrations complete");
-  process.exit(0);
 }
 
-run().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+if (import.meta.main) {
+  void runMigrations()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
+}

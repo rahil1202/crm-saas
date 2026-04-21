@@ -45,7 +45,7 @@ export const listFormsSchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-export const createFormSchema = z.object({
+const baseFormSchema = z.object({
   name: z.string().trim().min(1).max(180),
   websiteDomain: z.string().trim().max(255).optional(),
   description: z.string().trim().max(1000).optional(),
@@ -63,7 +63,9 @@ export const createFormSchema = z.object({
     messageBody: "Your response has been submitted successfully.",
     captchaEnabled: true,
   }),
-}).superRefine((value, ctx) => {
+});
+
+export const createFormSchema = baseFormSchema.superRefine((value, ctx) => {
   const names = new Set<string>();
   const ids = new Set<string>();
 
@@ -72,11 +74,19 @@ export const createFormSchema = z.object({
     const normalizedId = field.id.trim().toLowerCase();
 
     if (names.has(normalizedName)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Field names must be unique", path: ["schema", index, "name"] });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Field names must be unique",
+        path: ["schema", index, "name"],
+      });
     }
 
     if (ids.has(normalizedId)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Field ids must be unique", path: ["schema", index, "id"] });
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Field ids must be unique",
+        path: ["schema", index, "id"],
+      });
     }
 
     names.add(normalizedName);
@@ -84,7 +94,8 @@ export const createFormSchema = z.object({
   }
 });
 
-export const updateFormSchema = createFormSchema.partial();
+export const updateFormSchema = baseFormSchema.partial();
+
 
 export const formParamSchema = z.object({
   formId: z.string().uuid(),
