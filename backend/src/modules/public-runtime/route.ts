@@ -6,7 +6,9 @@ import { getPublicForm, submitPublicForm } from "@/modules/forms/controller";
 import { emailReplyWebhookSchema } from "@/modules/campaigns/schema";
 import { publicSubmitSchema } from "@/modules/forms/schema";
 import { ingestWhatsappProviderWebhook, verifyWhatsappWebhook } from "@/modules/social/controller";
-import { validateJson } from "@/middleware/common";
+import { bookPublicMeeting, getPublicMeeting, getPublicMeetingSlots } from "@/modules/meetings/controller";
+import { publicBookSchema, publicSlotsQuerySchema } from "@/modules/meetings/schema";
+import { validateJson, validateQuery } from "@/middleware/common";
 import { enforceBodyLimit, protectWebhook, rateLimit } from "@/middleware/security";
 import { bodyLimits, routePolicies } from "@/lib/security";
 
@@ -24,6 +26,15 @@ publicRuntimeRoutes.post("/email/resend/webhook", protectWebhook({
 }), handleResendWebhookRequest);
 publicRuntimeRoutes.get("/forms/:slug", getPublicForm);
 publicRuntimeRoutes.post("/forms/:slug/submit", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.publicFormSubmit), validateJson(publicSubmitSchema), submitPublicForm);
+publicRuntimeRoutes.get("/meetings/:meetingTypeSlug/:hostSlug", getPublicMeeting);
+publicRuntimeRoutes.get("/meetings/:meetingTypeSlug/:hostSlug/slots", validateQuery(publicSlotsQuerySchema), getPublicMeetingSlots);
+publicRuntimeRoutes.post(
+  "/meetings/:meetingTypeSlug/:hostSlug/book",
+  enforceBodyLimit(bodyLimits.authSensitive),
+  rateLimit(routePolicies.publicFormSubmit),
+  validateJson(publicBookSchema),
+  bookPublicMeeting,
+);
 publicRuntimeRoutes.get("/whatsapp/webhook", verifyWhatsappWebhook);
 publicRuntimeRoutes.post("/whatsapp/webhook", protectWebhook({
   provider: "whatsapp",

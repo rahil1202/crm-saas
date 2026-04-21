@@ -7,6 +7,7 @@ export type CompanyModuleKey =
   | "templates"
   | "teams"
   | "tasks"
+  | "meetings"
   | "campaigns"
   | "reports"
   | "settings"

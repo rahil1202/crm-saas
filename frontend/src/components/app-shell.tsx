@@ -9,12 +9,14 @@ import {
   Bell,
   BriefcaseBusiness,
   Building2,
+  CalendarClock,
   ChartColumnBig,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   FileText,
+  FileBox,
   GraduationCap,
   HeartHandshake,
   LayoutDashboard,
@@ -64,7 +66,7 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   minRole: CompanyRole;
-  moduleKey?: "contacts" | "leads" | "deals" | "forms" | "tasks" | "documents" | "templates" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams";
+  moduleKey?: "contacts" | "leads" | "deals" | "forms" | "tasks" | "meetings" | "documents" | "templates" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams";
   superAdminOnly?: boolean;
   partnerAccessOnly?: boolean;
 };
@@ -75,10 +77,11 @@ const navItems: NavItem[] = [
   { href: "/dashboard/leads", label: "Leads", icon: Target, minRole: "member", moduleKey: "leads" },
   { href: "/dashboard/deals", label: "Deals", icon: BriefcaseBusiness, minRole: "member", moduleKey: "deals" },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users, minRole: "member", moduleKey: "contacts" },
-  { href: "/dashboard/documents", label: "Files", icon: FileText, minRole: "member", moduleKey: "documents" },
+  { href: "/dashboard/documents", label: "Files", icon: FileBox, minRole: "member", moduleKey: "documents" },
   { href: "/dashboard/tasks", label: "Tasks", icon: PanelsTopLeft, minRole: "member", moduleKey: "tasks" },
+  { href: "/dashboard/meetings", label: "Meetings", icon: CalendarClock, minRole: "member", moduleKey: "meetings" },
   { href: "/dashboard/partners", label: "Partners", icon: Building2, minRole: "admin", moduleKey: "partners" },
-  { href: "/dashboard/campaigns", label: "Campaign", icon: Megaphone, minRole: "admin", moduleKey: "campaigns" },
+  { href: "/dashboard/campaigns", label: "Campaigns", icon: Megaphone, minRole: "admin", moduleKey: "campaigns" },
   { href: "/dashboard/templates", label: "Templates", icon: FileText, minRole: "admin", moduleKey: "templates" },
   { href: "/dashboard/automation", label: "Automation", icon: Sparkles, minRole: "admin", moduleKey: "automation" },
   { href: "/dashboard/chatbot-flows", label: "Chatbot Flows", icon: Network, minRole: "admin", moduleKey: "automation" },
@@ -98,7 +101,7 @@ const navGroups = [
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
-  { id: "users", label: "Users", hrefs: ["/dashboard/team", "/dashboard/partners", "/dashboard/settings", "/dashboard/invite"] },
+  { id: "users", label: "Users", hrefs: ["/dashboard/meetings", "/dashboard/team", "/dashboard/partners", "/dashboard/settings", "/dashboard/invite"] },
   { id: "addons", label: "Add Ons", hrefs: ["/dashboard/forms", "/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
 ];
 
@@ -108,23 +111,24 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
   //   "/dashboard/chatbot-flows": { label: "LinkedIn", icon: HeartHandshake },
   // },
   marketing: {
-    "/dashboard/campaigns": { label: "Campaign", icon: Megaphone },
+    "/dashboard/campaigns": { label: "Campaigns", icon: Megaphone },
     "/dashboard/templates": { label: "Templates", icon: FileText },
-    "/dashboard/documents": { label: "Files", icon: FileText },
+    "/dashboard/documents": { label: "Files", icon: FileBox },
     "/dashboard/notifications": { label: "Notifications", icon: Bell },
-    "/dashboard/social": { label: "Meta", icon: MessageSquareShare },
+    "/dashboard/social": { label: "Social", icon: MessageSquareShare },
   },
   users: {
-    "/dashboard/team": { label: "Teams", icon: Users },
+    "/dashboard/meetings": { label: "Meetings", icon: CalendarClock },
+    "/dashboard/team": { label: "Team", icon: Users },
     "/dashboard/settings": { label: "Settings", icon: Settings2 },
-    "/dashboard/partners": { label: "Partners", icon: HeartHandshake },
+    "/dashboard/partners": { label: "Partners", icon: Building2 },
     "/dashboard/invite": { label: "Invite", icon: HeartHandshake },
   },
   addons: {
     "/dashboard/forms": { label: "Forms", icon: TextCursorInput },
-    "/dashboard/integrations": { label: "Integration", icon: Puzzle },
-    "/dashboard/reports": { label: "Academy", icon: GraduationCap },
-    "/dashboard/super-admin": { label: "Customization", icon: ScanSearch },
+    "/dashboard/integrations": { label: "Integrations", icon: Link2 },
+    "/dashboard/reports": { label: "Reports", icon: ChartColumnBig },
+    "/dashboard/super-admin": { label: "Super Admin", icon: Shield },
   },
 };
 
@@ -237,8 +241,14 @@ export function AppShell({
     } else if (pathname.startsWith("/dashboard/tasks/")) {
       items.push({ href: "/dashboard/tasks", label: "Tasks" });
       items.push({ href: pathname, label: title });
+    } else if (pathname.startsWith("/dashboard/meetings/")) {
+      items.push({ href: "/dashboard/meetings", label: "Meetings" });
+      items.push({ href: pathname, label: title });
     } else if (pathname.startsWith("/dashboard/forms/")) {
       items.push({ href: "/dashboard/forms", label: "Forms" });
+      items.push({ href: pathname, label: title });
+    } else if (pathname.startsWith("/dashboard/documents/files/")) {
+      items.push({ href: "/dashboard/documents", label: "Files" });
       items.push({ href: pathname, label: title });
     } else if (pathname !== "/dashboard") {
       items.push({
@@ -505,11 +515,9 @@ export function AppShell({
                     ) : null}
                     {group.items.map((item) => {
                       const Icon = item.icon;
-                      const isActive =
-                        pathname === item.href ||
-                        (item.href === "/dashboard/contacts" && pathname.startsWith("/dashboard/contacts/")) ||
-                        (item.href === "/dashboard/leads" && pathname.startsWith("/dashboard/leads/")) ||
-                        (item.href === "/dashboard/deals" && pathname.startsWith("/dashboard/deals/"));
+                      const isActive = item.href === "/dashboard"
+                        ? pathname === "/dashboard"
+                        : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
                       return (
                         <Link

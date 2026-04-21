@@ -18,6 +18,7 @@ import { dealRoutes } from "@/modules/deals/route";
 import { documentRoutes } from "@/modules/documents/route";
 import { formRoutes } from "@/modules/forms/route";
 import { leadRoutes } from "@/modules/leads/route";
+import { meetingRoutes } from "@/modules/meetings/route";
 import { notificationRoutes } from "@/modules/notifications/route";
 import { partnerRoutes } from "@/modules/partners/route";
 import { publicRuntimeRoutes } from "@/modules/public-runtime/route";
@@ -48,7 +49,7 @@ app.use(
       }
       return origin === env.FRONTEND_URL ? origin : null;
     },
-    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization", "x-company-id", "x-store-id", "x-request-id"],
     exposeHeaders: ["x-request-id"],
     credentials: true,
@@ -76,6 +77,7 @@ api.route("/", companyRoleRoutes);
 api.route("/", userRoutes);
 api.route("/", customerRoutes);
 api.route("/", leadRoutes);
+api.route("/", meetingRoutes);
 api.route("/", dealRoutes);
 api.route("/", formRoutes);
 api.route("/", documentRoutes);

@@ -43,6 +43,12 @@ export const crmModules: CrmModuleDefinition[] = [
     capabilities: ["Assignments", "Recurring tasks", "Calendar view", "Overdue alerts"],
   },
   {
+    slug: "meetings",
+    title: "Meetings",
+    summary: "Meeting links, host availability, manual scheduling, and public booking management for each user.",
+    capabilities: ["Booking links", "Availability", "Manual meetings", "Public scheduling"],
+  },
+  {
     slug: "partners",
     title: "Partners",
     summary: "Partner company access, assigned lead/deal ownership, performance tracking, and scoped permissions.",

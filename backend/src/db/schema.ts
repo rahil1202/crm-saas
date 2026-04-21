@@ -30,6 +30,8 @@ export const dealStatusEnum = pgEnum("deal_status", ["open", "won", "lost"]);
 export const taskStatusEnum = pgEnum("task_status", ["todo", "in_progress", "done", "overdue"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high"]);
 export const followUpStatusEnum = pgEnum("follow_up_status", ["pending", "completed", "missed", "canceled"]);
+export const meetingSourceEnum = pgEnum("meeting_source", ["manual", "public_link", "internal"]);
+export const meetingStatusEnum = pgEnum("meeting_status", ["scheduled", "cancelled", "completed", "no_show"]);
 export const partnerStatusEnum = pgEnum("partner_status", ["active", "inactive"]);
 export const partnerAccessLevelEnum = pgEnum("partner_access_level", ["restricted", "standard", "manager"]);
 export const campaignStatusEnum = pgEnum("campaign_status", ["draft", "scheduled", "active", "completed", "paused"]);
@@ -770,6 +772,174 @@ export const taskAssociations = pgTable(
       table.entityType,
       table.entityId,
     ),
+  }),
+);
+
+export const meetingProfiles = pgTable(
+  "meeting_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    usernameSlug: varchar("username_slug", { length: 120 }).notNull(),
+    publicSuffix: varchar("public_suffix", { length: 16 }).notNull(),
+    displayName: varchar("display_name", { length: 180 }).notNull(),
+    headline: varchar("headline", { length: 240 }),
+    timezone: varchar("timezone", { length: 80 }).notNull().default("UTC"),
+    bookingNoticeMinutes: integer("booking_notice_minutes").notNull().default(30),
+    bufferBeforeMinutes: integer("buffer_before_minutes").notNull().default(0),
+    bufferAfterMinutes: integer("buffer_after_minutes").notNull().default(0),
+    isPublicEnabled: boolean("is_public_enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("meeting_profiles_company_idx").on(table.companyId),
+    byUserIdx: uniqueIndex("meeting_profiles_company_user_unique").on(table.companyId, table.userId),
+    publicLookupIdx: uniqueIndex("meeting_profiles_company_public_unique").on(table.companyId, table.usernameSlug, table.publicSuffix),
+  }),
+);
+
+export const meetingTypes = pgTable(
+  "meeting_types",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    hostUserId: uuid("host_user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    meetingProfileId: uuid("meeting_profile_id")
+      .notNull()
+      .references(() => meetingProfiles.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 180 }).notNull(),
+    slug: varchar("slug", { length: 160 }).notNull(),
+    description: text("description"),
+    durationMinutes: integer("duration_minutes").notNull().default(30),
+    locationType: varchar("location_type", { length: 40 }).notNull().default("custom"),
+    locationDetails: varchar("location_details", { length: 400 }),
+    isActive: boolean("is_active").notNull().default(true),
+    isPublic: boolean("is_public").notNull().default(true),
+    color: varchar("color", { length: 24 }).notNull().default("#1d4ed8"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("meeting_types_company_idx").on(table.companyId, table.createdAt),
+    byHostIdx: index("meeting_types_host_idx").on(table.companyId, table.hostUserId),
+    slugUnique: uniqueIndex("meeting_types_company_host_slug_unique").on(table.companyId, table.hostUserId, table.slug),
+  }),
+);
+
+export const meetingTypeAvailability = pgTable(
+  "meeting_type_availability",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    meetingTypeId: uuid("meeting_type_id")
+      .notNull()
+      .references(() => meetingTypes.id, { onDelete: "cascade" }),
+    dayOfWeek: integer("day_of_week").notNull(),
+    isEnabled: boolean("is_enabled").notNull().default(false),
+    startTime: varchar("start_time", { length: 5 }).notNull().default("09:00"),
+    endTime: varchar("end_time", { length: 5 }).notNull().default("17:00"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byMeetingTypeIdx: index("meeting_type_availability_type_idx").on(table.meetingTypeId),
+    dayUnique: uniqueIndex("meeting_type_availability_day_unique").on(table.meetingTypeId, table.dayOfWeek),
+  }),
+);
+
+export const meetingTypeBreaks = pgTable(
+  "meeting_type_breaks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    meetingTypeId: uuid("meeting_type_id")
+      .notNull()
+      .references(() => meetingTypes.id, { onDelete: "cascade" }),
+    dayOfWeek: integer("day_of_week").notNull(),
+    startTime: varchar("start_time", { length: 5 }).notNull(),
+    endTime: varchar("end_time", { length: 5 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byMeetingTypeIdx: index("meeting_type_breaks_type_idx").on(table.meetingTypeId),
+    byDayIdx: index("meeting_type_breaks_day_idx").on(table.meetingTypeId, table.dayOfWeek),
+  }),
+);
+
+export const meetings = pgTable(
+  "meetings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    hostUserId: uuid("host_user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    meetingTypeId: uuid("meeting_type_id").references(() => meetingTypes.id, { onDelete: "set null" }),
+    source: meetingSourceEnum("source").notNull().default("manual"),
+    title: varchar("title", { length: 180 }).notNull(),
+    description: text("description"),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    timezone: varchar("timezone", { length: 80 }).notNull().default("UTC"),
+    status: meetingStatusEnum("status").notNull().default("scheduled"),
+    organizerName: varchar("organizer_name", { length: 180 }).notNull(),
+    organizerEmail: varchar("organizer_email", { length: 320 }).notNull(),
+    guestCount: integer("guest_count").notNull().default(0),
+    locationDetails: varchar("location_details", { length: 400 }),
+    bookingPublicToken: varchar("booking_public_token", { length: 80 }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyDateIdx: index("meetings_company_date_idx").on(table.companyId, table.startsAt),
+    byHostDateIdx: index("meetings_host_date_idx").on(table.companyId, table.hostUserId, table.startsAt),
+    bySourceIdx: index("meetings_source_idx").on(table.companyId, table.source),
+    publicTokenUnique: uniqueIndex("meetings_booking_public_token_unique").on(table.bookingPublicToken),
+  }),
+);
+
+export const meetingAttendees = pgTable(
+  "meeting_attendees",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    meetingId: uuid("meeting_id")
+      .notNull()
+      .references(() => meetings.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    fullName: varchar("full_name", { length: 180 }),
+    responseStatus: varchar("response_status", { length: 40 }).notNull().default("pending"),
+    isOrganizer: boolean("is_organizer").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byMeetingIdx: index("meeting_attendees_meeting_idx").on(table.meetingId),
+    emailUnique: uniqueIndex("meeting_attendees_meeting_email_unique").on(table.meetingId, table.email),
   }),
 );
 
@@ -1973,4 +2143,8 @@ export const companyRelations = relations(companies, ({ many }) => ({
   deals: many(deals),
   tasks: many(tasks),
   followUps: many(followUps),
+  meetingProfiles: many(meetingProfiles),
+  meetingTypes: many(meetingTypes),
+  meetings: many(meetings),
+  meetingTypeBreaks: many(meetingTypeBreaks),
 }));

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const listDocumentsSchema = z.object({
+  scope: z.enum(["all", "mine", "imported"]).default("all"),
   q: z.string().trim().max(180).optional(),
   folder: z.string().trim().max(120).optional(),
   entityType: z.enum(["general", "lead", "deal", "customer"]).optional(),

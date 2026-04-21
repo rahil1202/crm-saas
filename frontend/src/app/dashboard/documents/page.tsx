@@ -13,6 +13,7 @@ import {
   CrmFilterDrawer,
   CrmListPageHeader,
   CrmListToolbar,
+  CrmListViewTabs,
   CrmModalShell,
   CrmPaginationBar,
 } from "@/components/crm/crm-list-primitives";
@@ -27,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest } from "@/lib/api";
+import { getCompanyCookie } from "@/lib/cookies";
 import { loadMe } from "@/lib/me-cache";
 import {
   buildDocumentsCsv,
@@ -88,7 +90,15 @@ function normalizeSortKey(): DocumentSortKey {
   return "createdAt";
 }
 
+function canDeleteDocument(document: DocumentItem, userId: string | null, role: "owner" | "admin" | "member" | null) {
+  if (role === "owner" || role === "admin") {
+    return true;
+  }
+  return Boolean(userId && document.uploadedByUserId === userId);
+}
+
 export default function DocumentsPage() {
+  const companyId = getCompanyCookie();
   const [items, setItems] = useState<DocumentItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -101,6 +111,8 @@ export default function DocumentsPage() {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const [uploadedByName, setUploadedByName] = useState("Current user");
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState<"owner" | "admin" | "member" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -121,6 +133,8 @@ export default function DocumentsPage() {
   const [associationLoading, setAssociationLoading] = useState(false);
 
   const {
+    tab,
+    setTab,
     filters,
     setFilters,
     filterDraft,
@@ -138,6 +152,7 @@ export default function DocumentsPage() {
     resetColumns,
   } = useCrmListState<DocumentFilters, DocumentSortKey, DocumentColumnKey>({
     defaultFilters,
+    defaultTab: "all",
     defaultSortBy: "createdAt",
     rowsPerPageOptions,
     defaultLimit: 20,
@@ -151,6 +166,7 @@ export default function DocumentsPage() {
 
   const offset = (page - 1) * limit;
   const totalPages = Math.max(1, Math.ceil(total / limit));
+  const scope = tab === "all" ? "all" : tab === "mine" ? "mine" : "imported";
 
   const appliedFilterChips = useMemo(() => {
     const chips: Array<{ key: keyof DocumentFilters; label: string; value: string }> = [];
@@ -170,6 +186,7 @@ export default function DocumentsPage() {
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     params.set("offset", String(offset));
+    params.set("scope", scope);
     if (filters.q.trim()) params.set("q", filters.q.trim());
     if (filters.folder.trim()) params.set("folder", filters.folder.trim());
     if (filters.entityType) params.set("entityType", filters.entityType);
@@ -178,7 +195,12 @@ export default function DocumentsPage() {
       const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`);
       setItems(response.items);
       setTotal(response.total);
-      setSelectedDocumentIds((current) => current.filter((id) => response.items.some((item) => item.id === id)));
+      setSelectedDocumentIds((current) => {
+        const nextIds = response.items
+          .filter((item) => canDeleteDocument(item, myUserId, myRole))
+          .map((item) => item.id);
+        return current.filter((id) => nextIds.includes(id));
+      });
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load documents");
       setItems([]);
@@ -186,7 +208,7 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, limit, offset]);
+  }, [filters, limit, myRole, myUserId, offset, scope]);
 
   const loadAssociationOptions = useCallback(async (mode: "upload" | "edit") => {
     const activeType = mode === "upload" ? uploadEntityType : editEntityType;
@@ -223,9 +245,12 @@ export default function DocumentsPage() {
       .then((me) => {
         const displayName = me.user.fullName?.trim() || me.user.email?.trim() || "Current user";
         setUploadedByName(displayName);
+        setMyUserId(me.user.id ?? null);
+        const membership = me.memberships.find((item) => item.companyId === companyId);
+        setMyRole(membership?.role ?? null);
       })
       .catch(() => undefined);
-  }, []);
+  }, [companyId]);
 
   useEffect(() => {
     if (!addModalOpen) {
@@ -433,6 +458,7 @@ export default function DocumentsPage() {
         const params = new URLSearchParams();
         params.set("limit", String(batchSize));
         params.set("offset", String(exportOffset));
+        params.set("scope", scope);
         if (filters.q.trim()) params.set("q", filters.q.trim());
         if (filters.folder.trim()) params.set("folder", filters.folder.trim());
         if (filters.entityType) params.set("entityType", filters.entityType);
@@ -448,7 +474,12 @@ export default function DocumentsPage() {
     } catch (requestError) {
       toast.error(requestError instanceof ApiError ? requestError.message : "Unable to export documents");
     }
-  }, [filters.entityType, filters.folder, filters.q]);
+  }, [filters.entityType, filters.folder, filters.q, scope]);
+
+  const deletableIds = useMemo(
+    () => new Set(items.filter((item) => canDeleteDocument(item, myUserId, myRole)).map((item) => item.id)),
+    [items, myRole, myUserId],
+  );
 
   return (
     <div className="grid gap-4">
@@ -476,6 +507,20 @@ export default function DocumentsPage() {
       ) : null}
 
       <div className="overflow-hidden rounded-[1.5rem] border border-border/60 bg-white shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)]">
+        <div className="border-b border-border/60 px-4">
+          <CrmListViewTabs
+            value={tab}
+            onValueChange={(value) => {
+              setTab(value);
+              setSelectedDocumentIds([]);
+            }}
+            labels={{
+              all: "All Documents",
+              mine: "My Documents",
+              documents: "Imported Documents",
+            }}
+          />
+        </div>
         <CrmListToolbar
           searchValue={filters.q}
           searchPlaceholder="Search by file name or remark"
@@ -512,6 +557,9 @@ export default function DocumentsPage() {
           selectable
           selectedRowIds={selectedDocumentIds}
           onToggleRow={(rowId, checked) => {
+            if (!deletableIds.has(rowId)) {
+              return;
+            }
             setSelectedDocumentIds((current) => (checked ? Array.from(new Set([...current, rowId])) : current.filter((id) => id !== rowId)));
           }}
           onToggleAllVisible={(checked) => {
@@ -519,21 +567,25 @@ export default function DocumentsPage() {
               setSelectedDocumentIds((current) => current.filter((id) => !items.some((item) => item.id === id)));
               return;
             }
-            setSelectedDocumentIds((current) => Array.from(new Set([...current, ...items.map((item) => item.id)])));
+            const addable = items.filter((item) => deletableIds.has(item.id)).map((item) => item.id);
+            setSelectedDocumentIds((current) => Array.from(new Set([...current, ...addable])));
           }}
           actionColumn={{
             header: "Actions",
             className: "w-[180px]",
-            renderCell: (document) => (
-              <div className="flex items-center justify-end gap-1.5">
+            renderCell: (document) => {
+              const canDelete = canDeleteDocument(document, myUserId, myRole);
+              return (
+                <div className="flex items-center justify-end gap-1.5">
                 <Button type="button" size="sm" variant="outline" onClick={() => openEditModal(document)}>
                   <Edit3 className="size-3.5" />
                 </Button>
-                <Button type="button" size="sm" variant="destructive" onClick={() => setDeleteTarget(document)}>
+                <Button type="button" size="sm" variant="destructive" onClick={() => setDeleteTarget(document)} disabled={!canDelete}>
                   <Trash2 className="size-3.5" />
                 </Button>
-              </div>
-            ),
+                </div>
+              );
+            },
           }}
         />
 

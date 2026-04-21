@@ -216,6 +216,7 @@ export function getDocumentOverview(c: Context<AppEnv>) {
 
 export async function listDocuments(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
+  const user = c.get("user");
   const query = c.get("validatedQuery") as ListDocumentsQuery;
 
   const searchTerm = query.q?.trim();
@@ -223,6 +224,19 @@ export async function listDocuments(c: Context<AppEnv>) {
   const where = and(
     eq(documents.companyId, tenant.companyId),
     isNull(documents.deletedAt),
+    query.scope === "mine" ? eq(documents.createdBy, user.id) : undefined,
+    query.scope === "imported"
+      ? or(
+        ilike(documents.folder, "%import%"),
+        eq(documents.mimeType, "text/csv"),
+        eq(documents.mimeType, "application/csv"),
+        eq(documents.mimeType, "application/vnd.ms-excel"),
+        eq(documents.mimeType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        ilike(documents.originalName, "%.csv"),
+        ilike(documents.originalName, "%.xls"),
+        ilike(documents.originalName, "%.xlsx"),
+      )
+      : undefined,
     query.folder ? eq(documents.folder, normalizeDocumentFolder(query.folder)) : undefined,
     query.entityType ? eq(documents.entityType, query.entityType) : undefined,
     query.entityId ? eq(documents.entityId, query.entityId) : undefined,
@@ -454,7 +468,23 @@ export async function openDocument(c: Context<AppEnv>) {
 
 export async function deleteDocument(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
+  const user = c.get("user");
   const params = documentParamSchema.parse(c.req.param());
+
+  const [existing] = await db
+    .select()
+    .from(documents)
+    .where(and(eq(documents.id, params.documentId), eq(documents.companyId, tenant.companyId), isNull(documents.deletedAt)))
+    .limit(1);
+
+  if (!existing) {
+    throw AppError.notFound("Document not found");
+  }
+
+  const canDelete = tenant.role === "owner" || tenant.role === "admin" || existing.createdBy === user.id;
+  if (!canDelete) {
+    throw AppError.forbidden("You can delete only your uploads unless you are admin or owner");
+  }
 
   const [deleted] = await db
     .update(documents)
@@ -481,6 +511,7 @@ export async function deleteDocument(c: Context<AppEnv>) {
 
 export async function bulkDeleteDocuments(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
+  const user = c.get("user");
   const body = c.get("validatedBody") as BulkDeleteDocumentsInput;
 
   const existing = await db
@@ -490,6 +521,13 @@ export async function bulkDeleteDocuments(c: Context<AppEnv>) {
 
   if (existing.length !== body.ids.length) {
     throw AppError.badRequest("One or more documents were not found");
+  }
+
+  if (tenant.role !== "owner" && tenant.role !== "admin") {
+    const forbidden = existing.some((item) => item.createdBy !== user.id);
+    if (forbidden) {
+      throw AppError.forbidden("You can bulk delete only your uploads unless you are admin or owner");
+    }
   }
 
   await db

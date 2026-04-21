@@ -37,6 +37,27 @@ function normalizeTab(value: string | null, fallback: CrmListTabKey) {
   return value === "mine" || value === "documents" ? value : fallback;
 }
 
+function hasVisibilityChanges<TColumnKey extends string>(
+  current: Record<TColumnKey, boolean>,
+  next: Record<TColumnKey, boolean>,
+) {
+  const currentKeys = Object.keys(current) as TColumnKey[];
+  for (const key of currentKeys) {
+    if (current[key] !== next[key]) {
+      return true;
+    }
+  }
+
+  const nextKeys = Object.keys(next) as TColumnKey[];
+  for (const key of nextKeys) {
+    if (!(key in current)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function useCrmListState<
   TFilters extends Record<string, string>,
   TSortKey extends string,
@@ -120,6 +141,11 @@ export function useCrmListState<
         for (const key of lockedColumns) {
           next[key] = true as ColumnVisibility<TColumnKey>[TColumnKey];
         }
+
+        if (!hasVisibilityChanges(current, next)) {
+          return current;
+        }
+
         return next;
       });
     } catch {
@@ -248,6 +274,11 @@ export function usePersistedColumnVisibility<TColumnKey extends string>({
         for (const key of lockedColumns) {
           next[key] = true;
         }
+
+        if (!hasVisibilityChanges(current, next)) {
+          return current;
+        }
+
         return next;
       });
     } catch {
