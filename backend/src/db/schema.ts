@@ -1388,7 +1388,11 @@ export const documents = pgTable(
     entityId: uuid("entity_id"),
     folder: varchar("folder", { length: 120 }).notNull().default("general"),
     originalName: varchar("original_name", { length: 255 }).notNull(),
+    remark: varchar("remark", { length: 500 }),
     storagePath: varchar("storage_path", { length: 512 }).notNull(),
+    storageProvider: varchar("storage_provider", { length: 32 }).notNull().default("local"),
+    storageBucket: varchar("storage_bucket", { length: 120 }).notNull().default(""),
+    storageObjectPath: varchar("storage_object_path", { length: 768 }).notNull().default(""),
     mimeType: varchar("mime_type", { length: 180 }),
     sizeBytes: integer("size_bytes").notNull().default(0),
     createdBy: uuid("created_by")

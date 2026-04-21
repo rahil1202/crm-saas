@@ -33,6 +33,8 @@ import { getInitials } from "@/lib/auth-ui";
 import { getCompanyCookie } from "@/lib/cookies";
 import { loadMe } from "@/lib/me-cache";
 import { cn } from "@/lib/utils";
+import { buildDocumentsCsv, formatDocumentFileSize } from "@/features/documents/helpers";
+import type { DocumentItem, DocumentListResponse } from "@/features/documents/types";
 
 interface Customer {
   id: string;
@@ -51,22 +53,6 @@ interface ListResponse {
   total: number;
   limit?: number;
   offset?: number;
-}
-
-interface DocumentItem {
-  id: string;
-  entityType: "general" | "lead" | "deal" | "customer";
-  entityId: string | null;
-  folder: string;
-  originalName: string;
-  mimeType: string | null;
-  sizeBytes: number;
-  createdAt: string;
-}
-
-interface DocumentListResponse {
-  items: DocumentItem[];
-  total: number;
 }
 
 interface PreviewRow {
@@ -437,23 +423,6 @@ function buildCustomersCsv(items: Customer[]) {
     .join("\n");
 }
 
-function buildDocumentsCsv(items: DocumentItem[]) {
-  return [
-    ["file_name", "folder", "entity_type", "entity_id", "mime_type", "size_bytes", "created_at"],
-    ...items.map((document) => [
-      document.originalName,
-      document.folder,
-      document.entityType,
-      document.entityId ?? "",
-      document.mimeType ?? "",
-      String(document.sizeBytes),
-      document.createdAt,
-    ]),
-  ]
-    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
-    .join("\n");
-}
-
 function customerToForm(customer: Customer): CustomerFormState {
   return {
     fullName: customer.fullName,
@@ -686,12 +655,6 @@ function formatDateTime(value: string) {
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
-}
-
-function formatFileSize(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function initialColumnVisibility(): CustomerColumnVisibility {
@@ -1009,7 +972,7 @@ export default function CustomersPage() {
       key: "size",
       label: "Size",
       widthClassName: "min-w-[110px]",
-      renderCell: (document) => <span className="text-slate-600">{formatFileSize(document.sizeBytes)}</span>,
+      renderCell: (document) => <span className="text-slate-600">{formatDocumentFileSize(document.sizeBytes)}</span>,
     },
     {
       key: "createdAt",

@@ -34,6 +34,7 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().min(1).default("http://localhost:54321").transform(normalizeSupabaseUrl),
   SUPABASE_ANON_KEY: z.string().min(1).default("dev-anon-key"),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).default("dev-service-role-key"),
+  SUPABASE_STORAGE_BUCKET_DOCUMENTS: z.string().min(1).default("documents"),
   SUPABASE_JWT_AUDIENCE: z.string().default("authenticated"),
   ACCESS_TOKEN_SECRET: z.string().min(32).default("dev-access-secret-dev-access-secret-123"),
   REFRESH_TOKEN_SECRET: z.string().min(32).default("dev-refresh-secret-dev-refresh-secret-123"),

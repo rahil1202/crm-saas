@@ -30,6 +30,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
 import { getCompanyCookie } from "@/lib/cookies";
 import { loadMe } from "@/lib/me-cache";
+import { buildDocumentsCsv, formatDocumentFileSize } from "@/features/documents/helpers";
+import type { DocumentItem, DocumentListResponse } from "@/features/documents/types";
 
 type LeadStatus = "new" | "qualified" | "proposal" | "won" | "lost";
 type SortDirection = "asc" | "desc";
@@ -72,22 +74,6 @@ interface ListLeadResponse {
   total: number;
   limit: number;
   offset: number;
-}
-
-interface DocumentItem {
-  id: string;
-  entityType: "general" | "lead" | "deal" | "customer";
-  entityId: string | null;
-  folder: string;
-  originalName: string;
-  mimeType: string | null;
-  sizeBytes: number;
-  createdAt: string;
-}
-
-interface DocumentListResponse {
-  items: DocumentItem[];
-  total: number;
 }
 
 interface LeadSourceSettings {
@@ -228,12 +214,6 @@ function formatDateTime(value: string) {
   return new Date(value).toLocaleString();
 }
 
-function formatFileSize(value: number) {
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function getStatusTone(status: LeadStatus) {
   if (status === "won") return "default";
   if (status === "lost") return "destructive";
@@ -334,23 +314,6 @@ function buildLeadsCsv(items: Lead[]) {
       lead.notes ?? "",
       lead.createdAt,
       lead.updatedAt,
-    ]),
-  ]
-    .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
-    .join("\n");
-}
-
-function buildDocumentsCsv(items: DocumentItem[]) {
-  return [
-    ["file_name", "folder", "entity_type", "entity_id", "mime_type", "size_bytes", "created_at"],
-    ...items.map((document) => [
-      document.originalName,
-      document.folder,
-      document.entityType,
-      document.entityId ?? "",
-      document.mimeType ?? "",
-      String(document.sizeBytes),
-      document.createdAt,
     ]),
   ]
     .map((row) => row.map((cell) => toCsvCell(cell)).join(","))
@@ -799,7 +762,7 @@ export default function LeadsPage() {
         </div>
       ),
     },
-    { key: "size", label: "Size", renderCell: (document) => <span className="text-slate-600">{formatFileSize(document.sizeBytes)}</span> },
+    { key: "size", label: "Size", renderCell: (document) => <span className="text-slate-600">{formatDocumentFileSize(document.sizeBytes)}</span> },
     { key: "createdAt", label: "Uploaded", renderCell: (document) => <span className="text-slate-600">{formatDateTime(document.createdAt)}</span> },
   ];
 
