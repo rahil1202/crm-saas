@@ -281,7 +281,6 @@ export async function createDeal(c: Context<AppEnv>) {
     title: "New deal created",
     message: `${created.title} was added to ${created.pipeline}/${created.stage}`,
     entityId: created.id,
-    entityPath: `/dashboard/deals`,
     payload: {
       status: created.status,
       value: created.value,

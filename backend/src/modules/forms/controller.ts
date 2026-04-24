@@ -585,7 +585,6 @@ export async function submitPublicForm(c: Context<AppEnv>) {
     title: `New form response: ${item.name}`,
     message: `${fullName ?? email ?? "A visitor"} submitted ${item.name}.`,
     entityId: createdLead.id,
-    entityPath: "/dashboard/leads",
     payload: { formId: item.id, responseId: response.id },
   });
 

@@ -226,7 +226,6 @@ export async function recalculateLeadScore(input: {
       title: "Hot lead detected",
       message: `${lead.title} score reached ${boundedScore}`,
       entityId: lead.id,
-      entityPath: "/dashboard/leads",
       payload: { score: boundedScore, previousScore },
     });
   }

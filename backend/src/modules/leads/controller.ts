@@ -263,7 +263,6 @@ export async function createLead(c: Context<AppEnv>) {
     title: "New lead created",
     message: `${created.title} entered the CRM pipeline`,
     entityId: created.id,
-    entityPath: `/dashboard/leads`,
     payload: {
       status: created.status,
       source: created.source,

@@ -172,7 +172,6 @@ export async function createCampaign(c: Context<AppEnv>) {
     title: "Campaign created",
     message: `${created.name} is ${created.status} with ${body.customerIds.length} linked customers`,
     entityId: created.id,
-    entityPath: `/dashboard/campaigns`,
     payload: {
       status: created.status,
       audienceCount: body.customerIds.length,

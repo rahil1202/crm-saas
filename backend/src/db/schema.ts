@@ -1435,14 +1435,36 @@ export const notifications = pgTable(
     entityId: uuid("entity_id"),
     entityPath: varchar("entity_path", { length: 240 }),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
-    readAt: timestamp("read_at", { withTimezone: true }),
-    readBy: uuid("read_by").references(() => profiles.id),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
-    byCompanyIdx: index("notifications_company_idx").on(table.companyId, table.createdAt),
-    byTypeIdx: index("notifications_type_idx").on(table.companyId, table.type),
-    byReadIdx: index("notifications_read_idx").on(table.companyId, table.readAt),
+    byCompanyCreatedIdx: index("notifications_company_created_idx").on(table.companyId, table.createdAt, table.id),
+    byCompanyTypeCreatedIdx: index("notifications_company_type_created_idx").on(table.companyId, table.type, table.createdAt, table.id),
+  }),
+);
+
+export const notificationStates = pgTable(
+  "notification_states",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    notificationId: uuid("notification_id")
+      .notNull()
+      .references(() => notifications.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    notificationProfileUnique: uniqueIndex("notification_states_notification_profile_unique").on(table.notificationId, table.profileId),
+    byRecipientNewestIdx: index("notification_states_recipient_newest_idx").on(table.companyId, table.profileId, table.deletedAt, table.updatedAt),
+    byRecipientUnreadIdx: index("notification_states_recipient_unread_idx").on(table.companyId, table.profileId, table.deletedAt, table.readAt),
   }),
 );
 

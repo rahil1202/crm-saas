@@ -490,7 +490,6 @@ export async function convertSocialConversationToLead(c: Context<AppEnv>) {
     title: "Social conversation converted",
     message: `${createdLead.title} was created from ${conversation.platform}`,
     entityId: createdLead.id,
-    entityPath: "/dashboard/leads",
     payload: {
       conversationId: conversation.id,
       source: body.source,
