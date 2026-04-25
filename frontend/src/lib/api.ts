@@ -131,6 +131,7 @@ const apiCache = new Map<string, { data: unknown; expiresAt: number }>();
 const apiInFlight = new Map<string, Promise<unknown>>();
 
 const cacheTtlByPath: Record<string, number> = {
+  "/reports/dashboard": 30_000,
   "/reports/summary": 30_000,
   "/deals/forecast": 30_000,
   "/tasks/summary": 20_000,

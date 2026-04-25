@@ -7,7 +7,7 @@ import { AppShell } from "@/components/app-shell";
 const dashboardMeta: Record<string, { title: string; description: string }> = {
   "/dashboard": {
     title: "CRM Dashboard",
-    description: "Operational overview for pipeline, follow-ups, campaigns, and partner-driven revenue.",
+    description: "Operational overview for pipeline, meetings, follow-ups, documents, campaigns, and partner-driven revenue.",
   },
   "/dashboard/company": {
     title: "Company",
@@ -86,8 +86,8 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     description: "Manage partner companies that can receive assigned leads and deals.",
   },
   "/dashboard/reports": {
-    title: "Reports",
-    description: "Lead, deal, forecast, partner, and campaign reporting for the active company workspace.",
+    title: "Stats & Reports",
+    description: "Detailed CRM stats, lead and deal analysis, forecast charts, and campaign reporting for the active workspace.",
   },
   "/dashboard/settings": {
     title: "Settings",

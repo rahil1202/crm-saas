@@ -96,7 +96,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard/templates", label: "Templates", icon: FileText, minRole: "admin", moduleKey: "templates" },
   { href: "/dashboard/automation", label: "Automation", icon: Sparkles, minRole: "admin", moduleKey: "automation" },
   { href: "/dashboard/chatbot-flows", label: "Chatbot Flows", icon: Network, minRole: "admin", moduleKey: "automation" },
-  { href: "/dashboard/reports", label: "Reports", icon: ChartColumnBig, minRole: "admin", moduleKey: "reports" },
+  { href: "/dashboard/reports", label: "Stats", icon: ChartColumnBig, minRole: "admin", moduleKey: "reports" },
   { href: "/dashboard/forms", label: "Forms", icon: TextCursorInput, minRole: "admin", moduleKey: "forms" },
   { href: "/dashboard/integrations", label: "Integrations", icon: Link2, minRole: "admin", moduleKey: "integrations" },
   { href: "/dashboard/social", label: "Social", icon: MessageSquareShare, minRole: "admin", moduleKey: "social" },
@@ -138,7 +138,7 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
   addons: {
     "/dashboard/forms": { label: "Forms", icon: TextCursorInput },
     "/dashboard/integrations": { label: "Integrations", icon: Link2 },
-    "/dashboard/reports": { label: "Reports", icon: ChartColumnBig },
+    "/dashboard/reports": { label: "Stats", icon: ChartColumnBig },
     "/dashboard/super-admin": { label: "Super Admin", icon: Shield },
   },
 };
@@ -600,7 +600,7 @@ export function AppShell({
                 </Link>
                 {sidebarExpanded ? (
                   <div className="min-w-0">
-                    <Link href="/dashboard" className="truncate font-heading text-sm font-bold text-sky-950 transition-colors hover:text-sky-700">
+                    <Link href="/dashboard" className="truncate font-heading text-xs font-extrabold text-sky-950 transition-colors hover:text-sky-700">
                       The One CRM
                     </Link>
                   </div>
@@ -614,7 +614,7 @@ export function AppShell({
                 onClick={() => setSidebarExpanded((current) => !current)}
                 aria-label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
               >
-                {sidebarExpanded ? <ChevronsLeft className="size-4" /> : <ChevronsRight className="size-4" />}
+                {sidebarExpanded ? <ChevronsLeft className="size-6" /> : <ChevronsRight className="size-6" />}
               </Button>
             </div>
 
