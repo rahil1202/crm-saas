@@ -3,6 +3,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -40,7 +41,6 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CrmModalShell } from "@/components/crm/crm-list-primitives";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ApiError, apiRequest } from "@/lib/api";
 import {
@@ -58,17 +58,12 @@ import {
   isPartnerUser,
 } from "@/lib/partner-access";
 import { cn } from "@/lib/utils";
-import {
-  addNotificationsChangedListener,
-  connectNotificationEventStream,
-  emitNotificationsChanged,
-  fetchNotificationPreview,
-  normalizeNotificationHref,
-  patchNotificationRead,
-  removeNotification,
-  type NotificationItem,
-} from "@/features/notifications/client";
 import websiteLogo from "@/assets/logo-png.png";
+
+const NotificationPreview = dynamic(
+  () => import("@/features/notifications/notification-preview").then((module) => module.NotificationPreview),
+  { ssr: false },
+);
 
 type CompanyRole = "owner" | "admin" | "member";
 
@@ -182,13 +177,6 @@ export function AppShell({
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [notificationPreviewOpen, setNotificationPreviewOpen] = useState(false);
-  const [notificationPreviewItems, setNotificationPreviewItems] = useState<NotificationItem[]>([]);
-  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
-  const [notificationPreviewLoading, setNotificationPreviewLoading] = useState(false);
-  const [notificationWorkingId, setNotificationWorkingId] = useState<string | null>(null);
-  const [notificationError, setNotificationError] = useState<string | null>(null);
-  const [notificationPreviewLoadedAt, setNotificationPreviewLoadedAt] = useState(0);
 
   const activeMembership = useMemo(
     () => me?.memberships.find((membership) => membership.membershipId === activeMembershipId) ?? null,
@@ -390,7 +378,6 @@ export function AppShell({
 
   useEffect(() => {
     setProfileMenuOpen(false);
-    setNotificationPreviewOpen(false);
   }, [pathname, activeTab]);
 
   useEffect(() => {
@@ -411,116 +398,6 @@ export function AppShell({
       window.removeEventListener("popstate", syncActiveTab);
     };
   }, [pathname]);
-
-  const loadNotificationPreview = useCallback(
-    async (skipCache = true) => {
-      if (!canAccessNotifications || !activeMembership) {
-        return;
-      }
-
-      setNotificationPreviewLoading(true);
-      setNotificationError(null);
-      try {
-        const response = await fetchNotificationPreview(3, skipCache);
-        setNotificationPreviewItems(response.items);
-        setNotificationUnreadCount(response.unreadCount);
-        setNotificationPreviewLoadedAt(Date.now());
-      } catch (requestError) {
-        setNotificationError(requestError instanceof ApiError ? requestError.message : "Unable to load notifications");
-      } finally {
-        setNotificationPreviewLoading(false);
-      }
-    },
-    [activeMembership, canAccessNotifications],
-  );
-
-  useEffect(() => {
-    if (loading || !canAccessNotifications || !activeMembership) {
-      return;
-    }
-
-    void loadNotificationPreview(false);
-  }, [activeMembership, canAccessNotifications, loadNotificationPreview, loading]);
-
-  useEffect(() => {
-    return addNotificationsChangedListener(() => {
-      void loadNotificationPreview(true);
-    });
-  }, [loadNotificationPreview]);
-
-  useEffect(() => {
-    if (!canAccessNotifications || loading || !activeMembership) {
-      return;
-    }
-
-    return connectNotificationEventStream(() => {
-      void loadNotificationPreview(true);
-    });
-  }, [activeMembership, canAccessNotifications, loadNotificationPreview, loading]);
-
-  const handleNotificationReadToggle = async (item: NotificationItem, nextRead: boolean) => {
-    const previousItems = notificationPreviewItems;
-    const previousUnreadCount = notificationUnreadCount;
-    setNotificationWorkingId(item.id);
-
-    setNotificationPreviewItems((current) =>
-      current.map((entry) =>
-        entry.id === item.id
-          ? {
-              ...entry,
-              readAt: nextRead ? new Date().toISOString() : null,
-              isRead: nextRead,
-            }
-          : entry,
-      ),
-    );
-
-    if (item.readAt && !nextRead) {
-      setNotificationUnreadCount((current) => current + 1);
-    } else if (!item.readAt && nextRead) {
-      setNotificationUnreadCount((current) => Math.max(0, current - 1));
-    }
-
-    try {
-      const result = await patchNotificationRead(item.id, nextRead);
-      setNotificationUnreadCount(result.unreadCount);
-      emitNotificationsChanged();
-    } catch (requestError) {
-      setNotificationPreviewItems(previousItems);
-      setNotificationUnreadCount(previousUnreadCount);
-      setNotificationError(requestError instanceof ApiError ? requestError.message : "Unable to update notification");
-    } finally {
-      setNotificationWorkingId(null);
-    }
-  };
-
-  const handleNotificationDelete = async (item: NotificationItem) => {
-    const previousItems = notificationPreviewItems;
-    const previousUnreadCount = notificationUnreadCount;
-    setNotificationWorkingId(item.id);
-    setNotificationPreviewItems((current) => current.filter((entry) => entry.id !== item.id));
-
-    if (!item.readAt) {
-      setNotificationUnreadCount((current) => Math.max(0, current - 1));
-    }
-
-    try {
-      const result = await removeNotification(item.id);
-      setNotificationUnreadCount(result.unreadCount);
-      emitNotificationsChanged();
-    } catch (requestError) {
-      setNotificationPreviewItems(previousItems);
-      setNotificationUnreadCount(previousUnreadCount);
-      setNotificationError(requestError instanceof ApiError ? requestError.message : "Unable to delete notification");
-    } finally {
-      setNotificationWorkingId(null);
-    }
-  };
-
-  const openNotificationTarget = (item: NotificationItem) => {
-    setNotificationPreviewOpen(false);
-    router.push(normalizeNotificationHref(item));
-  };
 
   const handleWorkspaceChange = (membershipId: string) => {
     if (!me) {
@@ -716,27 +593,10 @@ export function AppShell({
               </div>
 
               <div className="flex shrink-0 items-start gap-2 self-start">
-                {canAccessNotifications ? (
-                  <button
-                    type="button"
-                    className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-sky-200/70 bg-white text-sky-900 transition-colors hover:bg-sky-50"
-                    aria-label="Open notifications"
-                    onClick={() => {
-                      setNotificationPreviewOpen(true);
-                      const stale = Date.now() - notificationPreviewLoadedAt > 45_000;
-                      if (stale) {
-                        void loadNotificationPreview(true);
-                      }
-                    }}
-                  >
-                    <Bell className="size-4" />
-                    {notificationUnreadCount > 0 ? (
-                      <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[0.65rem] font-semibold text-white">
-                        {notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}
-                      </span>
-                    ) : null}
-                  </button>
-                ) : null}
+                <NotificationPreview
+                  enabled={canAccessNotifications && !loading && Boolean(activeMembership)}
+                  refreshKey={activeMembership?.membershipId ?? "none"}
+                />
 
                 <div className="relative">
                   <button
@@ -797,91 +657,6 @@ export function AppShell({
           </section>
         </div>
       </div>
-
-      <CrmModalShell
-        open={notificationPreviewOpen}
-        title="Recent notifications"
-        description="Latest updates across your CRM workspace."
-        onClose={() => setNotificationPreviewOpen(false)}
-        maxWidthClassName="max-w-2xl"
-        headerActions={
-          <Button
-            type="button"
-            size="xs"
-            variant="outline"
-            onClick={() => {
-              setNotificationPreviewOpen(false);
-              router.push("/dashboard/notifications");
-            }}
-          >
-            Open inbox
-          </Button>
-        }
-      >
-        <div className="grid gap-3">
-          {notificationError ? (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{notificationError}</div>
-          ) : null}
-
-          {notificationPreviewLoading ? (
-            <div className="rounded-xl border border-border/60 bg-slate-50 px-3 py-4 text-sm text-muted-foreground">Loading notifications...</div>
-          ) : null}
-
-          {!notificationPreviewLoading && notificationPreviewItems.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border/70 px-3 py-6 text-sm text-muted-foreground">No notifications yet.</div>
-          ) : null}
-
-          {!notificationPreviewLoading
-            ? notificationPreviewItems.map((item) => (
-                <div key={item.id} className="grid gap-2 rounded-xl border border-border/70 bg-white p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <button
-                      type="button"
-                      className="min-w-0 text-left"
-                      onClick={() => openNotificationTarget(item)}
-                    >
-                      <div className="truncate text-sm font-semibold text-slate-900 hover:text-sky-700">{item.title}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</div>
-                    </button>
-                    <div className="flex items-center gap-1">
-                      <Badge variant="outline" className="capitalize">
-                        {item.type}
-                      </Badge>
-                      <Badge variant={item.readAt ? "outline" : "secondary"}>{item.readAt ? "read" : "unread"}</Badge>
-                    </div>
-                  </div>
-
-                  <div className="text-sm text-muted-foreground">{item.message}</div>
-
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button type="button" size="xs" variant="ghost" onClick={() => openNotificationTarget(item)}>
-                      Open
-                    </Button>
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="ghost"
-                      disabled={notificationWorkingId === item.id}
-                      onClick={() => void handleNotificationReadToggle(item, !item.readAt)}
-                    >
-                      {item.readAt ? "Mark unread" : "Mark read"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="ghost"
-                      className="text-rose-600 hover:text-rose-700"
-                      disabled={notificationWorkingId === item.id}
-                      onClick={() => void handleNotificationDelete(item)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              ))
-            : null}
-        </div>
-      </CrmModalShell>
 
       {confirmLogoutOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-sm">

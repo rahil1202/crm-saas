@@ -21,7 +21,6 @@ import {
   savePendingIntegrationOauthContext,
   type IntegrationOauthProvider,
 } from "@/lib/integration-oauth";
-import { supabase } from "@/lib/supabase";
 import {
   getHubChannel,
   getIntegrationStatus,
@@ -202,6 +201,8 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
       returnPath: `/dashboard/integrations/${integrationKey}`,
       scopes: providerConfig.scopes,
     });
+
+    const { supabase } = await import("@/lib/supabase");
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: providerConfig.provider,

@@ -27,10 +27,16 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
+import { ApiError, apiRequest } from "@/lib/api";
 import { getCompanyCookie } from "@/lib/cookies";
 import { loadMe } from "@/lib/me-cache";
-import { buildDocumentsCsv, formatDocumentFileSize } from "@/features/documents/helpers";
+import { buildDocumentsCsv } from "@/features/documents/helpers";
+import {
+  createRelatedDocumentTableColumns,
+  relatedDocumentColumns,
+  RelatedDocumentsTable,
+  type RelatedDocumentColumnKey,
+} from "@/features/documents/related-documents-table";
 import type { DocumentItem, DocumentListResponse } from "@/features/documents/types";
 
 type LeadStatus = "new" | "qualified" | "proposal" | "won" | "lost";
@@ -49,8 +55,7 @@ type LeadSortKey =
   | "updatedAt";
 type LeadColumnKey = LeadSortKey | "actions";
 type LeadColumnVisibility = Record<LeadColumnKey, boolean>;
-type DocumentColumnKey = "name" | "folder" | "type" | "size" | "createdAt";
-type DocumentColumnVisibility = Record<DocumentColumnKey, boolean>;
+type DocumentColumnVisibility = Record<RelatedDocumentColumnKey, boolean>;
 
 interface Lead {
   id: string;
@@ -375,7 +380,7 @@ export default function LeadsPage() {
     columnVisibility: documentColumnVisibility,
     toggleColumn: toggleDocumentColumn,
     resetColumns: resetDocumentColumns,
-  } = usePersistedColumnVisibility<DocumentColumnKey>({
+  } = usePersistedColumnVisibility<RelatedDocumentColumnKey>({
     storageKey: leadDocumentColumnStorageKey,
     defaultVisibility: defaultDocumentColumnVisibility,
   });
@@ -739,32 +744,7 @@ export default function LeadsPage() {
     { key: "updatedAt", label: leadColumnLabels.updatedAt, sortable: true, sortKey: "updatedAt", renderCell: (lead) => <span className="text-slate-600">{formatDateTime(lead.updatedAt)}</span> },
   ];
 
-  const documentColumns: Array<ColumnDefinition<DocumentItem, DocumentColumnKey>> = [
-    {
-      key: "name",
-      label: "File Name",
-      widthClassName: "min-w-[280px]",
-      renderCell: (document) => (
-        <div className="min-w-0">
-          <div className="truncate font-medium text-slate-900">{document.originalName}</div>
-          <div className="mt-1 text-xs text-muted-foreground">{document.entityId ? document.entityId.slice(0, 8) : "Unlinked"}</div>
-        </div>
-      ),
-    },
-    { key: "folder", label: "Folder", renderCell: (document) => <span className="text-slate-600">{document.folder}</span> },
-    {
-      key: "type",
-      label: "Type",
-      renderCell: (document) => (
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="outline">{document.entityType}</Badge>
-          {document.mimeType ? <Badge variant="secondary">{document.mimeType}</Badge> : null}
-        </div>
-      ),
-    },
-    { key: "size", label: "Size", renderCell: (document) => <span className="text-slate-600">{formatDocumentFileSize(document.sizeBytes)}</span> },
-    { key: "createdAt", label: "Uploaded", renderCell: (document) => <span className="text-slate-600">{formatDateTime(document.createdAt)}</span> },
-  ];
+  const documentColumns = useMemo(() => createRelatedDocumentTableColumns(formatDateTime), []);
 
   const loadAllLeadsForExport = useCallback(async () => {
     const items: Lead[] = [];
@@ -936,26 +916,14 @@ export default function LeadsPage() {
         <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} onClear={clearAllFilters} />
 
         {tab === "documents" ? (
-          <CrmDataTable
+          <RelatedDocumentsTable
             columns={documentColumns}
             rows={documents}
-            rowKey={(document) => document.id}
             loading={loading}
-            emptyLabel="No uploaded docs found."
             columnVisibility={documentColumnVisibility}
-            actionColumn={{
-              header: "Actions",
-              renderCell: (document) => (
-                <div className="flex justify-end gap-1.5">
-                  <a href={buildApiUrl(`/documents/${document.id}/download`, { companyId })} className="inline-flex items-center rounded-xl border border-border/60 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50">
-                    Download
-                  </a>
-                  <Button type="button" size="xs" variant="ghost" disabled={deletingId === document.id} onClick={() => void handleDeleteDocument(document.id)}>
-                    <Trash2 className="size-3.5" /> Delete
-                  </Button>
-                </div>
-              ),
-            }}
+            companyId={companyId}
+            deletingId={deletingId}
+            onDelete={handleDeleteDocument}
           />
         ) : (
           <CrmDataTable
@@ -1203,7 +1171,7 @@ export default function LeadsPage() {
         <CrmColumnSettings
           open={columnSettingsOpen}
           description="Choose which lead document columns stay visible."
-          columns={documentColumns.map((column) => ({ key: column.key, label: column.label }))}
+          columns={relatedDocumentColumns.map((column) => ({ key: column.key, label: column.label }))}
           columnVisibility={documentColumnVisibility}
           onToggleColumn={toggleDocumentColumn}
           onReset={resetDocumentColumns}

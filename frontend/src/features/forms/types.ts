@@ -1,5 +1,3 @@
-"use client";
-
 export type FormFieldDefinition = {
   id: string;
   type: "text" | "email" | "phone" | "textarea" | "select" | "radio" | "checkbox" | "url";
