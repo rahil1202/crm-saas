@@ -20,6 +20,7 @@ import {
   FileBox,
   GraduationCap,
   HeartHandshake,
+  HeartPulse,
   LayoutDashboard,
   Link2,
   LogOut,
@@ -80,6 +81,8 @@ type NavItem = {
 const navItems: NavItem[] = [
   { href: "/dashboard/company", label: "Company", icon: Building2, minRole: "member", partnerAccessOnly: true },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, minRole: "member" },
+  { href: "/dashboard/analytics", label: "Analytics", icon: ChartColumnBig, minRole: "admin", moduleKey: "reports" },
+  { href: "/dashboard/health", label: "Health", icon: HeartPulse, minRole: "admin", moduleKey: "reports" },
   { href: "/dashboard/leads", label: "Leads", icon: Target, minRole: "member", moduleKey: "leads" },
   { href: "/dashboard/deals", label: "Deals", icon: BriefcaseBusiness, minRole: "member", moduleKey: "deals" },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users, minRole: "member", moduleKey: "contacts" },
@@ -103,7 +106,7 @@ const navItems: NavItem[] = [
 ];
 
 const navGroups = [
-  { id: "home", label: "Home", hrefs: ["/dashboard/company", "/dashboard"] },
+  { id: "home", label: "Home", hrefs: ["/dashboard/company", "/dashboard", "/dashboard/analytics", "/dashboard/health"] },
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
@@ -112,6 +115,11 @@ const navGroups = [
 ];
 
 const navGroupItemOverrides: Record<string, Record<string, { label?: string; icon?: NavItem["icon"] }>> = {
+  home: {
+    "/dashboard": { label: "Dashboard", icon: LayoutDashboard },
+    "/dashboard/analytics": { label: "Analytics", icon: ChartColumnBig },
+    "/dashboard/health": { label: "Health", icon: HeartPulse },
+  },
   // agent: {
   //   "/dashboard/automation": { label: "Workflow", icon: Sparkles },
   //   "/dashboard/chatbot-flows": { label: "LinkedIn", icon: HeartHandshake },
@@ -131,6 +139,8 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
     "/dashboard/invite": { label: "Invite", icon: HeartHandshake },
   },
   addons: {
+    "/dashboard/analytics": { label: "Analytics", icon: ChartColumnBig },
+    "/dashboard/health": { label: "Health", icon: HeartPulse },
     "/dashboard/forms": { label: "Forms", icon: TextCursorInput },
     "/dashboard/integrations": { label: "Integrations", icon: Link2 },
     "/dashboard/reports": { label: "Stats", icon: ChartColumnBig },

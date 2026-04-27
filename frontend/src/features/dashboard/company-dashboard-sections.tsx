@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import {
+  Activity,
   ArrowRight,
   BriefcaseBusiness,
-  CalendarClock,
+  CalendarPlus,
+  ChartColumnBig,
   CheckCircle2,
+  HeartPulse,
   Megaphone,
-  Target,
-  Users,
+  Plus,
+  UserPlus,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -16,10 +19,7 @@ import { DashboardInsightsResponse } from "@/features/dashboard/types";
 import {
   DashboardMetricCard,
   DashboardPanel,
-  DualTrendBars,
-  ForecastArea,
   MetricPill,
-  ProgressList,
   ToneBadge,
   formatCompactNumber,
   formatCurrency,
@@ -28,36 +28,57 @@ import {
 } from "@/features/dashboard/dashboard-ui";
 
 export function CompanyDashboardSections({ data }: { data: DashboardInsightsResponse }) {
-  const topActions = [
+  const quickActions = [
     {
       href: "/dashboard/leads",
-      label: "Lead queue",
-      detail: `${formatCompactNumber(data.overview.newLeads)} new in ${data.periodDays}d`,
-      icon: Target,
-    },
-    {
-      href: "/dashboard/deals",
-      label: "Pipeline",
-      detail: `${data.overview.openDeals} open deals`,
-      icon: BriefcaseBusiness,
+      label: "Add lead",
+      detail: "Capture and qualify a new lead",
+      icon: UserPlus,
     },
     {
       href: "/dashboard/tasks",
-      label: "Task board",
-      detail: `${data.overview.overdueTasks} overdue`,
+      label: "Add task",
+      detail: "Create a follow-up action",
       icon: CheckCircle2,
     },
     {
-      href: "/dashboard/campaigns",
-      label: "Campaigns",
-      detail: `${data.overview.activeCampaigns} active`,
+      href: "/dashboard/deals",
+      label: "Add deal",
+      detail: "Open a new pipeline opportunity",
+      icon: BriefcaseBusiness,
+    },
+    {
+      href: "/dashboard/meetings",
+      label: "Add meeting",
+      detail: "Schedule a customer call",
+      icon: CalendarPlus,
+    },
+    {
+      href: "/dashboard/campaigns/add",
+      label: "Add campaign",
+      detail: "Launch a new outbound campaign",
       icon: Megaphone,
+    },
+  ];
+
+  const insightPages = [
+    {
+      href: "/dashboard/analytics",
+      title: "Analytics workspace",
+      detail: "Lead velocity, pipeline forecast, and source distribution charts.",
+      icon: ChartColumnBig,
+    },
+    {
+      href: "/dashboard/health",
+      title: "Health workspace",
+      detail: "Conversion rates, task pressure, campaign quality, and risk signals.",
+      icon: HeartPulse,
     },
     {
       href: "/dashboard/reports",
-      label: "Stats",
-      detail: "Detailed charts and reporting",
-      icon: Users,
+      title: "Advanced stats",
+      detail: "Time-window reporting with deeper CRM, partner, and campaign breakdowns.",
+      icon: Activity,
     },
   ];
 
@@ -73,11 +94,9 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
               </ToneBadge>
             </div>
             <div className="grid gap-3">
-              <h1 className="max-w-4xl text-3xl font-semibold tracking-tight md:text-4xl">
-                Stronger CRM visibility across leads, revenue, meetings, documents, and campaign execution.
-              </h1>
+              <h1 className="max-w-4xl text-3xl font-semibold tracking-tight md:text-4xl">Overview first, deep analysis in dedicated pages.</h1>
               <p className="max-w-3xl text-sm leading-7 text-white/78 md:text-base">
-                The dashboard now rolls up live activity across the full CRM, then sends deeper analysis to the stats workspace.
+                Dashboard now stays focused on daily execution. Use the Analytics and Health pages for full graphs and deep diagnostics.
               </p>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
@@ -92,9 +111,9 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
           title="Conversion health"
           description="Fast read on how the workspace is moving from pipeline to revenue."
           action={
-            <Link href="/dashboard/reports">
+            <Link href="/dashboard/health">
               <Button size="sm" variant="outline" className="border-sky-200 bg-white/80">
-                Open stats
+                Open health
               </Button>
             </Link>
           }
@@ -145,19 +164,22 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        {topActions.map((item) => {
+        {quickActions.map((item) => {
           const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="group rounded-[1.6rem] border border-white/75 bg-white/82 p-4 shadow-[0_18px_52px_-38px_rgba(15,23,42,0.34)] transition-all hover:-translate-y-0.5 hover:border-sky-200"
+              className="group rounded-[1.4rem] border border-white/75 bg-white/88 p-4 shadow-[0_18px_52px_-38px_rgba(15,23,42,0.34)] transition-all hover:-translate-y-0.5 hover:border-sky-200"
             >
               <div className="flex items-center justify-between">
                 <span className="flex size-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
                   <Icon className="size-4" />
                 </span>
-                <ArrowRight className="size-4 text-sky-500 transition-transform group-hover:translate-x-0.5" />
+                <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-sky-700">
+                  <Plus className="size-3" />
+                  Quick
+                </span>
               </div>
               <div className="mt-4">
                 <div className="font-semibold text-slate-950">{item.label}</div>
@@ -168,107 +190,28 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
         })}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-        <DashboardPanel
-          title="Lead and customer flow"
-          description="Six-week comparison between new leads and actual converted customers."
-        >
-          <DualTrendBars items={data.leadVelocity.byWeek} firstLabel="Leads" secondLabel="Customers" />
-        </DashboardPanel>
-
-        <DashboardPanel
-          title="Lead source mix"
-          description="Current acquisition channels feeding the CRM."
-        >
-          <ProgressList items={data.leadVelocity.bySource} emptyLabel="No lead sources in this period." />
-        </DashboardPanel>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[1.18fr_0.82fr]">
-        <DashboardPanel
-          title="Revenue forecast"
-          description="Open-pipeline value distributed across the current forecast horizon."
-        >
-          <ForecastArea items={data.pipeline.forecast} />
-        </DashboardPanel>
-
-        <DashboardPanel
-          title="Pipeline stage concentration"
-          description="Where value is currently sitting inside the active pipeline."
-        >
-          <div className="grid gap-3">
-            {data.pipeline.byStage.slice(0, 6).map((item) => (
-              <div key={item.key} className="rounded-2xl border border-sky-100 bg-sky-50/60 px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-medium capitalize text-slate-900">{item.key}</div>
-                    <div className="text-sm text-slate-500">{item.count} deals</div>
-                  </div>
-                  <div className="text-right font-semibold text-slate-950">{formatCurrency(item.value, true)}</div>
-                </div>
+      <section className="grid gap-4 lg:grid-cols-3">
+        {insightPages.map((page) => {
+          const Icon = page.icon;
+          return (
+            <Link
+              key={page.href}
+              href={page.href}
+              className="group rounded-[1.4rem] border border-sky-100 bg-sky-50/55 p-5 transition-all hover:-translate-y-0.5 hover:border-sky-300"
+            >
+              <div className="flex items-center justify-between">
+                <span className="flex size-10 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm">
+                  <Icon className="size-4" />
+                </span>
+                <ArrowRight className="size-4 text-sky-600 transition-transform group-hover:translate-x-0.5" />
               </div>
-            ))}
-            {data.pipeline.byStage.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border/80 px-4 py-8 text-sm text-muted-foreground">
-                No pipeline stages are populated yet.
+              <div className="mt-4">
+                <div className="font-semibold text-slate-900">{page.title}</div>
+                <div className="mt-1 text-sm text-slate-600">{page.detail}</div>
               </div>
-            ) : null}
-          </div>
-        </DashboardPanel>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
-        <DashboardPanel
-          title="Task health"
-          description="Status and priority balance across active work."
-        >
-          <div className="grid gap-5">
-            <ProgressList items={data.taskHealth.byStatus} emptyLabel="No task status data yet." />
-            <ProgressList items={data.taskHealth.byPriority} emptyLabel="No task priority data yet." />
-          </div>
-        </DashboardPanel>
-
-        <DashboardPanel
-          title="Campaign ranking"
-          description="Top campaign execution based on delivery and engagement."
-        >
-          <div className="grid gap-3">
-            {data.campaignHealth.ranking.map((campaign) => (
-              <div key={campaign.campaignId} className="rounded-2xl border border-sky-100 bg-white px-4 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="font-medium text-slate-950">{campaign.name}</div>
-                    <div className="mt-1 text-sm text-slate-500">
-                      {campaign.channel} • {campaign.status}
-                    </div>
-                  </div>
-                  <div className="rounded-full bg-sky-100 px-3 py-1 text-sm font-semibold text-sky-800">
-                    Score {campaign.engagementScore}
-                  </div>
-                </div>
-                <div className="mt-3 grid gap-2 md:grid-cols-3">
-                  <div className="rounded-xl bg-sky-50 px-3 py-2 text-sm">
-                    <div className="text-slate-500">Delivery</div>
-                    <div className="font-semibold text-slate-900">{campaign.deliveryRate}%</div>
-                  </div>
-                  <div className="rounded-xl bg-sky-50 px-3 py-2 text-sm">
-                    <div className="text-slate-500">Open</div>
-                    <div className="font-semibold text-slate-900">{campaign.openRate}%</div>
-                  </div>
-                  <div className="rounded-xl bg-sky-50 px-3 py-2 text-sm">
-                    <div className="text-slate-500">Click</div>
-                    <div className="font-semibold text-slate-900">{campaign.clickRate}%</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {data.campaignHealth.ranking.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border/80 px-4 py-8 text-sm text-muted-foreground">
-                No campaign performance data yet.
-              </div>
-            ) : null}
-          </div>
-        </DashboardPanel>
+            </Link>
+          );
+        })}
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_0.95fr_0.95fr]">
@@ -298,14 +241,9 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
           <div className="grid gap-3">
             {data.meetingOverview.items.map((meeting) => (
               <div key={meeting.id} className="rounded-2xl border border-sky-100 bg-sky-50/55 px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium text-slate-950">{meeting.title}</div>
-                    <div className="mt-1 text-sm text-slate-500 capitalize">
-                      {meeting.source} • {meeting.status.replaceAll("_", " ")}
-                    </div>
-                  </div>
-                  <CalendarClock className="size-4 text-sky-600" />
+                <div className="font-medium text-slate-950">{meeting.title}</div>
+                <div className="mt-1 text-sm text-slate-500 capitalize">
+                  {meeting.source} • {meeting.status.replaceAll("_", " ")}
                 </div>
                 <div className="mt-2 text-xs text-slate-500">{formatDateTime(meeting.startsAt)}</div>
               </div>

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 type SocialPlatform = "instagram" | "facebook" | "whatsapp" | "linkedin";
@@ -81,6 +82,9 @@ interface Member {
 }
 
 const platforms: SocialPlatform[] = ["instagram", "facebook", "whatsapp", "linkedin"];
+const selectClassName =
+  "h-9 w-full rounded-md border border-border/70 bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/40";
+const cardClassName = "border-border/60 shadow-none";
 
 export default function SocialPage() {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
@@ -121,6 +125,7 @@ export default function SocialPage() {
     () => conversations.find((item) => item.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],
   );
+  const whatsappAccounts = useMemo(() => accounts.filter((account) => account.platform === "whatsapp"), [accounts]);
   const whatsappWebhookGetUrl = useMemo(() => buildApiUrl("/public/whatsapp/webhook"), []);
   const whatsappWebhookPostUrl = whatsappWebhookGetUrl;
 
@@ -363,7 +368,12 @@ export default function SocialPage() {
 
   return (
     <>
-      <div className="grid gap-6">
+      <div className="mx-auto grid w-full max-w-[1400px] gap-5">
+        <div className="grid gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Social workspace</h1>
+          <p className="text-sm text-muted-foreground">Manage connected channels, capture incoming inquiries, and handle replies from one inbox.</p>
+        </div>
+
         {error ? (
           <Alert variant="destructive">
             <AlertTitle>Social request failed</AlertTitle>
@@ -371,37 +381,34 @@ export default function SocialPage() {
           </Alert>
         ) : null}
 
-        <Alert>
-          <AlertTitle>Provider setup moved into Integration Hub</AlertTitle>
-          <AlertDescription>
-            Use the new guided setup flow for email, WhatsApp, LinkedIn, and webhook policy before managing live social runtime here.{" "}
-            <Link href="/dashboard/integrations" className="font-medium underline underline-offset-4">
-              Open Integration Hub
-            </Link>
-            .
-          </AlertDescription>
-        </Alert>
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+          Provider setup now lives in Integration Hub for guided onboarding and webhook policy.
+          <Link href="/dashboard/integrations" className="ml-1 font-medium text-foreground underline underline-offset-4">
+            Open Integration Hub
+          </Link>
+          .
+        </div>
 
-        <div className="grid gap-3 md:grid-cols-4">
-          <Card size="sm">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <Card size="sm" className={cardClassName}>
             <CardHeader>
               <CardDescription>Connected accounts</CardDescription>
               <CardTitle className="text-2xl">{accounts.length}</CardTitle>
             </CardHeader>
           </Card>
-          <Card size="sm">
+          <Card size="sm" className={cardClassName}>
             <CardHeader>
               <CardDescription>Inbox conversations</CardDescription>
               <CardTitle className="text-2xl">{conversations.length}</CardTitle>
             </CardHeader>
           </Card>
-          <Card size="sm">
+          <Card size="sm" className={cardClassName}>
             <CardHeader>
               <CardDescription>Unread messages</CardDescription>
               <CardTitle className="text-2xl">{conversations.reduce((sum, item) => sum + item.unreadCount, 0)}</CardTitle>
             </CardHeader>
           </Card>
-          <Card size="sm">
+          <Card size="sm" className={cardClassName}>
             <CardHeader>
               <CardDescription>Converted leads</CardDescription>
               <CardTitle className="text-2xl">{conversations.filter((item) => item.leadId).length}</CardTitle>
@@ -410,14 +417,14 @@ export default function SocialPage() {
         </div>
 
         <Tabs defaultValue="accounts" queryKey="tab" className="grid gap-4">
-          <TabsList className="w-fit">
+          <TabsList className="h-auto w-fit rounded-xl border border-border/70 bg-muted/30 p-1">
             <TabsTrigger value="accounts">Accounts</TabsTrigger>
             <TabsTrigger value="capture">Capture</TabsTrigger>
             <TabsTrigger value="inbox">Inbox</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="accounts" className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-            <Card>
+          <TabsContent value="accounts" className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+            <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Connect account</CardTitle>
                 <CardDescription>Register a social account in manual or API-managed mode for inbox capture.</CardDescription>
@@ -426,7 +433,7 @@ export default function SocialPage() {
                 <form className="grid gap-4" onSubmit={handleCreateAccount}>
                   <Field>
                     <FieldLabel>Platform</FieldLabel>
-                    <select value={accountPlatform} onChange={(event) => setAccountPlatform(event.target.value as SocialPlatform)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                    <select value={accountPlatform} onChange={(event) => setAccountPlatform(event.target.value as SocialPlatform)} className={selectClassName}>
                       {platforms.map((platform) => (
                         <option key={platform} value={platform}>
                           {platform}
@@ -465,14 +472,14 @@ export default function SocialPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Connected accounts</CardTitle>
                 <CardDescription>Manual registrations can still drive capture and inbox workflows before a direct API integration exists.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-3">
                 {accounts.map((account) => (
-                  <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
+                  <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/70 bg-background p-4">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{account.accountName}</span>
@@ -495,7 +502,7 @@ export default function SocialPage() {
                     No social accounts connected yet.
                   </div>
                 ) : null}
-                <div className="rounded-xl border bg-muted/20 p-4 text-sm">
+                <div className="rounded-xl border border-border/70 bg-muted/20 p-4 text-sm">
                   <div className="font-medium">Meta verification URL</div>
                   <div className="mt-2 break-all text-muted-foreground">{whatsappWebhookGetUrl}</div>
                   <div className="mt-4 font-medium">Meta event URL</div>
@@ -503,7 +510,7 @@ export default function SocialPage() {
                 </div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Send WhatsApp test</CardTitle>
                 <CardDescription>Dispatch a live Meta WhatsApp message through a configured account before using inbox replies or automations.</CardDescription>
@@ -512,9 +519,9 @@ export default function SocialPage() {
                 <form className="grid gap-4" onSubmit={handleWhatsappTestSend}>
                   <Field>
                     <FieldLabel>WhatsApp account</FieldLabel>
-                    <select value={testWhatsappAccountId} onChange={(event) => setTestWhatsappAccountId(event.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                    <select value={testWhatsappAccountId} onChange={(event) => setTestWhatsappAccountId(event.target.value)} className={selectClassName}>
                       <option value="">Auto-select first WhatsApp account</option>
-                      {accounts.filter((account) => account.platform === "whatsapp").map((account) => (
+                      {whatsappAccounts.map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.accountName} ({account.handle})
                         </option>
@@ -534,13 +541,13 @@ export default function SocialPage() {
                     <Textarea value={testWhatsappMessage} onChange={(event) => setTestWhatsappMessage(event.target.value)} className="min-h-24" required />
                   </Field>
                   {whatsappTestMessage ? <div className="text-sm text-emerald-700">{whatsappTestMessage}</div> : null}
-                  <Button type="submit" disabled={working || accounts.every((account) => account.platform !== "whatsapp")}>
+                  <Button type="submit" disabled={working || whatsappAccounts.length === 0}>
                     {working ? "Sending..." : "Send WhatsApp test"}
                   </Button>
                 </form>
               </CardContent>
             </Card>
-            <Card>
+            <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Recent WhatsApp activity</CardTitle>
                 <CardDescription>Latest inbound and outbound WhatsApp messages reaching the live runtime.</CardDescription>
@@ -572,8 +579,8 @@ export default function SocialPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="capture" className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <Card>
+          <TabsContent value="capture" className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+            <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Capture inbound lead</CardTitle>
                 <CardDescription>Record an incoming DM or comment thread and place it into the social inbox.</CardDescription>
@@ -582,7 +589,7 @@ export default function SocialPage() {
                 <form className="grid gap-4" onSubmit={handleCapture}>
                   <Field>
                     <FieldLabel>Account</FieldLabel>
-                    <select value={captureAccountId} onChange={(event) => setCaptureAccountId(event.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                    <select value={captureAccountId} onChange={(event) => setCaptureAccountId(event.target.value)} className={selectClassName}>
                       {accounts.map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.accountName} ({account.platform})
@@ -600,7 +607,7 @@ export default function SocialPage() {
                   </Field>
                   <Field>
                     <FieldLabel>Assigned owner</FieldLabel>
-                    <select value={captureAssignedTo} onChange={(event) => setCaptureAssignedTo(event.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                    <select value={captureAssignedTo} onChange={(event) => setCaptureAssignedTo(event.target.value)} className={selectClassName}>
                       <option value="">Unassigned</option>
                       {members.map((member) => (
                         <option key={member.userId} value={member.userId}>
@@ -624,7 +631,7 @@ export default function SocialPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Capture checklist</CardTitle>
                 <CardDescription>This manual capture flow gives the team a usable inbox before external webhook integrations are added.</CardDescription>
@@ -636,7 +643,7 @@ export default function SocialPage() {
                   "Assign a teammate to the conversation immediately when ownership is clear.",
                   "Convert qualified conversations into CRM leads without retyping the inquiry.",
                 ].map((item) => (
-                  <div key={item} className="rounded-xl border bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+                  <div key={item} className="rounded-xl border border-border/70 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
                     {item}
                   </div>
                 ))}
@@ -644,17 +651,17 @@ export default function SocialPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="inbox" className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-            <Card>
+          <TabsContent value="inbox" className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+            <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Inbox conversations</CardTitle>
                 <CardDescription>Filter and open the current inbox queue.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4">
-                <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border/70 bg-muted/20 p-4">
                   <Field>
                     <FieldLabel>Status</FieldLabel>
-                    <select value={inboxStatusFilter} onChange={(event) => setInboxStatusFilter(event.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm">
+                    <select value={inboxStatusFilter} onChange={(event) => setInboxStatusFilter(event.target.value)} className={selectClassName}>
                       <option value="">All statuses</option>
                       <option value="open">open</option>
                       <option value="assigned">assigned</option>
@@ -672,7 +679,10 @@ export default function SocialPage() {
                       key={conversation.id}
                       type="button"
                       onClick={() => setSelectedConversationId(conversation.id)}
-                      className="grid gap-2 rounded-xl border p-4 text-left"
+                      className={cn(
+                        "grid gap-2 rounded-xl border border-border/70 p-4 text-left transition",
+                        selectedConversationId === conversation.id ? "border-primary/35 bg-muted/20" : "bg-background hover:bg-muted/20",
+                      )}
                     >
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{conversation.contactName ?? conversation.contactHandle}</span>
@@ -698,7 +708,7 @@ export default function SocialPage() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Conversation detail</CardTitle>
                 <CardDescription>Assign owners, send replies, and convert qualified threads into leads.</CardDescription>
@@ -706,7 +716,7 @@ export default function SocialPage() {
               <CardContent className="grid gap-4">
                 {selectedConversation ? (
                   <>
-                    <div className="grid gap-3 rounded-xl border bg-muted/20 p-4">
+                    <div className="grid gap-3 rounded-xl border border-border/70 bg-muted/20 p-4">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{selectedConversation.contactName ?? selectedConversation.contactHandle}</span>
                         <Badge variant="outline">{selectedConversation.platform}</Badge>
@@ -722,7 +732,7 @@ export default function SocialPage() {
                                 assignedToUserId: event.target.value || null,
                               })
                             }
-                            className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                            className={selectClassName}
                           >
                             <option value="">Unassigned</option>
                             {members.map((member) => (
@@ -741,7 +751,7 @@ export default function SocialPage() {
                                 status: event.target.value,
                               })
                             }
-                            className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm"
+                            className={selectClassName}
                           >
                             <option value="open">open</option>
                             <option value="assigned">assigned</option>
@@ -782,9 +792,9 @@ export default function SocialPage() {
                       </div>
                     </div>
 
-                    <div className="grid gap-3 rounded-xl border p-4">
+                    <div className="grid gap-3 rounded-xl border border-border/70 p-4">
                       {messages.map((message) => (
-                        <div key={message.id} className="rounded-xl border bg-muted/10 px-4 py-3">
+                        <div key={message.id} className="rounded-xl border border-border/70 bg-muted/10 px-4 py-3">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge variant={message.direction === "inbound" ? "destructive" : "secondary"}>{message.direction}</Badge>
                             <span className="text-sm text-muted-foreground">{message.senderName ?? "Unknown sender"}</span>
@@ -793,6 +803,7 @@ export default function SocialPage() {
                           <div className="mt-2 text-sm">{message.body}</div>
                         </div>
                       ))}
+                      {messages.length === 0 ? <div className="text-sm text-muted-foreground">No messages yet for this conversation.</div> : null}
                     </div>
 
                     <Field>
@@ -809,7 +820,7 @@ export default function SocialPage() {
                     </Button>
 
                     {!selectedConversation.leadId ? (
-                      <div className="grid gap-3 rounded-xl border bg-muted/20 p-4">
+                      <div className="grid gap-3 rounded-xl border border-border/70 bg-muted/20 p-4">
                         <Field>
                           <FieldLabel>Lead title override</FieldLabel>
                           <Input value={convertTitle} onChange={(event) => setConvertTitle(event.target.value)} placeholder="Optional lead title" />
