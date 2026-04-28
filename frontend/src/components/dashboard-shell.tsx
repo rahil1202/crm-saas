@@ -125,6 +125,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Templates",
     description: "Review and manage reusable campaign templates for the active company.",
   },
+  "/dashboard/templates/new": {
+    title: "New Template",
+    description: "Create email or WhatsApp templates with a guided two-step flow and live preview.",
+  },
 };
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {

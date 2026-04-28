@@ -599,7 +599,11 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
                   <Plus className="size-4" /> Create
                 </Button>
               </>
-            ) : null}
+            ) : (
+              <Button type="button" size="sm" onClick={() => router.push("/dashboard/templates/new")}>
+                <Plus className="size-4" /> New Template
+              </Button>
+            )}
           </>
         }
       />
