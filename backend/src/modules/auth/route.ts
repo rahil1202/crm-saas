@@ -22,6 +22,7 @@ import {
   refreshSession,
   register,
   resendVerification,
+  resendInvite,
   resetPassword,
   unenrollMfaFactor,
   verifyMfaEnrollment,
@@ -42,6 +43,7 @@ import {
   refreshSchema,
   registerSchema,
   resendVerificationSchema,
+  resendInviteSchema,
   resetPasswordSchema,
 } from "@/modules/auth/schema";
 import { requireAuth, requireModuleAccess, requireRole, requireTenant } from "@/middleware/auth";
@@ -69,6 +71,7 @@ authRoutes.get("/me", requireAuth, getCurrentUser);
 authRoutes.post("/onboarding", requireAuth, validateJson(onboardingSchema), onboarding);
 authRoutes.post("/invite", requireAuth, requireTenant, requireModuleAccess("teams"), validateJson(inviteSchema), inviteMember);
 authRoutes.get("/invites", requireAuth, requireTenant, requireModuleAccess("teams"), listInvites);
+authRoutes.post("/invites/:inviteId/resend", requireAuth, requireTenant, requireModuleAccess("teams"), validateJson(resendInviteSchema), resendInvite);
 authRoutes.delete("/invites/:inviteId", requireAuth, requireTenant, requireModuleAccess("teams"), deleteInvite);
 authRoutes.get("/invite/:token", getInviteLookup);
 authRoutes.post("/accept-invite", requireAuth, validateJson(acceptInviteSchema), acceptInvite);

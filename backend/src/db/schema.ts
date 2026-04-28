@@ -443,6 +443,9 @@ export const companyInvites = pgTable(
       .notNull()
       .references(() => profiles.id),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }).defaultNow().notNull(),
+    resentAt: timestamp("resent_at", { withTimezone: true }),
+    resendCount: integer("resend_count").notNull().default(0),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -450,6 +453,30 @@ export const companyInvites = pgTable(
   (table) => ({
     tokenUnique: uniqueIndex("company_invites_token_unique").on(table.token),
     companyEmailIdx: index("company_invites_company_email_idx").on(table.companyId, table.email),
+  }),
+);
+
+export const teamMemberAudits = pgTable(
+  "team_member_audits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    membershipId: uuid("membership_id").references(() => companyMemberships.id, { onDelete: "set null" }),
+    targetUserId: uuid("target_user_id").references(() => profiles.id, { onDelete: "set null" }),
+    inviteId: uuid("invite_id").references(() => companyInvites.id, { onDelete: "set null" }),
+    actorUserId: uuid("actor_user_id").references(() => profiles.id, { onDelete: "set null" }),
+    eventType: varchar("event_type", { length: 120 }).notNull(),
+    summary: varchar("summary", { length: 255 }).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    companyCreatedIdx: index("team_member_audits_company_created_idx").on(table.companyId, table.createdAt),
+    membershipCreatedIdx: index("team_member_audits_membership_created_idx").on(table.membershipId, table.createdAt),
+    userCreatedIdx: index("team_member_audits_target_user_created_idx").on(table.targetUserId, table.createdAt),
+    inviteCreatedIdx: index("team_member_audits_invite_created_idx").on(table.inviteId, table.createdAt),
   }),
 );
 

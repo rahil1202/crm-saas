@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { Download, Plus, Trash2, Upload, UserCog } from "lucide-react";
 import { toast } from "sonner";
 
@@ -87,6 +88,8 @@ interface CompanySnapshot {
     email: string;
     fullName: string | null;
     createdAt: string;
+    lastLoginAt?: string | null;
+    assignedLeadsCount?: number;
   }>;
   invites: Array<{
     inviteId: string;
@@ -96,6 +99,8 @@ interface CompanySnapshot {
     storeId: string | null;
     storeName: string | null;
     expiresAt: string;
+    resendCount?: number;
+    resentAt?: string | null;
   }>;
   customRoles?: Array<{
     id: string;
@@ -122,6 +127,7 @@ type TeamRow = {
   createdAt: string;
   storeId: string | null;
   storeName: string | null;
+  lastLoginAt: string | null;
 };
 
 type InviteRow = {
@@ -131,6 +137,7 @@ type InviteRow = {
   status: string;
   storeName: string | null;
   expiresAt: string;
+  resendCount: number;
 };
 
 type RoleDefinition = {
@@ -441,6 +448,7 @@ export default function TeamPage() {
   const [sendingInvite, setSendingInvite] = useState(false);
   const [inviteToDelete, setInviteToDelete] = useState<InviteRow | null>(null);
   const [deletingInvite, setDeletingInvite] = useState(false);
+  const [resendingInviteId, setResendingInviteId] = useState<string | null>(null);
 
   const [memberModalOpen, setMemberModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamRow | null>(null);
@@ -559,13 +567,14 @@ export default function TeamPage() {
       customRoleId: member.customRoleId,
       customRoleName: member.customRoleName,
       phone: "-",
-      totalLeads: "0",
+      totalLeads: String(member.assignedLeadsCount ?? 0),
       status: normalizeMembershipStatus(member.status),
       country: "-",
       admin: member.role === "owner" || member.role === "admin" ? "Yes" : "No",
       createdAt: member.createdAt,
       storeId: member.storeId,
       storeName: member.storeName,
+      lastLoginAt: member.lastLoginAt ?? null,
     }));
   }, [snapshot?.members]);
 
@@ -577,8 +586,27 @@ export default function TeamPage() {
       status: invite.status,
       storeName: invite.storeName,
       expiresAt: invite.expiresAt,
+      resendCount: invite.resendCount ?? 0,
     }));
   }, [snapshot?.invites]);
+
+  const handleResendInvite = async (row: InviteRow) => {
+    setResendingInviteId(row.inviteId);
+    try {
+      await apiRequest(`/auth/invites/${row.inviteId}/resend`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      toast.success("Invite resent.");
+      await loadData();
+    } catch (caughtError) {
+      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to resend invite.";
+      toast.error(message);
+      setError(message);
+    } finally {
+      setResendingInviteId(null);
+    }
+  };
 
   const isAllTab = tab === "all";
   const isMineTab = tab === "mine";
@@ -963,7 +991,9 @@ export default function TeamPage() {
             <AvatarFallback>{getInitials(row.name)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <div className="truncate font-medium text-slate-900">{row.name}</div>
+            <Link href={`/dashboard/team/${row.membershipId}`} className="truncate font-medium text-slate-900 hover:text-blue-700">
+              {row.name}
+            </Link>
             <div className="truncate text-xs text-muted-foreground">{row.storeName ?? "Company-wide"}</div>
           </div>
         </div>
@@ -1011,9 +1041,12 @@ export default function TeamPage() {
       sortable: true,
       sortKey: "status",
       renderCell: (row) => (
-        <Badge variant={row.status === "active" ? "secondary" : "outline"} className="capitalize">
-          {row.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={row.status === "active" ? "secondary" : "outline"} className="capitalize">
+            {row.status}
+          </Badge>
+          <span className="text-xs text-slate-500">{row.lastLoginAt ? `Last login ${formatDate(row.lastLoginAt)}` : "No login yet"}</span>
+        </div>
       ),
     },
     {
@@ -1267,9 +1300,21 @@ export default function TeamPage() {
                   actionColumn={{
                     header: "Actions",
                     renderCell: (row) => (
-                      <Button type="button" variant="destructive" size="xs" className="h-8" onClick={() => setInviteToDelete(row)}>
-                        <Trash2 className="size-3.5" /> Delete
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          className="h-8"
+                          onClick={() => void handleResendInvite(row)}
+                          disabled={resendingInviteId === row.inviteId}
+                        >
+                          {resendingInviteId === row.inviteId ? "Resending..." : "Resend"}
+                        </Button>
+                        <Button type="button" variant="destructive" size="xs" className="h-8" onClick={() => setInviteToDelete(row)}>
+                          <Trash2 className="size-3.5" /> Delete
+                        </Button>
+                      </div>
                     ),
                   }}
                 />

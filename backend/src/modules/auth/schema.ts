@@ -26,6 +26,11 @@ export const inviteParamSchema = z.object({
   inviteId: z.string().uuid(),
 });
 
+export const resendInviteSchema = z.object({
+  expiresInDays: z.number().int().min(1).max(30).default(7).optional(),
+  inviteMessage: z.string().trim().max(2000).nullable().optional(),
+});
+
 const mfaSessionSchema = z.object({
   currentPassword: z.string().min(1),
   signInFactorId: z.string().uuid().optional(),
@@ -122,6 +127,7 @@ export type InviteInput = z.infer<typeof inviteSchema>;
 export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
 export type InviteLookupInput = z.infer<typeof inviteLookupSchema>;
 export type InviteParamInput = z.infer<typeof inviteParamSchema>;
+export type ResendInviteInput = z.infer<typeof resendInviteSchema>;
 export type MfaListInput = z.infer<typeof mfaListSchema>;
 export type MfaEnrollInput = z.infer<typeof mfaEnrollSchema>;
 export type MfaVerifyEnrollInput = z.infer<typeof mfaVerifyEnrollSchema>;

@@ -42,6 +42,7 @@ import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { ensurePartnerMembershipAssignmentsForUser } from "@/lib/partner-role-access";
 import { ensureAuthSession, recordSecurityAuditLog, requireActiveAuthSession, revokeAuthSession } from "@/lib/security";
+import { recordTeamAudit } from "@/lib/team-audit";
 import {
   buildInviteRegistrationUrl,
   buildReferralRegistrationUrl,
@@ -70,6 +71,7 @@ import type {
   RegisterInput,
   ResendVerificationInput,
   ResetPasswordInput,
+  ResendInviteInput,
 } from "@/modules/auth/schema";
 import { inviteParamSchema } from "@/modules/auth/schema";
 
@@ -1033,6 +1035,19 @@ export async function inviteMember(c: Context<AppEnv>) {
     })
     .returning();
 
+  await recordTeamAudit({
+    companyId: tenant.companyId,
+    actorUserId: user.id,
+    inviteId: createdInvite.id,
+    eventType: "invite.created",
+    summary: `Invite sent to ${createdInvite.email}`,
+    metadata: {
+      role: createdInvite.role,
+      storeId: createdInvite.storeId,
+      expiresAt: createdInvite.expiresAt.toISOString(),
+    },
+  });
+
   return ok(
     c,
     {
@@ -1053,6 +1068,74 @@ export async function inviteMember(c: Context<AppEnv>) {
   );
 }
 
+export async function resendInvite(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const params = inviteParamSchema.parse(c.req.param()) as InviteParamInput;
+  const body = c.get("validatedBody") as ResendInviteInput;
+
+  const [invite] = await db
+    .select()
+    .from(companyInvites)
+    .where(and(eq(companyInvites.id, params.inviteId), eq(companyInvites.companyId, tenant.companyId)))
+    .limit(1);
+
+  if (!invite) {
+    throw AppError.notFound("Invite not found");
+  }
+
+  if (invite.status !== "pending") {
+    throw AppError.conflict("Only pending invites can be resent");
+  }
+
+  const expiresInDays = body.expiresInDays ?? 7;
+  const nextToken = crypto.randomUUID();
+  const now = new Date();
+  const nextExpiresAt = new Date(now.getTime() + expiresInDays * 24 * 60 * 60 * 1000);
+
+  const [updatedInvite] = await db
+    .update(companyInvites)
+    .set({
+      token: nextToken,
+      expiresAt: nextExpiresAt,
+      inviteMessage: body.inviteMessage === undefined ? invite.inviteMessage : body.inviteMessage,
+      resentAt: now,
+      lastSentAt: now,
+      resendCount: invite.resendCount + 1,
+      updatedAt: now,
+    })
+    .where(eq(companyInvites.id, invite.id))
+    .returning();
+
+  await recordTeamAudit({
+    companyId: tenant.companyId,
+    actorUserId: user.id,
+    inviteId: updatedInvite.id,
+    eventType: "invite.resent",
+    summary: `Invite resent to ${updatedInvite.email}`,
+    metadata: {
+      resendCount: updatedInvite.resendCount,
+      expiresAt: updatedInvite.expiresAt.toISOString(),
+    },
+  });
+
+  return ok(c, {
+    inviteId: updatedInvite.id,
+    email: updatedInvite.email,
+    role: updatedInvite.role,
+    status: updatedInvite.status,
+    resendCount: updatedInvite.resendCount,
+    resentAt: updatedInvite.resentAt,
+    expiresAt: updatedInvite.expiresAt,
+    inviteMessage: updatedInvite.inviteMessage,
+    inviteUrl: buildInviteRegistrationUrl({
+      frontendUrl: env.FRONTEND_URL,
+      inviteToken: updatedInvite.token,
+      referralCode: updatedInvite.referralCode,
+    }),
+  });
+}
+
 export async function listInvites(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
 
@@ -1068,6 +1151,9 @@ export async function listInvites(c: Context<AppEnv>) {
       metadata: companyInvites.metadata,
       expiresAt: companyInvites.expiresAt,
       acceptedAt: companyInvites.acceptedAt,
+      resendCount: companyInvites.resendCount,
+      resentAt: companyInvites.resentAt,
+      lastSentAt: companyInvites.lastSentAt,
       createdAt: companyInvites.createdAt,
       token: companyInvites.token,
     })
@@ -1089,6 +1175,7 @@ export async function listInvites(c: Context<AppEnv>) {
 
 export async function deleteInvite(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
+  const user = c.get("user");
   const params = inviteParamSchema.parse(c.req.param()) as InviteParamInput;
 
   const [invite] = await db
@@ -1106,6 +1193,14 @@ export async function deleteInvite(c: Context<AppEnv>) {
   }
 
   await db.delete(companyInvites).where(eq(companyInvites.id, invite.id));
+
+  await recordTeamAudit({
+    companyId: tenant.companyId,
+    actorUserId: user.id,
+    inviteId: invite.id,
+    eventType: "invite.deleted",
+    summary: "Pending invite deleted",
+  });
 
   return ok(c, {
     deleted: true,
