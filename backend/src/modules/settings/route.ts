@@ -9,6 +9,7 @@ import {
   getIntegrationsHub,
   getLeadSources,
   getNotificationRules,
+  getOutreachAgent,
   getPipelines,
   getRuntimeReadiness,
   getSettingsOverview,
@@ -19,6 +20,7 @@ import {
   updateIntegrations,
   updateLeadSources,
   updateNotificationRules,
+  updateOutreachAgent,
   updatePipelines,
   updateTags,
 } from "@/modules/settings/controller";
@@ -30,6 +32,7 @@ import {
   updateIntegrationsSchema,
   updateLeadSourcesSchema,
   updateNotificationRulesSchema,
+  updateOutreachAgentSchema,
   updatePipelineSettingsSchema,
   updateTagsSchema,
 } from "@/modules/settings/schema";
@@ -89,6 +92,15 @@ settingRoutes.patch(
 settingRoutes.get("/integrations", requireAuth, requireTenant, requireModuleAccess("integrations"), getIntegrations);
 settingRoutes.get("/integration-hub", requireAuth, requireTenant, requireModuleAccess("integrations"), getIntegrationsHub);
 settingRoutes.get("/runtime-readiness", requireAuth, requireTenant, requireModuleAccess("settings"), getRuntimeReadiness);
+settingRoutes.get("/outreach-agent", requireAuth, requireTenant, requireModuleAccess("settings"), getOutreachAgent);
+settingRoutes.patch(
+  "/outreach-agent",
+  requireAuth,
+  requireTenant,
+  requireModuleAccess("settings"),
+  validateJson(updateOutreachAgentSchema),
+  updateOutreachAgent,
+);
 settingRoutes.patch(
   "/integrations",
   requireAuth,

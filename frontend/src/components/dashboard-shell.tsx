@@ -25,6 +25,26 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Automation",
     description: "Trigger-based workflows with multi-step actions and recent execution logs.",
   },
+  "/dashboard/outreach": {
+    title: "Email Outreach Agent",
+    description: "AI-driven discovery, contact curation, template preview, and automated outreach operations.",
+  },
+  "/dashboard/outreach/leads": {
+    title: "Outreach Leads",
+    description: "Browse outreach leads by company and contact with status filters.",
+  },
+  "/dashboard/outreach/add-lead": {
+    title: "Add Outreach Lead",
+    description: "Add outreach companies and contacts, then preview outbound templates.",
+  },
+  "/dashboard/outreach/templates": {
+    title: "Outreach Templates",
+    description: "Review email templates used by the outreach agent.",
+  },
+  "/dashboard/outreach/settings": {
+    title: "Outreach Settings",
+    description: "Configure schedule, frequency, and search behavior for outreach automation.",
+  },
   "/dashboard/campaigns": {
     title: "Campaigns & Templates",
     description: "Manage outbound campaigns, template rendering, sender identities, and runtime delivery hooks.",

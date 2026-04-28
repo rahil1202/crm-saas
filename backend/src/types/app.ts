@@ -1,5 +1,6 @@
 export type CompanyRole = "owner" | "admin" | "member";
 export type CompanyModuleKey =
+  | "outreach"
   | "contacts"
   | "leads"
   | "deals"

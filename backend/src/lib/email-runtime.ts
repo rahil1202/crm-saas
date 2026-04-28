@@ -2,7 +2,18 @@ import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { Webhook } from "svix";
 
 import { db } from "@/db/client";
-import { automations, campaignCustomers, campaigns, customers, emailAccounts, emailAnalyticsDaily, emailMessages, emailTrackingEvents, leads } from "@/db/schema";
+import {
+  automations,
+  campaignCustomers,
+  campaigns,
+  customers,
+  emailAccounts,
+  emailAnalyticsDaily,
+  emailMessages,
+  emailTrackingEvents,
+  leads,
+  outreachContacts,
+} from "@/db/schema";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { renderTemplateContent } from "@/lib/template-renderer";
@@ -15,6 +26,9 @@ interface QueueEmailInput {
   automationRunId?: string | null;
   customerId?: string | null;
   leadId?: string | null;
+  outreachAccountId?: string | null;
+  outreachContactId?: string | null;
+  emailAccountId?: string | null;
   recipientEmail: string;
   recipientName?: string | null;
   subject: string;
@@ -177,8 +191,11 @@ export async function queueEmailMessage(input: QueueEmailInput) {
       campaignId: input.campaignId ?? null,
       automationId: input.automationId ?? null,
       automationRunId: input.automationRunId ?? null,
+      emailAccountId: input.emailAccountId ?? null,
       customerId: input.customerId ?? null,
       leadId: input.leadId ?? null,
+      outreachAccountId: input.outreachAccountId ?? null,
+      outreachContactId: input.outreachContactId ?? null,
       recipientEmail: input.recipientEmail,
       recipientName: input.recipientName ?? null,
       subject: input.subject,
@@ -532,6 +549,17 @@ export async function recordEmailOpen(token: string) {
     await recalculateCampaignAnalytics(message.companyId, message.campaignId);
   }
 
+  if (message.outreachContactId) {
+    await db
+      .update(outreachContacts)
+      .set({
+        status: "opened",
+        openedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(outreachContacts.id, message.outreachContactId));
+  }
+
   return { message, event };
 }
 
@@ -585,6 +613,17 @@ export async function recordEmailReply(input: {
 
   if (message.campaignId) {
     await recalculateCampaignAnalytics(message.companyId, message.campaignId);
+  }
+
+  if (message.outreachContactId) {
+    await db
+      .update(outreachContacts)
+      .set({
+        status: "replied",
+        repliedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(outreachContacts.id, message.outreachContactId));
   }
 
   return { message, event };
@@ -703,6 +742,16 @@ export async function handleResendWebhook(rawBody: string, headers: Headers) {
 
   if (Object.keys(updateFields).length > 1) {
     await db.update(emailMessages).set(updateFields).where(eq(emailMessages.id, message.id));
+  }
+
+  if (message.outreachContactId && mappedType === "failed") {
+    await db
+      .update(outreachContacts)
+      .set({
+        status: "bounced",
+        updatedAt: new Date(),
+      })
+      .where(eq(outreachContacts.id, message.outreachContactId));
   }
 
   if (message.campaignId) {

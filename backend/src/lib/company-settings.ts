@@ -56,6 +56,29 @@ export interface CompanySettingsPayload {
     campaignAlerts: boolean;
   };
   integrations: IntegrationSettingsPayload;
+  outreachAgent: OutreachAgentSettingsPayload;
+}
+
+export interface OutreachAgentSettingsPayload {
+  enabled: boolean;
+  dailyEmailEnabled: boolean;
+  addLeadToLinkedIn: boolean;
+  maxCompaniesPerRun: number;
+  emailWindowStart: string;
+  emailWindowEnd: string;
+  sendDays: string[];
+  maxEmailsPerDay: number;
+  minMinutesBetweenEmails: number;
+  searchSettings: {
+    industries: string[];
+    titles: string[];
+    locations: string[];
+    includeDomains: string[];
+    excludeDomains: string[];
+  };
+  defaultTemplateId: string | null;
+  defaultEmailAccountId: string | null;
+  defaultFromName: string | null;
 }
 
 export interface IntegrationSettingsPayload {
@@ -217,6 +240,64 @@ const defaultIntegrations: CompanySettingsPayload["integrations"] = {
   },
 };
 
+const defaultOutreachAgent: CompanySettingsPayload["outreachAgent"] = {
+  enabled: true,
+  dailyEmailEnabled: false,
+  addLeadToLinkedIn: false,
+  maxCompaniesPerRun: 10,
+  emailWindowStart: "09:00",
+  emailWindowEnd: "17:00",
+  sendDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+  maxEmailsPerDay: 100,
+  minMinutesBetweenEmails: 5,
+  searchSettings: {
+    industries: [],
+    titles: [],
+    locations: [],
+    includeDomains: [],
+    excludeDomains: [],
+  },
+  defaultTemplateId: null,
+  defaultEmailAccountId: null,
+  defaultFromName: null,
+};
+
+export function normalizeOutreachAgentSettings(value: unknown): OutreachAgentSettingsPayload {
+  const source = asRecord(value);
+  const searchSettings = asRecord(source.searchSettings);
+
+  return {
+    enabled: asBoolean(source.enabled, defaultOutreachAgent.enabled),
+    dailyEmailEnabled: asBoolean(source.dailyEmailEnabled, defaultOutreachAgent.dailyEmailEnabled),
+    addLeadToLinkedIn: asBoolean(source.addLeadToLinkedIn, defaultOutreachAgent.addLeadToLinkedIn),
+    maxCompaniesPerRun:
+      typeof source.maxCompaniesPerRun === "number" && Number.isFinite(source.maxCompaniesPerRun)
+        ? Math.max(1, Math.min(500, Math.trunc(source.maxCompaniesPerRun)))
+        : defaultOutreachAgent.maxCompaniesPerRun,
+    emailWindowStart: typeof source.emailWindowStart === "string" ? source.emailWindowStart : defaultOutreachAgent.emailWindowStart,
+    emailWindowEnd: typeof source.emailWindowEnd === "string" ? source.emailWindowEnd : defaultOutreachAgent.emailWindowEnd,
+    sendDays: asStringArray(source.sendDays),
+    maxEmailsPerDay:
+      typeof source.maxEmailsPerDay === "number" && Number.isFinite(source.maxEmailsPerDay)
+        ? Math.max(1, Math.min(10000, Math.trunc(source.maxEmailsPerDay)))
+        : defaultOutreachAgent.maxEmailsPerDay,
+    minMinutesBetweenEmails:
+      typeof source.minMinutesBetweenEmails === "number" && Number.isFinite(source.minMinutesBetweenEmails)
+        ? Math.max(0, Math.min(1440, Math.trunc(source.minMinutesBetweenEmails)))
+        : defaultOutreachAgent.minMinutesBetweenEmails,
+    searchSettings: {
+      industries: asStringArray(searchSettings.industries),
+      titles: asStringArray(searchSettings.titles),
+      locations: asStringArray(searchSettings.locations),
+      includeDomains: asStringArray(searchSettings.includeDomains),
+      excludeDomains: asStringArray(searchSettings.excludeDomains),
+    },
+    defaultTemplateId: asNullableString(source.defaultTemplateId),
+    defaultEmailAccountId: asNullableString(source.defaultEmailAccountId),
+    defaultFromName: asNullableString(source.defaultFromName),
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -358,6 +439,7 @@ export function getDefaultCompanySettings(): CompanySettingsPayload {
     tags: defaultTags,
     notificationRules: defaultNotificationRules,
     integrations: defaultIntegrations,
+    outreachAgent: defaultOutreachAgent,
   };
 }
 
@@ -377,6 +459,7 @@ export async function ensureCompanySettings(companyId: string) {
       tags: defaults.tags,
       notificationRules: defaults.notificationRules,
       integrations: defaults.integrations,
+      outreachAgent: defaults.outreachAgent,
     })
     .onConflictDoNothing()
     .returning();
@@ -403,5 +486,6 @@ export async function getCompanySettings(companyId: string): Promise<CompanySett
     tags: settings?.tags ?? defaultTags,
     notificationRules: settings?.notificationRules ?? defaultNotificationRules,
     integrations: normalizeIntegrationSettings(settings?.integrations ?? defaultIntegrations),
+    outreachAgent: normalizeOutreachAgentSettings(settings?.outreachAgent ?? defaultOutreachAgent),
   };
 }

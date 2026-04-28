@@ -161,4 +161,9 @@ const cacheTtlByPath: Record<string, number> = {
   "/users/current-company": 30_000,
   "/notifications": 10_000,
   "/documents": 20_000,
+  "/outreach/dashboard": 20_000,
+  "/outreach/accounts": 15_000,
+  "/outreach/contacts": 15_000,
+  "/outreach/lists": 15_000,
+  "/settings/outreach-agent": 20_000,
 };

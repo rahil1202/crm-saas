@@ -31,6 +31,7 @@ import { userRoutes } from "@/modules/users/route";
 import { whatsappRoutes } from "@/modules/whatsapp/route";
 import { leadIntelligenceRoutes } from "@/modules/lead-intelligence/route";
 import { sequenceRoutes } from "@/modules/sequences/route";
+import { outreachRoutes } from "@/modules/outreach/route";
 import { uptime } from "process";
 
 export type AppEnv = { Variables: AppVariables };
@@ -95,5 +96,6 @@ api.route("/", socialRoutes);
 api.route("/", whatsappRoutes);
 api.route("/", leadIntelligenceRoutes);
 api.route("/", sequenceRoutes);
+api.route("/", outreachRoutes);
 
 app.route("/", api);

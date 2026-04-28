@@ -1,4 +1,5 @@
 export const companyRoleModules = [
+  "outreach",
   "contacts",
   "leads",
   "deals",
@@ -21,6 +22,7 @@ export const companyRoleModules = [
 export type CompanyRoleModule = (typeof companyRoleModules)[number];
 
 export const partnerRoleModules: CompanyRoleModule[] = [
+  "outreach",
   "contacts",
   "leads",
   "deals",

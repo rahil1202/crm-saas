@@ -121,6 +121,30 @@ export const integrationsSchema = z.object({
     .optional(),
 });
 
+export const outreachSearchSettingsSchema = z.object({
+  industries: z.array(z.string().trim().min(1).max(120)).max(100),
+  titles: z.array(z.string().trim().min(1).max(160)).max(100),
+  locations: z.array(z.string().trim().min(1).max(180)).max(100),
+  includeDomains: z.array(z.string().trim().min(1).max(255)).max(100),
+  excludeDomains: z.array(z.string().trim().min(1).max(255)).max(100),
+});
+
+export const outreachAgentSchema = z.object({
+  enabled: z.boolean(),
+  dailyEmailEnabled: z.boolean(),
+  addLeadToLinkedIn: z.boolean(),
+  maxCompaniesPerRun: z.number().int().min(1).max(500),
+  emailWindowStart: z.string().regex(/^\d{2}:\d{2}$/),
+  emailWindowEnd: z.string().regex(/^\d{2}:\d{2}$/),
+  sendDays: z.array(z.enum(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])).max(7),
+  maxEmailsPerDay: z.number().int().min(1).max(10000),
+  minMinutesBetweenEmails: z.number().int().min(0).max(1440),
+  searchSettings: outreachSearchSettingsSchema,
+  defaultTemplateId: z.string().uuid().nullable().optional(),
+  defaultEmailAccountId: z.string().uuid().nullable().optional(),
+  defaultFromName: z.string().trim().max(180).nullable().optional(),
+});
+
 export const updatePipelineSettingsSchema = z.object({
   defaultDealPipeline: z.string().trim().min(1).max(100),
   dealPipelines: z.array(dealPipelineSchema).min(1).max(10),
@@ -151,6 +175,10 @@ export const updateIntegrationsSchema = z.object({
   integrations: integrationsSchema,
 });
 
+export const updateOutreachAgentSchema = z.object({
+  outreachAgent: outreachAgentSchema,
+});
+
 export const linkIntegrationOauthSchema = z.object({
   channel: z.enum(["email", "linkedin"]),
   provider: z.enum(["google", "azure", "linkedin_oidc"]),
@@ -177,5 +205,6 @@ export type UpdateCustomFieldsInput = z.infer<typeof updateCustomFieldsSchema>;
 export type UpdateTagsInput = z.infer<typeof updateTagsSchema>;
 export type UpdateNotificationRulesInput = z.infer<typeof updateNotificationRulesSchema>;
 export type UpdateIntegrationsInput = z.infer<typeof updateIntegrationsSchema>;
+export type UpdateOutreachAgentInput = z.infer<typeof updateOutreachAgentSchema>;
 export type LinkIntegrationOauthInput = z.infer<typeof linkIntegrationOauthSchema>;
 export type DisconnectIntegrationOauthInput = z.infer<typeof disconnectIntegrationOauthSchema>;

@@ -16,6 +16,7 @@ export const campaignSchema = z.object({
   status: campaignStatusSchema.default("draft"),
   customerIds: z.array(z.string().uuid()).max(200).default([]),
   audienceDescription: z.string().trim().max(240).optional(),
+  templateId: z.string().uuid().optional(),
   scheduledAt: z.string().datetime().optional(),
   launchedAt: z.string().datetime().optional(),
   completedAt: z.string().datetime().optional(),

@@ -21,6 +21,7 @@ import type {
   UpdateNotificationRulesInput,
   UpdatePipelineSettingsInput,
   UpdateTagsInput,
+  UpdateOutreachAgentInput,
 } from "@/modules/settings/schema";
 
 function assertUniqueKeys(values: string[], message: string) {
@@ -275,6 +276,40 @@ export async function getIntegrations(c: Context<AppEnv>) {
 
   return ok(c, {
     integrations: normalizeIntegrationSettings(settings.integrations),
+  });
+}
+
+export async function getOutreachAgent(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const settings = await getCompanySettings(tenant.companyId);
+
+  return ok(c, {
+    outreachAgent: settings.outreachAgent,
+  });
+}
+
+export async function updateOutreachAgent(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const body = c.get("validatedBody") as UpdateOutreachAgentInput;
+
+  await getCompanySettings(tenant.companyId);
+
+  const [updated] = await db
+    .update(companySettings)
+    .set({
+      outreachAgent: {
+        ...body.outreachAgent,
+        defaultTemplateId: body.outreachAgent.defaultTemplateId ?? null,
+        defaultEmailAccountId: body.outreachAgent.defaultEmailAccountId ?? null,
+        defaultFromName: body.outreachAgent.defaultFromName ?? null,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(companySettings.companyId, tenant.companyId))
+    .returning();
+
+  return ok(c, {
+    outreachAgent: updated.outreachAgent,
   });
 }
 

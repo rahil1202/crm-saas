@@ -61,6 +61,7 @@ export const sequenceStepChannelEnum = pgEnum("sequence_step_channel", ["email",
 export const sequenceRunStatusEnum = pgEnum("sequence_run_status", ["queued", "running", "completed", "failed", "skipped", "canceled"]);
 export const authSessionStatusEnum = pgEnum("auth_session_status", ["active", "revoked", "expired"]);
 export const formStatusEnum = pgEnum("form_status", ["draft", "published", "archived"]);
+export const outreachContactStatusEnum = pgEnum("outreach_contact_status", ["pending", "sent", "opened", "replied", "bounced"]);
 
 export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
@@ -325,6 +326,50 @@ export const companySettings = pgTable(
           outboundUrl: null,
           signingSecretHint: null,
         },
+      }),
+    outreachAgent: jsonb("outreach_agent")
+      .$type<{
+        enabled: boolean;
+        dailyEmailEnabled: boolean;
+        addLeadToLinkedIn: boolean;
+        maxCompaniesPerRun: number;
+        emailWindowStart: string;
+        emailWindowEnd: string;
+        sendDays: string[];
+        maxEmailsPerDay: number;
+        minMinutesBetweenEmails: number;
+        searchSettings: {
+          industries: string[];
+          titles: string[];
+          locations: string[];
+          includeDomains: string[];
+          excludeDomains: string[];
+        };
+        defaultTemplateId: string | null;
+        defaultEmailAccountId: string | null;
+        defaultFromName: string | null;
+      }>()
+      .notNull()
+      .default({
+        enabled: true,
+        dailyEmailEnabled: false,
+        addLeadToLinkedIn: false,
+        maxCompaniesPerRun: 10,
+        emailWindowStart: "09:00",
+        emailWindowEnd: "17:00",
+        sendDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+        maxEmailsPerDay: 100,
+        minMinutesBetweenEmails: 5,
+        searchSettings: {
+          industries: [],
+          titles: [],
+          locations: [],
+          includeDomains: [],
+          excludeDomains: [],
+        },
+        defaultTemplateId: null,
+        defaultEmailAccountId: null,
+        defaultFromName: null,
       }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -982,6 +1027,7 @@ export const campaigns = pgTable(
     channelMetadata: jsonb("channel_metadata").$type<Record<string, unknown>>().notNull().default({}),
     status: campaignStatusEnum("status").notNull().default("draft"),
     audienceDescription: varchar("audience_description", { length: 240 }),
+    templateId: uuid("template_id"),
     sequenceDefinitionId: uuid("sequence_definition_id"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     launchedAt: timestamp("launched_at", { withTimezone: true }),
@@ -1366,6 +1412,8 @@ export const emailMessages = pgTable(
     emailAccountId: uuid("email_account_id").references(() => emailAccounts.id, { onDelete: "set null" }),
     customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
     leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    outreachAccountId: uuid("outreach_account_id"),
+    outreachContactId: uuid("outreach_contact_id"),
     recipientEmail: varchar("recipient_email", { length: 320 }).notNull(),
     recipientName: varchar("recipient_name", { length: 180 }),
     subject: varchar("subject", { length: 240 }).notNull(),
@@ -1391,6 +1439,113 @@ export const emailMessages = pgTable(
     byStatusIdx: index("email_messages_status_idx").on(table.companyId, table.status, table.queuedAt),
     byCampaignIdx: index("email_messages_campaign_idx").on(table.campaignId, table.createdAt),
     byRunIdx: index("email_messages_run_idx").on(table.automationRunId, table.createdAt),
+  }),
+);
+
+export const outreachAccounts = pgTable(
+  "outreach_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 180 }).notNull(),
+    domain: varchar("domain", { length: 255 }),
+    website: varchar("website", { length: 255 }),
+    linkedinUrl: varchar("linkedin_url", { length: 255 }),
+    industry: varchar("industry", { length: 120 }),
+    sizeBand: varchar("size_band", { length: 60 }),
+    location: varchar("location", { length: 180 }),
+    notes: text("notes"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("outreach_accounts_company_idx").on(table.companyId, table.createdAt),
+    byDomainIdx: index("outreach_accounts_domain_idx").on(table.companyId, table.domain),
+  }),
+);
+
+export const outreachContacts = pgTable(
+  "outreach_contacts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => outreachAccounts.id, { onDelete: "cascade" }),
+    fullName: varchar("full_name", { length: 180 }).notNull(),
+    email: varchar("email", { length: 320 }),
+    phone: varchar("phone", { length: 40 }),
+    title: varchar("title", { length: 160 }),
+    linkedinUrl: varchar("linkedin_url", { length: 255 }),
+    status: outreachContactStatusEnum("status").notNull().default("pending"),
+    lastContactedAt: timestamp("last_contacted_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("outreach_contacts_company_idx").on(table.companyId, table.createdAt),
+    byAccountIdx: index("outreach_contacts_account_idx").on(table.accountId, table.createdAt),
+    byStatusIdx: index("outreach_contacts_status_idx").on(table.companyId, table.status, table.createdAt),
+  }),
+);
+
+export const outreachLists = pgTable(
+  "outreach_lists",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 180 }).notNull(),
+    entityType: varchar("entity_type", { length: 40 }).notNull().default("contact"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    byCompanyIdx: index("outreach_lists_company_idx").on(table.companyId, table.createdAt),
+  }),
+);
+
+export const outreachListMembers = pgTable(
+  "outreach_list_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    listId: uuid("list_id")
+      .notNull()
+      .references(() => outreachLists.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").references(() => outreachAccounts.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id").references(() => outreachContacts.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => profiles.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byListIdx: index("outreach_list_members_list_idx").on(table.listId, table.createdAt),
+    listContactUnique: uniqueIndex("outreach_list_members_list_contact_unique").on(table.listId, table.contactId),
+    listAccountUnique: uniqueIndex("outreach_list_members_list_account_unique").on(table.listId, table.accountId),
   }),
 );
 
