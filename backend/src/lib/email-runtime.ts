@@ -388,17 +388,28 @@ export async function recalculateCampaignAnalytics(companyId: string, campaignId
     });
 }
 
-export async function processQueuedEmailMessages(limit = 20) {
+export async function processQueuedEmailMessages(limit = 20, filter?: { companyId?: string; messageIds?: string[] }) {
+  if (filter?.messageIds && filter.messageIds.length === 0) {
+    return 0;
+  }
+
   const now = new Date();
+  const conditions = [
+    eq(emailMessages.status, "queued"),
+    or(isNull(emailMessages.scheduledAt), lte(emailMessages.scheduledAt, now)),
+  ];
+
+  if (filter?.companyId) {
+    conditions.push(eq(emailMessages.companyId, filter.companyId));
+  }
+  if (filter?.messageIds) {
+    conditions.push(inArray(emailMessages.id, filter.messageIds));
+  }
+
   const items = await db
     .select()
     .from(emailMessages)
-    .where(
-      and(
-        eq(emailMessages.status, "queued"),
-        or(isNull(emailMessages.scheduledAt), lte(emailMessages.scheduledAt, now)),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(asc(emailMessages.createdAt))
     .limit(limit);
 

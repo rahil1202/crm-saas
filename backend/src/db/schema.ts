@@ -1549,6 +1549,31 @@ export const outreachListMembers = pgTable(
   }),
 );
 
+export const outreachAgentRuns = pgTable(
+  "outreach_agent_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 40 }).notNull().default("running"),
+    triggerType: varchar("trigger_type", { length: 40 }).notNull().default("manual"),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    queuedCount: integer("queued_count").notNull().default(0),
+    processedCount: integer("processed_count").notNull().default(0),
+    skippedCount: integer("skipped_count").notNull().default(0),
+    failedCount: integer("failed_count").notNull().default(0),
+    lastError: text("last_error"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    byCompanyStartedIdx: index("outreach_agent_runs_company_started_idx").on(table.companyId, table.startedAt),
+  }),
+);
+
 export const emailTrackingEvents = pgTable(
   "email_tracking_events",
   {

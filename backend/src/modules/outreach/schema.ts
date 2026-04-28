@@ -65,6 +65,11 @@ export const outreachContactParamSchema = z.object({
   contactId: z.string().uuid(),
 });
 
+export const seedOutreachExamplesSchema = z.object({
+  templates: z.boolean().default(true),
+  leads: z.boolean().default(true),
+});
+
 export const createOutreachListSchema = z.object({
   name: z.string().trim().min(1).max(180),
   entityType: z.enum(["contact", "account"]).default("contact"),
@@ -114,3 +119,4 @@ export type OutreachTemplatePreviewInput = z.infer<typeof outreachTemplatePrevie
 export type OutreachTemplateSendInput = z.infer<typeof outreachTemplateSendSchema>;
 export type OutreachListSendInput = z.infer<typeof outreachListSendSchema>;
 export type ImportOutreachCsvInput = z.infer<typeof importOutreachCsvSchema>;
+export type SeedOutreachExamplesInput = z.infer<typeof seedOutreachExamplesSchema>;

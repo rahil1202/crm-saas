@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,12 +34,18 @@ export function OutreachLeadsPage() {
   const [q, setQ] = useState("");
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
   const [contacts, setContacts] = useState<ContactItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [workingId, setWorkingId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     let disposed = false;
 
     const load = async () => {
+      setLoading(true);
+      setError(null);
       try {
         if (mode === "company") {
           const params = new URLSearchParams({ limit: "50", offset: "0", q });
@@ -54,6 +61,8 @@ export function OutreachLeadsPage() {
         if (!disposed) setContacts(response.items);
       } catch (caughtError) {
         if (!disposed) setError(caughtError instanceof ApiError ? caughtError.message : "Unable to load outreach leads");
+      } finally {
+        if (!disposed) setLoading(false);
       }
     };
 
@@ -61,9 +70,64 @@ export function OutreachLeadsPage() {
     return () => {
       disposed = true;
     };
-  }, [mode, q, status]);
+  }, [mode, q, status, reloadKey]);
 
   const total = useMemo(() => (mode === "company" ? accounts.length : contacts.length), [mode, accounts.length, contacts.length]);
+
+  const seedExamples = async () => {
+    setWorkingId("examples");
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await apiRequest<{ createdAccounts: number; createdContacts: number }>("/outreach/examples", {
+        method: "POST",
+        body: JSON.stringify({ templates: false, leads: true }),
+        skipCache: true,
+      });
+      setSuccess(
+        response.createdContacts > 0
+          ? `Added ${response.createdAccounts} sample companies and ${response.createdContacts} sample leads.`
+          : "Sample leads are already available.",
+      );
+      setReloadKey((value) => value + 1);
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to add sample leads");
+    } finally {
+      setWorkingId(null);
+    }
+  };
+
+  const deleteContact = async (contactId: string) => {
+    setWorkingId(contactId);
+    setError(null);
+    setSuccess(null);
+    try {
+      await apiRequest(`/outreach/contacts/${contactId}`, { method: "DELETE", skipCache: true });
+      setContacts((current) => current.filter((contact) => contact.id !== contactId));
+      setSuccess("Lead deleted.");
+      setReloadKey((value) => value + 1);
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to delete lead");
+    } finally {
+      setWorkingId(null);
+    }
+  };
+
+  const deleteAccount = async (accountId: string) => {
+    setWorkingId(accountId);
+    setError(null);
+    setSuccess(null);
+    try {
+      await apiRequest(`/outreach/accounts/${accountId}`, { method: "DELETE", skipCache: true });
+      setAccounts((current) => current.filter((account) => account.id !== accountId));
+      setSuccess("Company and its sample leads deleted.");
+      setReloadKey((value) => value + 1);
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to delete company");
+    } finally {
+      setWorkingId(null);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -79,6 +143,9 @@ export function OutreachLeadsPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Button variant={mode === "company" ? "default" : "outline"} size="sm" onClick={() => setMode("company")}>By Company</Button>
             <Button variant={mode === "contact" ? "default" : "outline"} size="sm" onClick={() => setMode("contact")}>By Contact</Button>
+            <Button type="button" variant="outline" size="sm" onClick={seedExamples} disabled={workingId === "examples"}>
+              {workingId === "examples" ? "Adding..." : "Add sample leads"}
+            </Button>
             <div className="ml-auto flex items-center gap-2">
               <Button variant={status === "all" ? "default" : "outline"} size="sm" onClick={() => setStatus("all")}>All</Button>
               <Button variant={status === "pending" ? "default" : "outline"} size="sm" onClick={() => setStatus("pending")}>Pending</Button>
@@ -95,6 +162,8 @@ export function OutreachLeadsPage() {
           </div>
 
           {error ? <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+          {success ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div> : null}
+          {loading ? <div className="rounded-xl border border-border/60 bg-slate-50 px-3 py-2 text-sm text-slate-500">Loading outreach leads...</div> : null}
 
           <div className="rounded-xl border border-border/60">
             {mode === "company" ? (
@@ -104,6 +173,7 @@ export function OutreachLeadsPage() {
                     <th className="px-4 py-2">Company</th>
                     <th className="px-4 py-2">Contacts</th>
                     <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -112,6 +182,18 @@ export function OutreachLeadsPage() {
                       <td className="px-4 py-3 font-semibold text-slate-900">{account.name}</td>
                       <td className="px-4 py-3 text-slate-600">{account.contactsCount}</td>
                       <td className="px-4 py-3 text-slate-600">{account.contacts[0]?.status ?? "-"}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Delete ${account.name}`}
+                          onClick={() => void deleteAccount(account.id)}
+                          disabled={workingId === account.id}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -124,6 +206,7 @@ export function OutreachLeadsPage() {
                     <th className="px-4 py-2">Company</th>
                     <th className="px-4 py-2">Title</th>
                     <th className="px-4 py-2">Status</th>
+                    <th className="px-4 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -136,13 +219,25 @@ export function OutreachLeadsPage() {
                       <td className="px-4 py-3 text-slate-700">{contact.accountName}</td>
                       <td className="px-4 py-3 text-slate-600">{contact.title ?? "-"}</td>
                       <td className="px-4 py-3 text-slate-600">{contact.status}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Delete ${contact.fullName}`}
+                          onClick={() => void deleteContact(contact.id)}
+                          disabled={workingId === contact.id}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             )}
 
-            {total === 0 ? <div className="px-4 py-8 text-sm text-slate-500">No outreach leads found.</div> : null}
+            {!loading && total === 0 ? <div className="px-4 py-8 text-sm text-slate-500">No outreach leads found.</div> : null}
           </div>
         </CardContent>
       </Card>

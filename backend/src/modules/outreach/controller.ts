@@ -4,10 +4,10 @@ import type { Context } from "hono";
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import {
-  companySettings,
   emailAccounts,
   emailMessages,
   emailTrackingEvents,
+  outreachAgentRuns,
   outreachAccounts,
   outreachContacts,
   outreachListMembers,
@@ -16,8 +16,9 @@ import {
 } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
-import { getDefaultEmailAccount, processQueuedEmailMessages, queueEmailMessage } from "@/lib/email-runtime";
+import { getDefaultEmailAccount, queueEmailMessage } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
+import { runOutreachAgent } from "@/lib/outreach-agent-runtime";
 import { renderTemplateContent } from "@/lib/template-renderer";
 import {
   outreachAccountParamSchema,
@@ -32,11 +33,78 @@ import {
   type ListOutreachContactsQuery,
   type OutreachDashboardQuery,
   type OutreachListSendInput,
+  type SeedOutreachExamplesInput,
   type OutreachTemplatePreviewInput,
   type OutreachTemplateSendInput,
   type UpdateOutreachAccountInput,
   type UpdateOutreachContactInput,
 } from "@/modules/outreach/schema";
+
+const starterTemplates = [
+  {
+    name: "Cold intro - problem aware",
+    subject: "Quick idea for {{outreach.account.name}}",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>I noticed {{outreach.account.name}} is likely focused on growth and pipeline quality. We help teams spot qualified conversations earlier and follow up without manual chasing.</p><p>Worth a 15 minute conversation next week?</p>",
+  },
+  {
+    name: "Follow-up after no reply",
+    subject: "Re: quick idea for {{outreach.account.name}}",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>Checking back once. If improving outbound follow-up or lead handoff is a priority, I can share a short workflow that has worked for similar teams.</p><p>Should I send it over?</p>",
+  },
+  {
+    name: "Warm referral ask",
+    subject: "Best person for revenue operations?",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>I am trying to reach the person who owns CRM follow-up and outbound workflow at {{outreach.account.name}}. Would that be you, or is there someone better to speak with?</p><p>Thanks.</p>",
+  },
+];
+
+const starterLeads = [
+  {
+    account: {
+      name: "Northstar Software",
+      domain: "northstar.example",
+      industry: "SaaS",
+      location: "Austin, TX",
+      notes: "Sample outreach account. Delete it when you add real prospects.",
+    },
+    contact: {
+      fullName: "Avery Stone",
+      email: "avery@northstar.example",
+      title: "VP Sales",
+    },
+  },
+  {
+    account: {
+      name: "Brightline Operations",
+      domain: "brightline.example",
+      industry: "Operations",
+      location: "Chicago, IL",
+      notes: "Sample outreach account. Delete it when you add real prospects.",
+    },
+    contact: {
+      fullName: "Maya Chen",
+      email: "maya@brightline.example",
+      title: "Head of Revenue Operations",
+    },
+  },
+  {
+    account: {
+      name: "Summit Advisory Group",
+      domain: "summitadvisory.example",
+      industry: "Consulting",
+      location: "Denver, CO",
+      notes: "Sample outreach account. Delete it when you add real prospects.",
+    },
+    contact: {
+      fullName: "Jordan Patel",
+      email: "jordan@summitadvisory.example",
+      title: "Managing Partner",
+    },
+  },
+];
 
 function parseCsvRows(csv: string) {
   const rows: string[][] = [];
@@ -108,7 +176,7 @@ export async function getOutreachDashboard(c: Context<AppEnv>) {
 
   const emailWhere = and(eq(emailMessages.companyId, tenant.companyId), rangeCondition);
 
-  const [foundRow, sentRow, openedRow, hourlyRows] = await Promise.all([
+  const [foundRow, sentRow, openedRow, hourlyRows, lastRunRows] = await Promise.all([
     db
       .select({ count: count() })
       .from(outreachContacts)
@@ -131,6 +199,12 @@ export async function getOutreachDashboard(c: Context<AppEnv>) {
       .innerJoin(emailMessages, eq(emailMessages.id, emailTrackingEvents.emailMessageId))
       .where(and(emailWhere, eq(emailTrackingEvents.eventType, "opened")))
       .groupBy(sql`to_char(${emailTrackingEvents.occurredAt}, 'HH24')`),
+    db
+      .select()
+      .from(outreachAgentRuns)
+      .where(eq(outreachAgentRuns.companyId, tenant.companyId))
+      .orderBy(desc(outreachAgentRuns.startedAt))
+      .limit(1),
   ]);
 
   const found = foundRow[0]?.count ?? 0;
@@ -151,6 +225,7 @@ export async function getOutreachDashboard(c: Context<AppEnv>) {
       opened,
     },
     openTiming: hourlyRows.map((row) => ({ hour: row.hour, opens: row.opens })),
+    lastRun: lastRunRows[0] ?? null,
   });
 }
 
@@ -318,6 +393,35 @@ export async function updateOutreachAccount(c: Context<AppEnv>) {
   return ok(c, updated);
 }
 
+export async function deleteOutreachAccount(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = outreachAccountParamSchema.parse(c.req.param());
+  const deletedAt = new Date();
+
+  const [updated] = await db
+    .update(outreachAccounts)
+    .set({
+      deletedAt,
+      updatedAt: deletedAt,
+    })
+    .where(and(eq(outreachAccounts.id, params.accountId), eq(outreachAccounts.companyId, tenant.companyId), isNull(outreachAccounts.deletedAt)))
+    .returning({ id: outreachAccounts.id });
+
+  if (!updated) {
+    throw AppError.notFound("Outreach account not found");
+  }
+
+  await db
+    .update(outreachContacts)
+    .set({
+      deletedAt,
+      updatedAt: deletedAt,
+    })
+    .where(and(eq(outreachContacts.companyId, tenant.companyId), eq(outreachContacts.accountId, params.accountId), isNull(outreachContacts.deletedAt)));
+
+  return ok(c, { deleted: true, id: updated.id });
+}
+
 export async function createOutreachContact(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const user = c.get("user");
@@ -375,6 +479,27 @@ export async function updateOutreachContact(c: Context<AppEnv>) {
   }
 
   return ok(c, updated);
+}
+
+export async function deleteOutreachContact(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = outreachContactParamSchema.parse(c.req.param());
+  const deletedAt = new Date();
+
+  const [updated] = await db
+    .update(outreachContacts)
+    .set({
+      deletedAt,
+      updatedAt: deletedAt,
+    })
+    .where(and(eq(outreachContacts.id, params.contactId), eq(outreachContacts.companyId, tenant.companyId), isNull(outreachContacts.deletedAt)))
+    .returning({ id: outreachContacts.id });
+
+  if (!updated) {
+    throw AppError.notFound("Outreach contact not found");
+  }
+
+  return ok(c, { deleted: true, id: updated.id });
 }
 
 export async function listOutreachLists(c: Context<AppEnv>) {
@@ -694,24 +819,104 @@ export async function importOutreachFromCsv(c: Context<AppEnv>) {
   }, 201);
 }
 
-export async function runOutreachNow(c: Context<AppEnv>) {
+export async function seedOutreachExamples(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
-  const settings = await getCompanySettings(tenant.companyId);
+  const user = c.get("user");
+  const body = c.get("validatedBody") as SeedOutreachExamplesInput;
+  let createdTemplates = 0;
+  let createdAccounts = 0;
+  let createdContacts = 0;
 
-  const [updated] = await db
-    .update(companySettings)
-    .set({
-      outreachAgent: {
-        ...settings.outreachAgent,
-      },
-      updatedAt: new Date(),
-    })
-    .where(eq(companySettings.companyId, tenant.companyId))
-    .returning({ updatedAt: companySettings.updatedAt });
+  if (body.templates) {
+    for (const starter of starterTemplates) {
+      const [existing] = await db
+        .select({ id: templates.id })
+        .from(templates)
+        .where(and(eq(templates.companyId, tenant.companyId), eq(templates.name, starter.name), isNull(templates.deletedAt)))
+        .limit(1);
+
+      if (!existing) {
+        await db.insert(templates).values({
+          companyId: tenant.companyId,
+          name: starter.name,
+          type: "email",
+          subject: starter.subject,
+          content: starter.content,
+          notes: "Starter outreach template. Edit or delete after customizing your playbook.",
+          createdBy: user.id,
+        });
+        createdTemplates += 1;
+      }
+    }
+  }
+
+  if (body.leads) {
+    for (const starter of starterLeads) {
+      const [existingAccount] = await db
+        .select({ id: outreachAccounts.id })
+        .from(outreachAccounts)
+        .where(and(eq(outreachAccounts.companyId, tenant.companyId), eq(outreachAccounts.name, starter.account.name), isNull(outreachAccounts.deletedAt)))
+        .limit(1);
+
+      const accountId = existingAccount
+        ? existingAccount.id
+        : (
+            await db
+              .insert(outreachAccounts)
+              .values({
+                companyId: tenant.companyId,
+                name: starter.account.name,
+                domain: starter.account.domain,
+                industry: starter.account.industry,
+                location: starter.account.location,
+                notes: starter.account.notes,
+                createdBy: user.id,
+              })
+              .returning({ id: outreachAccounts.id })
+          )[0].id;
+
+      if (!existingAccount) {
+        createdAccounts += 1;
+      }
+
+      const [existingContact] = await db
+        .select({ id: outreachContacts.id })
+        .from(outreachContacts)
+        .where(and(eq(outreachContacts.companyId, tenant.companyId), eq(outreachContacts.accountId, accountId), eq(outreachContacts.email, starter.contact.email), isNull(outreachContacts.deletedAt)))
+        .limit(1);
+
+      if (!existingContact) {
+        await db.insert(outreachContacts).values({
+          companyId: tenant.companyId,
+          accountId,
+          fullName: starter.contact.fullName,
+          email: starter.contact.email,
+          title: starter.contact.title,
+          status: "pending",
+          createdBy: user.id,
+        });
+        createdContacts += 1;
+      }
+    }
+  }
 
   return ok(c, {
-    queued: true,
-    processed: await processQueuedEmailMessages(100),
-    triggeredAt: updated?.updatedAt ?? new Date(),
-  }, 202);
+    createdTemplates,
+    createdAccounts,
+    createdContacts,
+  }, 201);
+}
+
+export async function runOutreachNow(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  await getCompanySettings(tenant.companyId);
+
+  const run = await runOutreachAgent({
+    companyId: tenant.companyId,
+    userId: user.id,
+    triggerType: "manual",
+  });
+
+  return ok(c, { run }, 202);
 }

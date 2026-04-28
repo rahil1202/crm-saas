@@ -13,6 +13,7 @@ import { OutreachTopNav } from "@/features/outreach/outreach-top-nav";
 
 type Template = { id: string; name: string };
 type OutreachList = { id: string; name: string };
+type EmailAccount = { id: string; label: string; fromEmail: string; status: string; isDefault: boolean };
 
 type PreviewResponse = {
   subject: string;
@@ -30,6 +31,7 @@ type Contact = {
 export function OutreachAddLeadPage() {
   const [activeTab, setActiveTab] = useState<"add" | "import">("add");
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([]);
   const [templateId, setTemplateId] = useState("");
   const [lists, setLists] = useState<OutreachList[]>([]);
   const [listId, setListId] = useState("");
@@ -44,6 +46,7 @@ export function OutreachAddLeadPage() {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -62,15 +65,22 @@ export function OutreachAddLeadPage() {
   useEffect(() => {
     let disposed = false;
     const load = async () => {
+      setLoading(true);
       try {
-        const response = await apiRequest<{ items: Array<{ id: string; name: string; type: string }> }>("/templates/list?type=email&limit=100");
+        const [response, accountsResponse] = await Promise.all([
+          apiRequest<{ items: Array<{ id: string; name: string; type: string }> }>("/templates/list?type=email&limit=100"),
+          apiRequest<{ items: EmailAccount[] }>("/campaigns/email-accounts"),
+        ]);
         if (disposed) return;
         const nextTemplates = response.items.map((item) => ({ id: item.id, name: item.name }));
         setTemplates(nextTemplates);
+        setEmailAccounts(accountsResponse.items);
         setTemplateId(nextTemplates[0]?.id ?? "");
         await Promise.all([loadContacts(), loadLists()]);
       } catch (caughtError) {
         if (!disposed) setError(caughtError instanceof ApiError ? caughtError.message : "Unable to load outreach data");
+      } finally {
+        if (!disposed) setLoading(false);
       }
     };
     void load();
@@ -230,6 +240,7 @@ export function OutreachAddLeadPage() {
 
   const selectedCount = selectedContactIds.length;
   const selectedLabel = useMemo(() => `${selectedCount} contact${selectedCount === 1 ? "" : "s"} selected`, [selectedCount]);
+  const connectedEmailAccountCount = emailAccounts.filter((account) => account.status === "connected").length;
 
   return (
     <div className="space-y-5">
@@ -242,6 +253,13 @@ export function OutreachAddLeadPage() {
 
       {error ? <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
       {success ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
+      {loading ? <div className="rounded-xl border border-border/60 bg-white px-4 py-3 text-sm text-slate-500">Loading templates, contacts, and sending accounts...</div> : null}
+      {!loading && (templates.length === 0 || connectedEmailAccountCount === 0) ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {templates.length === 0 ? "Create an email template before sending outreach. " : null}
+          {connectedEmailAccountCount === 0 ? "Connect an email account before sending outreach." : null}
+        </div>
+      ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[2fr_1fr]">
         <Card className="border-border/70">
@@ -354,10 +372,10 @@ export function OutreachAddLeadPage() {
             </Field>
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={handlePreview}>Preview</Button>
-              <Button type="button" onClick={handleSend} disabled={sending || selectedContactIds.length === 0 || !templateId}>
+              <Button type="button" onClick={handleSend} disabled={sending || selectedContactIds.length === 0 || !templateId || connectedEmailAccountCount === 0}>
                 {sending ? "Sending..." : "Send to selected"}
               </Button>
-              <Button type="button" variant="outline" onClick={handleSendList} disabled={sending || !listId || !templateId}>
+              <Button type="button" variant="outline" onClick={handleSendList} disabled={sending || !listId || !templateId || connectedEmailAccountCount === 0}>
                 Send list
               </Button>
             </div>
