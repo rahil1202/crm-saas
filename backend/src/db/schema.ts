@@ -466,6 +466,17 @@ export const companyMemberships = pgTable(
     companyUserUnique: uniqueIndex("company_memberships_company_user_unique").on(table.companyId, table.userId),
     byUserIdx: index("company_memberships_user_idx").on(table.userId),
     byCompanyIdx: index("company_memberships_company_idx").on(table.companyId),
+    byCompanyStatusDeletedCreatedIdx: index("company_memberships_company_status_deleted_created_idx").on(
+      table.companyId,
+      table.status,
+      table.deletedAt,
+      table.createdAt,
+    ),
+    byCompanyCustomRoleDeletedIdx: index("company_memberships_company_custom_role_deleted_idx").on(
+      table.companyId,
+      table.customRoleId,
+      table.deletedAt,
+    ),
   }),
 );
 
@@ -636,12 +647,23 @@ export const leads = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
-      byCompanyIdx: index("leads_company_idx").on(table.companyId),
-      byCompanyStatusIdx: index("leads_company_status_idx").on(table.companyId, table.status),
-      byAssignedIdx: index("leads_assigned_idx").on(table.assignedToUserId),
-      byPartnerIdx: index("leads_partner_idx").on(table.partnerCompanyId),
-    }),
-  );
+    byCompanyIdx: index("leads_company_idx").on(table.companyId),
+    byCompanyStatusIdx: index("leads_company_status_idx").on(table.companyId, table.status),
+    byAssignedIdx: index("leads_assigned_idx").on(table.assignedToUserId),
+    byPartnerIdx: index("leads_partner_idx").on(table.partnerCompanyId),
+    byCompanyDeletedCreatedIdx: index("leads_company_deleted_created_idx").on(
+      table.companyId,
+      table.deletedAt,
+      table.createdAt,
+    ),
+    byCompanyAssignedDeletedCreatedIdx: index("leads_company_assigned_deleted_created_idx").on(
+      table.companyId,
+      table.assignedToUserId,
+      table.deletedAt,
+      table.createdAt,
+    ),
+  }),
+);
 
 export const leadActivities = pgTable("lead_activities", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -722,12 +744,32 @@ export const deals = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => ({
-      byCompanyIdx: index("deals_company_idx").on(table.companyId),
-      byCompanyStatusIdx: index("deals_company_status_idx").on(table.companyId, table.status),
-      byAssignedIdx: index("deals_assigned_idx").on(table.assignedToUserId),
-      byPartnerIdx: index("deals_partner_idx").on(table.partnerCompanyId),
-    }),
-  );
+    byCompanyIdx: index("deals_company_idx").on(table.companyId),
+    byCompanyStatusIdx: index("deals_company_status_idx").on(table.companyId, table.status),
+    byAssignedIdx: index("deals_assigned_idx").on(table.assignedToUserId),
+    byPartnerIdx: index("deals_partner_idx").on(table.partnerCompanyId),
+    byCompanyDeletedCreatedIdx: index("deals_company_deleted_created_idx").on(
+      table.companyId,
+      table.deletedAt,
+      table.createdAt,
+    ),
+    byCompanyPipelineDeletedUpdatedCreatedIdx: index("deals_company_pipeline_deleted_updated_created_idx").on(
+      table.companyId,
+      table.pipeline,
+      table.deletedAt,
+      table.updatedAt,
+      table.createdAt,
+    ),
+    byCompanyStatusDeletedExpectedCloseIdx: index("deals_company_status_deleted_expected_close_idx").on(
+      table.companyId,
+      table.status,
+      table.deletedAt,
+      table.expectedCloseDate,
+      table.updatedAt,
+      table.createdAt,
+    ),
+  }),
+);
 
 export const dealActivities = pgTable("deal_activities", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -779,6 +821,17 @@ export const tasks = pgTable(
     byStatusIdx: index("tasks_company_status_idx").on(table.companyId, table.status),
     byTypeIdx: index("tasks_company_type_idx").on(table.companyId, table.taskType),
     byDueIdx: index("tasks_due_idx").on(table.dueAt),
+    byCompanyDeletedCreatedIdx: index("tasks_company_deleted_created_idx").on(
+      table.companyId,
+      table.deletedAt,
+      table.createdAt,
+    ),
+    byCompanyAssignedDeletedCreatedIdx: index("tasks_company_assigned_deleted_created_idx").on(
+      table.companyId,
+      table.assignedToUserId,
+      table.deletedAt,
+      table.createdAt,
+    ),
   }),
 );
 
@@ -1099,6 +1152,18 @@ export const partnerUsers = pgTable(
     byCompanyIdx: index("partner_users_company_idx").on(table.companyId, table.createdAt),
     byPartnerIdx: index("partner_users_partner_idx").on(table.partnerCompanyId, table.createdAt),
     byStatusIdx: index("partner_users_status_idx").on(table.companyId, table.status),
+    byCompanyPartnerDeletedCreatedIdx: index("partner_users_company_partner_deleted_created_idx").on(
+      table.companyId,
+      table.partnerCompanyId,
+      table.deletedAt,
+      table.createdAt,
+    ),
+    byAuthUserActiveIdx: index("partner_users_auth_user_active_idx").on(
+      table.authUserId,
+      table.status,
+      table.deletedAt,
+      table.companyId,
+    ),
   }),
 );
 
@@ -1316,6 +1381,7 @@ export const automationRuns = pgTable(
     byCompanyIdx: index("automation_runs_company_idx").on(table.companyId),
     byStatusIdx: index("automation_runs_status_idx").on(table.companyId, table.status, table.nextRunAt),
     correlationIdx: index("automation_runs_correlation_idx").on(table.companyId, table.correlationKey),
+    queueIdx: index("automation_runs_queue_idx").on(table.status, table.nextRunAt, table.executedAt),
   }),
 );
 
@@ -1439,6 +1505,7 @@ export const emailMessages = pgTable(
     byStatusIdx: index("email_messages_status_idx").on(table.companyId, table.status, table.queuedAt),
     byCampaignIdx: index("email_messages_campaign_idx").on(table.campaignId, table.createdAt),
     byRunIdx: index("email_messages_run_idx").on(table.automationRunId, table.createdAt),
+    byProviderMessageIdIdx: index("email_messages_provider_message_id_idx").on(table.providerMessageId),
   }),
 );
 
@@ -1626,6 +1693,8 @@ export const conversationStates = pgTable(
     sessionKeyUnique: uniqueIndex("conversation_states_session_key_unique").on(table.companyId, table.sessionKey),
     byConversationIdx: index("conversation_states_conversation_idx").on(table.socialConversationId, table.updatedAt),
     byStatusIdx: index("conversation_states_status_idx").on(table.companyId, table.status, table.expiresAt),
+    activeExpiresIdx: index("conversation_states_active_expires_idx").on(table.status, table.expiresAt),
+    byAutomationRunIdx: index("conversation_states_automation_run_idx").on(table.automationRunId),
   }),
 );
 
@@ -1805,6 +1874,11 @@ export const documents = pgTable(
     byCompanyIdx: index("documents_company_idx").on(table.companyId, table.createdAt),
     byEntityIdx: index("documents_entity_idx").on(table.companyId, table.entityType, table.entityId),
     byFolderIdx: index("documents_folder_idx").on(table.companyId, table.folder),
+    byCompanyDeletedCreatedIdx: index("documents_company_deleted_created_idx").on(
+      table.companyId,
+      table.deletedAt,
+      table.createdAt,
+    ),
   }),
 );
 
@@ -2191,6 +2265,7 @@ export const sequenceEnrollments = pgTable(
   (table) => ({
     companyStatusIdx: index("sequence_enrollments_company_status_idx").on(table.companyId, table.status, table.nextRunAt),
     targetIdx: index("sequence_enrollments_target_idx").on(table.companyId, table.leadId, table.customerId),
+    queueIdx: index("sequence_enrollments_queue_idx").on(table.status, table.nextRunAt),
   }),
 );
 
