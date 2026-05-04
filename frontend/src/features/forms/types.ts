@@ -40,6 +40,7 @@ export type FormDefinition = {
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
   publicUrl: string;
   embedSnippet: string;
 };

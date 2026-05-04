@@ -1,9 +1,9 @@
-import { and, count, desc, eq, ilike, isNull } from "drizzle-orm";
+import { and, count, desc, eq, ilike, isNotNull, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { templates } from "@/db/schema";
+import { campaigns, templates } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { AppError } from "@/lib/errors";
 import { templateParamSchema } from "@/modules/templates/schema";
@@ -20,7 +20,10 @@ export async function listTemplates(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const query = c.get("validatedQuery") as ListTemplatesQuery;
 
-  const conditions = [eq(templates.companyId, tenant.companyId), isNull(templates.deletedAt)];
+  const conditions = [
+    eq(templates.companyId, tenant.companyId),
+    query.lifecycle === "deleted" ? isNotNull(templates.deletedAt) : isNull(templates.deletedAt),
+  ];
   if (query.q) {
     conditions.push(ilike(templates.name, `%${query.q}%`));
   }
@@ -110,4 +113,51 @@ export async function deleteTemplate(c: Context<AppEnv>) {
   }
 
   return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function restoreTemplate(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = templateParamSchema.parse(c.req.param());
+
+  const [restored] = await db
+    .update(templates)
+    .set({
+      deletedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(templates.id, params.templateId), eq(templates.companyId, tenant.companyId), isNotNull(templates.deletedAt)))
+    .returning({ id: templates.id });
+
+  if (!restored) {
+    throw AppError.notFound("Deleted template not found");
+  }
+
+  return ok(c, { restored: true, id: restored.id });
+}
+
+export async function permanentlyDeleteTemplate(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = templateParamSchema.parse(c.req.param());
+
+  const [template] = await db
+    .select({ id: templates.id })
+    .from(templates)
+    .where(and(eq(templates.id, params.templateId), eq(templates.companyId, tenant.companyId), isNotNull(templates.deletedAt)))
+    .limit(1);
+
+  if (!template) {
+    throw AppError.notFound("Deleted template not found");
+  }
+
+  await db
+    .update(campaigns)
+    .set({ templateId: null, updatedAt: new Date() })
+    .where(and(eq(campaigns.companyId, tenant.companyId), eq(campaigns.templateId, template.id)));
+
+  const [deleted] = await db
+    .delete(templates)
+    .where(and(eq(templates.id, params.templateId), eq(templates.companyId, tenant.companyId), isNotNull(templates.deletedAt)))
+    .returning({ id: templates.id });
+
+  return ok(c, { deleted: true, permanent: true, id: deleted.id });
 }

@@ -5,6 +5,7 @@ export const templateTypeSchema = z.enum(["email", "whatsapp", "sms", "task", "p
 export const listTemplatesSchema = z.object({
   q: z.string().trim().optional(),
   type: templateTypeSchema.optional(),
+  lifecycle: z.enum(["active", "deleted"]).default("active"),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });

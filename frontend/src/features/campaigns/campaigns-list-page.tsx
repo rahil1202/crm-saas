@@ -11,6 +11,7 @@ import {
   CrmDataTable,
   CrmFilterDrawer,
   CrmListPageHeader,
+  CrmModalShell,
   CrmListToolbar,
   CrmListViewTabs,
   CrmPaginationBar,
@@ -65,6 +66,7 @@ interface Campaign {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
 }
 
 interface CampaignListResponse {
@@ -83,6 +85,7 @@ interface Template {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
 }
 
 interface TemplateListResponse {
@@ -96,6 +99,7 @@ type CampaignFilters = {
   q: string;
   status: string;
   templateType: string;
+  lifecycle: string;
 };
 
 type CampaignFilterKey = keyof CampaignFilters;
@@ -115,6 +119,7 @@ const emptyFilters: CampaignFilters = {
   q: "",
   status: "",
   templateType: "",
+  lifecycle: "active",
 };
 
 const defaultCampaignColumnVisibility: Record<CampaignColumnKey, boolean> = {
@@ -190,6 +195,7 @@ function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): Camp
     q: params.get("q") ?? "",
     status: params.get("status") ?? "",
     templateType: params.get("templateType") ?? "",
+    lifecycle: params.get("lifecycle") ?? "active",
   };
 }
 
@@ -197,6 +203,7 @@ function writeFiltersToSearchParams(params: URLSearchParams, filters: CampaignFi
   if (filters.q.trim()) params.set("q", filters.q.trim());
   if (filters.status.trim()) params.set("status", filters.status.trim());
   if (filters.templateType.trim()) params.set("templateType", filters.templateType.trim());
+  if (filters.lifecycle.trim() && filters.lifecycle !== "active") params.set("lifecycle", filters.lifecycle.trim());
 }
 
 function normalizeCampaignSortKey(value: string | null): CampaignSortKey {
@@ -221,6 +228,7 @@ function getFilterChips(filters: CampaignFilters) {
   if (filters.q.trim()) chips.push({ key: "q", label: "Search", value: filters.q.trim() });
   if (filters.status.trim()) chips.push({ key: "status", label: "Status", value: filters.status.trim() });
   if (filters.templateType.trim()) chips.push({ key: "templateType", label: "Template Type", value: filters.templateType.trim() });
+  if (filters.lifecycle.trim() && filters.lifecycle !== "active") chips.push({ key: "lifecycle", label: "Record State", value: filters.lifecycle.trim() });
   return chips;
 }
 
@@ -280,6 +288,8 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ type: "softDeleteCampaign" | "permanentDeleteCampaign" | "softDeleteTemplate" | "permanentDeleteTemplate"; id: string; label: string } | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -334,7 +344,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
   const activeFilterChips = useMemo(
     () =>
       getFilterChips(filters).filter((chip) =>
-        effectiveTab === "documents" ? chip.key === "q" || chip.key === "templateType" : chip.key !== "templateType",
+        effectiveTab === "documents" ? chip.key === "q" || chip.key === "templateType" || chip.key === "lifecycle" : chip.key !== "templateType",
       ),
     [effectiveTab, filters],
   );
@@ -354,6 +364,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
     params.set("offset", String((page - 1) * limit));
     if (filters.q.trim()) params.set("q", filters.q.trim());
     if (filters.status.trim()) params.set("status", filters.status.trim());
+    if (filters.lifecycle.trim()) params.set("lifecycle", filters.lifecycle.trim());
     if (effectiveTab === "mine" && myUserId) params.set("createdBy", myUserId);
 
     try {
@@ -366,7 +377,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
     } finally {
       setLoading(false);
     }
-  }, [effectiveTab, filters.q, filters.status, limit, myUserId, page]);
+  }, [effectiveTab, filters.lifecycle, filters.q, filters.status, limit, myUserId, page]);
 
   const loadTemplates = useCallback(async () => {
     setLoading(true);
@@ -377,6 +388,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
     params.set("offset", String((page - 1) * limit));
     if (filters.q.trim()) params.set("q", filters.q.trim());
     if (filters.templateType.trim()) params.set("type", filters.templateType.trim());
+    if (filters.lifecycle.trim()) params.set("lifecycle", filters.lifecycle.trim());
 
     try {
       const response = await apiRequest<TemplateListResponse>(`/templates/list?${params.toString()}`);
@@ -387,7 +399,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
     } finally {
       setLoading(false);
     }
-  }, [filters.q, filters.templateType, limit, page]);
+  }, [filters.lifecycle, filters.q, filters.templateType, limit, page]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -502,10 +514,10 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
     setError(null);
     try {
       await apiRequest(`/campaigns/${campaignId}`, { method: "DELETE", body: JSON.stringify({}) });
-      toast.success("Campaign deleted");
+      toast.success("Campaign moved to trash");
       await loadCampaigns();
     } catch (requestError) {
-      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete campaign";
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to move campaign to trash";
       setError(message);
       toast.error(message);
     }
@@ -515,10 +527,62 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
     setError(null);
     try {
       await apiRequest(`/templates/${templateId}`, { method: "DELETE", body: JSON.stringify({}) });
-      toast.success("Template deleted");
+      toast.success("Template moved to trash");
       await loadTemplates();
     } catch (requestError) {
-      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete template";
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to move template to trash";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const restoreCampaign = async (campaignId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/campaigns/${campaignId}/restore`, { method: "POST", body: JSON.stringify({}) });
+      toast.success("Campaign restored");
+      await loadCampaigns();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to restore campaign";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const restoreTemplate = async (templateId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/templates/${templateId}/restore`, { method: "POST", body: JSON.stringify({}) });
+      toast.success("Template restored");
+      await loadTemplates();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to restore template";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const permanentlyDeleteCampaign = async (campaignId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/campaigns/${campaignId}/permanent`, { method: "DELETE" });
+      toast.success("Campaign deleted permanently");
+      await loadCampaigns();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete campaign permanently";
+      setError(message);
+      toast.error(message);
+    }
+  };
+
+  const permanentlyDeleteTemplate = async (templateId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/templates/${templateId}/permanent`, { method: "DELETE" });
+      toast.success("Template deleted permanently");
+      await loadTemplates();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete template permanently";
       setError(message);
       toast.error(message);
     }
@@ -533,6 +597,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
       params.set("offset", String(nextOffset));
       if (filters.q.trim()) params.set("q", filters.q.trim());
       if (filters.status.trim()) params.set("status", filters.status.trim());
+      if (filters.lifecycle.trim()) params.set("lifecycle", filters.lifecycle.trim());
       if (effectiveTab === "mine" && myUserId) params.set("createdBy", myUserId);
       const response = await apiRequest<CampaignListResponse>(`/campaigns/list?${params.toString()}`, { skipCache: true });
       items.push(...response.items);
@@ -540,7 +605,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
       if (response.items.length === 0 || nextOffset >= response.total) break;
     }
     return items;
-  }, [effectiveTab, filters.q, filters.status, myUserId]);
+  }, [effectiveTab, filters.lifecycle, filters.q, filters.status, myUserId]);
 
   const loadAllTemplatesForExport = useCallback(async () => {
     const items: Template[] = [];
@@ -551,13 +616,14 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
       params.set("offset", String(nextOffset));
       if (filters.q.trim()) params.set("q", filters.q.trim());
       if (filters.templateType.trim()) params.set("type", filters.templateType.trim());
+      if (filters.lifecycle.trim()) params.set("lifecycle", filters.lifecycle.trim());
       const response = await apiRequest<TemplateListResponse>(`/templates/list?${params.toString()}`, { skipCache: true });
       items.push(...response.items);
       nextOffset += response.items.length;
       if (response.items.length === 0 || nextOffset >= response.total) break;
     }
     return items;
-  }, [filters.q, filters.templateType]);
+  }, [filters.lifecycle, filters.q, filters.templateType]);
 
   const handleExport = async () => {
     try {
@@ -665,9 +731,20 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
               header: "Actions",
               renderCell: (template) => (
                 <div className="flex justify-end gap-2">
-                  <Button type="button" variant="ghost" size="xs" className="text-rose-600 hover:text-rose-700" onClick={() => void deleteTemplate(template.id)}>
-                    <Trash2 className="size-3.5" /> Delete
-                  </Button>
+                  {filters.lifecycle === "deleted" ? (
+                    <>
+                      <Button type="button" variant="outline" size="xs" onClick={() => void restoreTemplate(template.id)}>
+                        Restore
+                      </Button>
+                      <Button type="button" variant="ghost" size="xs" className="text-rose-600 hover:text-rose-700" onClick={() => setPendingAction({ type: "permanentDeleteTemplate", id: template.id, label: template.name })}>
+                        Delete permanently
+                      </Button>
+                    </>
+                  ) : (
+                    <Button type="button" variant="ghost" size="xs" className="text-rose-600 hover:text-rose-700" onClick={() => setPendingAction({ type: "softDeleteTemplate", id: template.id, label: template.name })}>
+                      <Trash2 className="size-3.5" /> Delete
+                    </Button>
+                  )}
                 </div>
               ),
             }}
@@ -691,18 +768,31 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
               header: "Actions",
               renderCell: (campaign) => (
                 <div className="flex flex-wrap justify-end gap-2">
-                  {campaign.status === "active" ? (
-                    <Button type="button" variant="outline" size="xs" onClick={() => void updateCampaignStatus(campaign.id, "paused")}>
-                      Pause
-                    </Button>
-                  ) : campaign.status !== "completed" ? (
-                    <Button type="button" variant="outline" size="xs" onClick={() => void launchCampaign(campaign.id)}>
-                      <Play className="size-3.5" /> Launch
-                    </Button>
-                  ) : null}
-                  <Button type="button" variant="ghost" size="xs" className="text-rose-600 hover:text-rose-700" onClick={() => void deleteCampaign(campaign.id)}>
-                    <Trash2 className="size-3.5" /> Delete
-                  </Button>
+                  {filters.lifecycle === "deleted" ? (
+                    <>
+                      <Button type="button" variant="outline" size="xs" onClick={() => void restoreCampaign(campaign.id)}>
+                        Restore
+                      </Button>
+                      <Button type="button" variant="ghost" size="xs" className="text-rose-600 hover:text-rose-700" onClick={() => setPendingAction({ type: "permanentDeleteCampaign", id: campaign.id, label: campaign.name })}>
+                        Delete permanently
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {campaign.status === "active" ? (
+                        <Button type="button" variant="outline" size="xs" onClick={() => void updateCampaignStatus(campaign.id, "paused")}>
+                          Pause
+                        </Button>
+                      ) : campaign.status !== "completed" ? (
+                        <Button type="button" variant="outline" size="xs" onClick={() => void launchCampaign(campaign.id)}>
+                          <Play className="size-3.5" /> Launch
+                        </Button>
+                      ) : null}
+                      <Button type="button" variant="ghost" size="xs" className="text-rose-600 hover:text-rose-700" onClick={() => setPendingAction({ type: "softDeleteCampaign", id: campaign.id, label: campaign.name })}>
+                        <Trash2 className="size-3.5" /> Delete
+                      </Button>
+                    </>
+                  )}
                 </div>
               ),
             }}
@@ -767,6 +857,17 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
                   <option value="pipeline">Pipeline</option>
                 </NativeSelect>
               </Field>
+              <Field>
+                <FieldLabel>Record State</FieldLabel>
+                <NativeSelect
+                  value={filterDraft.lifecycle}
+                  onChange={(event) => setFilterDraft((current) => ({ ...current, lifecycle: event.target.value }))}
+                  className="h-10 rounded-xl px-3 text-sm"
+                >
+                  <option value="active">Active</option>
+                  <option value="deleted">Deleted</option>
+                </NativeSelect>
+              </Field>
             </div>
           ) : (
             <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
@@ -786,10 +887,63 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
                   ))}
                 </NativeSelect>
               </Field>
+              <Field>
+                <FieldLabel>Record State</FieldLabel>
+                <NativeSelect
+                  value={filterDraft.lifecycle}
+                  onChange={(event) => setFilterDraft((current) => ({ ...current, lifecycle: event.target.value }))}
+                  className="h-10 rounded-xl px-3 text-sm"
+                >
+                  <option value="active">Active</option>
+                  <option value="deleted">Deleted</option>
+                </NativeSelect>
+              </Field>
             </div>
           )}
         </div>
       </CrmFilterDrawer>
+
+      {pendingAction ? (
+        <CrmModalShell
+          open
+          title={pendingAction.type.startsWith("permanent") ? "Delete Permanently" : "Move To Trash"}
+          description={pendingAction.type.startsWith("permanent") ? `${pendingAction.label} will be deleted permanently.` : `${pendingAction.label} will be removed from active records.`}
+          onClose={() => !actionLoading && setPendingAction(null)}
+          maxWidthClassName="max-w-xl"
+        >
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">
+              {pendingAction.type.startsWith("permanent")
+                ? "This action cannot be undone."
+                : "You can restore this record later from the deleted filter."}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={actionLoading}
+                onClick={async () => {
+                  setActionLoading(true);
+                  try {
+                    if (pendingAction.type === "softDeleteCampaign") await deleteCampaign(pendingAction.id);
+                    if (pendingAction.type === "permanentDeleteCampaign") await permanentlyDeleteCampaign(pendingAction.id);
+                    if (pendingAction.type === "softDeleteTemplate") await deleteTemplate(pendingAction.id);
+                    if (pendingAction.type === "permanentDeleteTemplate") await permanentlyDeleteTemplate(pendingAction.id);
+                    setPendingAction(null);
+                  } finally {
+                    setActionLoading(false);
+                  }
+                }}
+              >
+                {actionLoading ? "Working..." : pendingAction.type.startsWith("permanent") ? "Delete permanently" : "Move to trash"}
+              </Button>
+              <Button type="button" variant="destructive" onClick={() => setPendingAction(null)} disabled={actionLoading}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </CrmModalShell>
+      ) : null}
 
       <CrmColumnSettings
         open={columnSettingsOpen && effectiveTab !== "documents"}

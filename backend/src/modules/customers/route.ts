@@ -8,7 +8,9 @@ import {
   importCustomers,
   importCustomersFromCsv,
   listCustomers,
+  permanentlyDeleteCustomer,
   previewCustomerImport,
+  restoreCustomer,
   updateCustomer,
 } from "@/modules/customers/controller";
 import { createCustomerSchema, importCustomerCsvSchema, listCustomersSchema, updateCustomerSchema } from "@/modules/customers/schema";
@@ -26,3 +28,5 @@ customerRoutes.post("/import-preview", previewCustomerImport);
 customerRoutes.post("/import", importCustomers);
 customerRoutes.patch("/:customerId", validateJson(updateCustomerSchema), updateCustomer);
 customerRoutes.delete("/:customerId", deleteCustomer);
+customerRoutes.post("/:customerId/restore", restoreCustomer);
+customerRoutes.delete("/:customerId/permanent", permanentlyDeleteCustomer);

@@ -44,6 +44,7 @@ interface Customer {
   assignedToUserId: string | null;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
   tags?: string[];
   notes?: string | null;
 }
@@ -135,7 +136,7 @@ type CustomerQuickUpdateFormState = {
   callStatus: string;
 };
 
-type ModalMode = "create" | "import" | "edit" | "delete" | "export" | "filter" | "quickUpdate" | null;
+type ModalMode = "create" | "import" | "edit" | "delete" | "permanentDelete" | "export" | "filter" | "quickUpdate" | null;
 type ImportMode = "paste" | "sheet" | "pdf";
 type CustomerColumnKey =
   | "name"
@@ -171,6 +172,7 @@ type CustomerFilters = {
   phone: string;
   createdFrom: string;
   createdTo: string;
+  lifecycle: string;
   documentFolder: string;
 };
 
@@ -248,6 +250,7 @@ const emptyCustomerFilters: CustomerFilters = {
   phone: "",
   createdFrom: "",
   createdTo: "",
+  lifecycle: "active",
   documentFolder: "",
 };
 
@@ -487,6 +490,7 @@ function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): Cust
     phone: params.get("phone") ?? "",
     createdFrom: params.get("createdFrom") ?? "",
     createdTo: params.get("createdTo") ?? "",
+    lifecycle: params.get("lifecycle") ?? "active",
     documentFolder: params.get("documentFolder") ?? "",
   };
 }
@@ -503,6 +507,7 @@ function writeFiltersToSearchParams(params: URLSearchParams, filters: CustomerFi
   if (filters.phone.trim()) params.set("phone", filters.phone.trim());
   if (filters.createdFrom.trim()) params.set("createdFrom", filters.createdFrom.trim());
   if (filters.createdTo.trim()) params.set("createdTo", filters.createdTo.trim());
+  if (filters.lifecycle.trim() && filters.lifecycle !== "active") params.set("lifecycle", filters.lifecycle.trim());
   if (filters.documentFolder.trim()) params.set("documentFolder", filters.documentFolder.trim());
 }
 
@@ -520,6 +525,7 @@ function getCustomerFilterChips(filters: CustomerFilters): CustomerFilterChip[] 
   if (filters.phone.trim()) chips.push({ key: "phone", label: "Phone", value: filters.phone.trim() });
   if (filters.createdFrom.trim()) chips.push({ key: "createdFrom", label: "Created From", value: filters.createdFrom.trim() });
   if (filters.createdTo.trim()) chips.push({ key: "createdTo", label: "Created To", value: filters.createdTo.trim() });
+  if (filters.lifecycle.trim() && filters.lifecycle !== "active") chips.push({ key: "lifecycle", label: "Record State", value: filters.lifecycle.trim() });
   if (filters.documentFolder.trim()) chips.push({ key: "documentFolder", label: "Folder", value: filters.documentFolder.trim() });
 
   return chips;
@@ -761,6 +767,7 @@ export default function CustomersPage() {
     if (filters.phone.trim()) params.set("phone", filters.phone.trim());
     if (filters.createdFrom.trim()) params.set("createdFrom", filters.createdFrom.trim());
     if (filters.createdTo.trim()) params.set("createdTo", filters.createdTo.trim());
+    if (filters.lifecycle.trim()) params.set("lifecycle", filters.lifecycle.trim());
     if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
     params.set("sortBy", sortBy);
     params.set("sortDir", sortDir);
@@ -1034,11 +1041,41 @@ export default function CustomersPage() {
     try {
       await apiRequest(`/customers/${selectedCustomer.id}`, { method: "DELETE" });
       setCustomers((current) => current.filter((item) => item.id !== selectedCustomer.id));
-      toast.success("Contact deleted.");
+      toast.success("Contact moved to trash.");
       closeModal();
       await loadCustomers();
     } catch (caughtError) {
-      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to delete contact.");
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to move contact to trash.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleRestore = async (customer: Customer) => {
+    setDeletingId(customer.id);
+    setError(null);
+    try {
+      await apiRequest(`/customers/${customer.id}/restore`, { method: "POST", body: JSON.stringify({}) });
+      toast.success("Contact restored.");
+      await loadCustomers();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to restore contact.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handlePermanentDelete = async () => {
+    if (!selectedCustomer) return;
+    setDeletingId(selectedCustomer.id);
+    setError(null);
+    try {
+      await apiRequest(`/customers/${selectedCustomer.id}/permanent`, { method: "DELETE" });
+      toast.success("Contact deleted permanently.");
+      closeModal();
+      await loadCustomers();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to delete contact permanently.");
     } finally {
       setDeletingId(null);
     }
@@ -1330,21 +1367,43 @@ export default function CustomersPage() {
               header: "Actions",
               renderCell: (record) => (
                 <div className="flex justify-end gap-1.5">
-                  <Button type="button" size="xs" variant="outline" onClick={() => openEdit(record)}>
-                    <PencilLine className="size-3.5" /> Edit
-                  </Button>
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="ghost"
-                    disabled={deletingId === record.id}
-                    onClick={() => {
-                      setSelectedCustomer(record);
-                      setModalMode("delete");
-                    }}
-                  >
-                    <Trash2 className="size-3.5" /> Delete
-                  </Button>
+                  {filters.lifecycle === "deleted" ? (
+                    <>
+                      <Button type="button" size="xs" variant="outline" disabled={deletingId === record.id} onClick={() => void handleRestore(record)}>
+                        Restore
+                      </Button>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="ghost"
+                        disabled={deletingId === record.id}
+                        onClick={() => {
+                          setSelectedCustomer(record);
+                          setModalMode("permanentDelete");
+                        }}
+                      >
+                        Delete permanently
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button type="button" size="xs" variant="outline" onClick={() => openEdit(record)}>
+                        <PencilLine className="size-3.5" /> Edit
+                      </Button>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="ghost"
+                        disabled={deletingId === record.id}
+                        onClick={() => {
+                          setSelectedCustomer(record);
+                          setModalMode("delete");
+                        }}
+                      >
+                        <Trash2 className="size-3.5" /> Delete
+                      </Button>
+                    </>
+                  )}
                 </div>
               ),
             }}
@@ -1780,6 +1839,13 @@ export default function CustomersPage() {
                   <FieldLabel>Phone</FieldLabel>
                   <Input value={filterDraft.phone} onChange={(event) => setFilterDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="Search mobile or work number" className="h-10 text-sm" />
                 </Field>
+                <Field>
+                  <FieldLabel>Record State</FieldLabel>
+                  <NativeSelect value={filterDraft.lifecycle} onChange={(event) => setFilterDraft((current) => ({ ...current, lifecycle: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                    <option value="active">Active</option>
+                    <option value="deleted">Deleted</option>
+                  </NativeSelect>
+                </Field>
               </div>
 
               <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
@@ -2001,12 +2067,28 @@ export default function CustomersPage() {
       ) : null}
 
       {modalMode === "delete" && selectedCustomer ? (
-        <CrmModalShell open title="Delete Contact" description={`Remove ${selectedCustomer.fullName} from the workspace.`} onClose={closeModal} maxWidthClassName="max-w-xl">
+        <CrmModalShell open title="Move Contact To Trash" description={`${selectedCustomer.fullName} will be removed from active records.`} onClose={closeModal} maxWidthClassName="max-w-xl">
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">You can restore this contact later from the deleted filter.</p>
+            <div className="flex gap-2">
+              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedCustomer.id}>
+                {deletingId === selectedCustomer.id ? "Moving..." : "Move to trash"}
+              </Button>
+              <Button type="button" variant="destructive" onClick={closeModal}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </CrmModalShell>
+      ) : null}
+
+      {modalMode === "permanentDelete" && selectedCustomer ? (
+        <CrmModalShell open title="Delete Contact Permanently" description={`${selectedCustomer.fullName} will be removed permanently.`} onClose={closeModal} maxWidthClassName="max-w-xl">
           <div className="grid gap-3">
             <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
             <div className="flex gap-2">
-              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedCustomer.id}>
-                {deletingId === selectedCustomer.id ? "Deleting..." : "Delete"}
+              <Button type="button" variant="destructive" onClick={() => void handlePermanentDelete()} disabled={deletingId === selectedCustomer.id}>
+                {deletingId === selectedCustomer.id ? "Deleting..." : "Delete permanently"}
               </Button>
               <Button type="button" variant="destructive" onClick={closeModal}>
                 Cancel

@@ -31,6 +31,7 @@ export const listCustomersSchema = z.object({
   phone: z.string().trim().optional(),
   createdFrom: isoDateSchema.optional(),
   createdTo: isoDateSchema.optional(),
+  lifecycle: z.enum(["active", "deleted"]).default("active"),
   sortBy: z.enum(customerSortFields).default("updatedAt"),
   sortDir: z.enum(["asc", "desc"]).default("desc"),
   limit: z.coerce.number().int().min(1).max(100).default(20),

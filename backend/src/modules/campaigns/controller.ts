@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ilike, inArray, isNull } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
@@ -97,7 +97,10 @@ export async function listCampaigns(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const query = c.get("validatedQuery") as ListCampaignsQuery;
 
-  const conditions = [eq(campaigns.companyId, tenant.companyId), isNull(campaigns.deletedAt)];
+  const conditions = [
+    eq(campaigns.companyId, tenant.companyId),
+    query.lifecycle === "deleted" ? isNotNull(campaigns.deletedAt) : isNull(campaigns.deletedAt),
+  ];
   if (query.q) {
     conditions.push(ilike(campaigns.name, `%${query.q}%`));
   }
@@ -250,6 +253,42 @@ export async function deleteCampaign(c: Context<AppEnv>) {
   }
 
   return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function restoreCampaign(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = campaignParamSchema.parse(c.req.param());
+
+  const [restored] = await db
+    .update(campaigns)
+    .set({
+      deletedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(campaigns.id, params.campaignId), eq(campaigns.companyId, tenant.companyId), isNotNull(campaigns.deletedAt)))
+    .returning({ id: campaigns.id });
+
+  if (!restored) {
+    throw AppError.notFound("Deleted campaign not found");
+  }
+
+  return ok(c, { restored: true, id: restored.id });
+}
+
+export async function permanentlyDeleteCampaign(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = campaignParamSchema.parse(c.req.param());
+
+  const [deleted] = await db
+    .delete(campaigns)
+    .where(and(eq(campaigns.id, params.campaignId), eq(campaigns.companyId, tenant.companyId), isNotNull(campaigns.deletedAt)))
+    .returning({ id: campaigns.id });
+
+  if (!deleted) {
+    throw AppError.notFound("Deleted campaign not found");
+  }
+
+  return ok(c, { deleted: true, permanent: true, id: deleted.id });
 }
 
 export async function listEmailAccounts(c: Context<AppEnv>) {

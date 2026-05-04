@@ -41,7 +41,7 @@ import type { DocumentItem, DocumentListResponse } from "@/features/documents/ty
 
 type LeadStatus = "new" | "qualified" | "proposal" | "won" | "lost";
 type SortDirection = "asc" | "desc";
-type ModalMode = "create" | "edit" | "delete" | "import" | "filter" | null;
+type ModalMode = "create" | "edit" | "delete" | "permanentDelete" | "import" | "filter" | null;
 type LeadSortKey =
   | "id"
   | "title"
@@ -72,6 +72,7 @@ interface Lead {
   tags: string[];
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
 }
 
 interface ListLeadResponse {
@@ -112,6 +113,7 @@ type LeadFilters = {
   q: string;
   source: string;
   status: string;
+  lifecycle: string;
   email: string;
   phone: string;
   documentFolder: string;
@@ -149,6 +151,7 @@ const emptyFilters: LeadFilters = {
   q: "",
   source: "",
   status: "",
+  lifecycle: "active",
   email: "",
   phone: "",
   documentFolder: "",
@@ -271,6 +274,7 @@ function getFilterChips(filters: LeadFilters) {
   if (filters.q.trim()) chips.push({ key: "q", label: "Search", value: filters.q.trim() });
   if (filters.source.trim()) chips.push({ key: "source", label: "Source", value: filters.source.trim() });
   if (filters.status.trim()) chips.push({ key: "status", label: "Lead Status", value: filters.status.trim() });
+  if (filters.lifecycle.trim() && filters.lifecycle !== "active") chips.push({ key: "lifecycle", label: "Record State", value: filters.lifecycle.trim() });
   if (filters.email.trim()) chips.push({ key: "email", label: "Email", value: filters.email.trim() });
   if (filters.phone.trim()) chips.push({ key: "phone", label: "Phone", value: filters.phone.trim() });
   if (filters.documentFolder.trim()) chips.push({ key: "documentFolder", label: "Folder", value: filters.documentFolder.trim() });
@@ -283,6 +287,7 @@ function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): Lead
     q: params.get("q") ?? "",
     source: params.get("source") ?? "",
     status: params.get("status") ?? "",
+    lifecycle: params.get("lifecycle") ?? "active",
     email: params.get("email") ?? "",
     phone: params.get("phone") ?? "",
     documentFolder: params.get("documentFolder") ?? "",
@@ -293,6 +298,7 @@ function writeFiltersToSearchParams(params: URLSearchParams, filters: LeadFilter
   if (filters.q.trim()) params.set("q", filters.q.trim());
   if (filters.source.trim()) params.set("source", filters.source.trim());
   if (filters.status.trim()) params.set("status", filters.status.trim());
+  if (filters.lifecycle.trim() && filters.lifecycle !== "active") params.set("lifecycle", filters.lifecycle.trim());
   if (filters.email.trim()) params.set("email", filters.email.trim());
   if (filters.phone.trim()) params.set("phone", filters.phone.trim());
   if (filters.documentFolder.trim()) params.set("documentFolder", filters.documentFolder.trim());
@@ -454,6 +460,7 @@ export default function LeadsPage() {
     const params = new URLSearchParams();
     if (filters.q.trim()) params.set("q", filters.q.trim());
     if (filters.status.trim()) params.set("status", filters.status.trim());
+    if (filters.lifecycle.trim()) params.set("lifecycle", filters.lifecycle.trim());
     if (filters.source.trim()) params.set("source", filters.source.trim());
     if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
     params.set("limit", String(limit));
@@ -566,6 +573,11 @@ export default function LeadsPage() {
     setModalMode("delete");
   };
 
+  const openPermanentDeleteModal = (lead: Lead) => {
+    setSelectedLead(lead);
+    setModalMode("permanentDelete");
+  };
+
   const handleSort = (key: LeadSortKey) => {
     requestSort(key, key === "createdAt" || key === "updatedAt" ? "desc" : "asc");
   };
@@ -635,11 +647,53 @@ export default function LeadsPage() {
       await apiRequest(`/leads/${selectedLead.id}`, {
         method: "DELETE",
       });
-      toast.success("Lead deleted");
+      toast.success("Lead moved to trash");
       closeModal();
       await loadLeads();
     } catch (requestError) {
-      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete lead";
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to move lead to trash";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleRestore = async (lead: Lead) => {
+    setDeletingId(lead.id);
+    setError(null);
+
+    try {
+      await apiRequest(`/leads/${lead.id}/restore`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      toast.success("Lead restored");
+      await loadLeads();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to restore lead";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handlePermanentDelete = async () => {
+    if (!selectedLead) return;
+
+    setDeletingId(selectedLead.id);
+    setError(null);
+
+    try {
+      await apiRequest(`/leads/${selectedLead.id}/permanent`, {
+        method: "DELETE",
+      });
+      toast.success("Lead deleted permanently");
+      closeModal();
+      await loadLeads();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete lead permanently";
       setError(message);
       toast.error(message);
     } finally {
@@ -887,7 +941,7 @@ export default function LeadsPage() {
             void loadLeads();
           }}
           extraContent={
-            tab !== "documents" ? (
+            tab !== "documents" && filters.lifecycle !== "deleted" ? (
               <>
                 <div className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2">
                   <Checkbox
@@ -944,12 +998,25 @@ export default function LeadsPage() {
               header: "Actions",
               renderCell: (lead) => (
                 <div className="flex items-center gap-2">
-                  <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => openEditModal(lead)}>
-                    <PencilLine className="size-4" />
-                  </Button>
-                  <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg text-rose-600 hover:text-rose-700" onClick={() => openDeleteModal(lead)}>
-                    <Trash2 className="size-4" />
-                  </Button>
+                  {filters.lifecycle === "deleted" ? (
+                    <>
+                      <Button type="button" variant="ghost" size="sm" className="rounded-lg" onClick={() => void handleRestore(lead)} disabled={deletingId === lead.id}>
+                        Restore
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="rounded-lg text-rose-600 hover:text-rose-700" onClick={() => openPermanentDeleteModal(lead)} disabled={deletingId === lead.id}>
+                        Delete permanently
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => openEditModal(lead)}>
+                        <PencilLine className="size-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg text-rose-600 hover:text-rose-700" onClick={() => openDeleteModal(lead)}>
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               ),
             }}
@@ -1088,12 +1155,28 @@ export default function LeadsPage() {
       ) : null}
 
       {modalMode === "delete" && selectedLead ? (
-        <CrmModalShell open title="Delete Lead" description={`Remove ${selectedLead.title} from the workspace.`} onClose={closeModal} maxWidthClassName="max-w-xl">
+        <CrmModalShell open title="Move Lead To Trash" description={`${selectedLead.title} will be removed from active records.`} onClose={closeModal} maxWidthClassName="max-w-xl">
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">You can restore this lead later from the deleted filter.</p>
+            <div className="flex gap-2">
+              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedLead.id}>
+                {deletingId === selectedLead.id ? "Moving..." : "Move to trash"}
+              </Button>
+              <Button type="button" variant="destructive" onClick={closeModal}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </CrmModalShell>
+      ) : null}
+
+      {modalMode === "permanentDelete" && selectedLead ? (
+        <CrmModalShell open title="Delete Lead Permanently" description={`${selectedLead.title} will be removed permanently.`} onClose={closeModal} maxWidthClassName="max-w-xl">
           <div className="grid gap-3">
             <p className="text-sm text-muted-foreground">This action cannot be undone.</p>
             <div className="flex gap-2">
-              <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedLead.id}>
-                {deletingId === selectedLead.id ? "Deleting..." : "Delete"}
+              <Button type="button" variant="destructive" onClick={() => void handlePermanentDelete()} disabled={deletingId === selectedLead.id}>
+                {deletingId === selectedLead.id ? "Deleting..." : "Delete permanently"}
               </Button>
               <Button type="button" variant="destructive" onClick={closeModal}>
                 Cancel
@@ -1160,6 +1243,13 @@ export default function LeadsPage() {
                       {status}
                     </option>
                   ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>Record State</FieldLabel>
+                <NativeSelect value={filterDraft.lifecycle} onChange={(event) => setFilterDraft((current) => ({ ...current, lifecycle: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                  <option value="active">Active</option>
+                  <option value="deleted">Deleted</option>
                 </NativeSelect>
               </Field>
             </div>

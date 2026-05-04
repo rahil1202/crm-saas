@@ -11,12 +11,13 @@ import {
   PencilLine,
   Phone,
   Plus,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { CrmDetailItem } from "@/components/crm/crm-detail-primitives";
-import { CrmModalShell } from "@/components/crm/crm-list-primitives";
+import { CrmConfirmDialog, CrmModalShell } from "@/components/crm/crm-list-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -397,6 +398,7 @@ export default function CustomerProfilePage() {
   const [savingContact, setSavingContact] = useState(false);
   const [savingDeal, setSavingDeal] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const loadProfile = useCallback(async () => {
     if (!customerId) return;
@@ -561,6 +563,21 @@ export default function CustomerProfilePage() {
     }
   }, [data, loadProfile, taskForm]);
 
+  const handleDelete = useCallback(async () => {
+    if (!data) return;
+    setSavingContact(true);
+    try {
+      await apiRequest(`/customers/${data.customer.id}`, { method: "DELETE" });
+      toast.success("Contact moved to trash.");
+      window.location.href = "/dashboard/contacts";
+    } catch (caughtError) {
+      toast.error(caughtError instanceof ApiError ? caughtError.message : "Unable to move contact to trash.");
+    } finally {
+      setSavingContact(false);
+      setDeleteOpen(false);
+    }
+  }, [data]);
+
   if (loading) {
     return <div className="rounded-[1.6rem] border border-dashed border-border/70 bg-white/70 px-5 py-4 text-sm text-muted-foreground">Loading contact profile...</div>;
   }
@@ -632,6 +649,10 @@ export default function CustomerProfilePage() {
           <div className="border-t border-slate-200/80 px-5 py-4">
             <div className="text-sm font-semibold text-slate-900">Summary</div>
             <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{fallback(details.title)}</div>
+            <Button type="button" variant="destructive" className="mt-3 w-full" onClick={() => setDeleteOpen(true)} disabled={savingContact}>
+              <Trash2 className="size-4" />
+              Delete
+            </Button>
           </div>
         </section>
       </aside>
@@ -955,6 +976,19 @@ export default function CustomerProfilePage() {
         </div>
       </OverlayModal>
     ) : null}
-    </>
+
+    <CrmConfirmDialog
+      open={deleteOpen}
+      title="Move Contact To Trash"
+      description={data ? `${data.customer.fullName} will be removed from active records.` : undefined}
+      warning="This moves the contact to the deleted view. You can restore it later from the contacts list."
+      confirmLabel="Move to trash"
+      submitting={savingContact}
+      onConfirm={() => void handleDelete()}
+      onCancel={() => {
+        if (!savingContact) setDeleteOpen(false);
+      }}
+    />
+  </>
   );
 }

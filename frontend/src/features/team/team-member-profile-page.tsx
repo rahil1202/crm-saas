@@ -267,7 +267,7 @@ export default function TeamMemberProfilePage() {
             <ArrowLeft className="size-4" /> Back To Teams
           </Link>
           <div className="mt-6 flex items-center gap-4">
-            <Avatar size="xl">
+            <Avatar size="lg">
               <AvatarFallback>{getInitials(member?.fullName?.trim() || member?.email || "TM")}</AvatarFallback>
             </Avatar>
             <div>

@@ -15,6 +15,7 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { HostedFormPreview } from "@/features/forms/form-builder-page";
 import type { FormDetailResponse, FormResponseListResponse } from "@/features/forms/types";
 import { cn } from "@/lib/utils";
+import { CrmConfirmDialog } from "@/components/crm/crm-list-primitives";
 
 function formatDate(value: string | null) {
   if (!value) return "—";
@@ -27,6 +28,8 @@ export default function FormDetailPage() {
   const [responses, setResponses] = useState<FormResponseListResponse["items"]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!params.formId) return;
@@ -51,6 +54,37 @@ export default function FormDetailPage() {
   }, [load]);
 
   const summary = useMemo(() => form?.stats ?? { submissions: 0, lastSubmissionAt: null, conversions: 0 }, [form]);
+
+  const handleArchiveToggle = useCallback(async () => {
+    if (!form) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      await apiRequest(`/forms/${form.id}/${form.status === "archived" ? "unarchive" : "archive"}`, { method: "POST", body: JSON.stringify({}) });
+      toast.success(form.status === "archived" ? "Form moved to draft." : "Form archived.");
+      await load();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to update form status.");
+    } finally {
+      setActionLoading(false);
+    }
+  }, [form, load]);
+
+  const handleDelete = useCallback(async () => {
+    if (!form) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      await apiRequest(`/forms/${form.id}`, { method: "DELETE" });
+      toast.success("Form moved to trash.");
+      window.location.href = "/dashboard/forms";
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to move form to trash.");
+    } finally {
+      setActionLoading(false);
+      setDeleteOpen(false);
+    }
+  }, [form]);
 
   if (loading) {
     return <div className="text-sm text-muted-foreground">Loading form detail...</div>;
@@ -77,6 +111,14 @@ export default function FormDetailPage() {
             <CardDescription>{form.description || "No internal description added."}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" disabled={actionLoading} onClick={() => void handleArchiveToggle()}>
+                {form.status === "archived" ? "Unarchive" : "Archive"}
+              </Button>
+              <Button type="button" variant="destructive" disabled={actionLoading} onClick={() => setDeleteOpen(true)}>
+                Delete
+              </Button>
+            </div>
             <div className="grid gap-2 text-sm text-slate-700">
               <div><span className="font-medium">Domain:</span> {form.websiteDomain ?? "—"}</div>
               <div><span className="font-medium">Created:</span> {formatDate(form.createdAt)}</div>
@@ -187,6 +229,21 @@ export default function FormDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <CrmConfirmDialog
+        open={deleteOpen}
+        title="Move Form To Trash"
+        description={form ? `${form.name} will be removed from active records.` : undefined}
+        warning="This moves the form to the deleted view. You can restore it later from the forms list."
+        confirmLabel="Move to trash"
+        submitting={actionLoading}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => {
+          if (!actionLoading) {
+            setDeleteOpen(false);
+          }
+        }}
+      />
     </div>
   );
 }

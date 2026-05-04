@@ -34,6 +34,7 @@ type FormFilters = {
   q: string;
   status: string;
   websiteDomain: string;
+  lifecycle: string;
 };
 
 const rowsPerPageOptions = [10, 20, 50, 100] as const;
@@ -47,7 +48,7 @@ const defaultColumnVisibility: Record<FormColumnKey, boolean> = {
   actions: true,
 };
 const lockedColumns: FormColumnKey[] = ["name"];
-const emptyFilters: FormFilters = { q: "", status: "", websiteDomain: "" };
+const emptyFilters: FormFilters = { q: "", status: "", websiteDomain: "", lifecycle: "active" };
 
 function mapStatusFilterToApiStatus(status: string) {
   if (status === "active") return "published";
@@ -104,11 +105,13 @@ export default function FormsListPage() {
       q: params.get("q") ?? "",
       status: params.get("status") ?? "",
       websiteDomain: params.get("websiteDomain") ?? "",
+      lifecycle: params.get("lifecycle") ?? "active",
     }),
     writeFilters: (params, next) => {
       if (next.q) params.set("q", next.q);
       if (next.status) params.set("status", next.status);
       if (next.websiteDomain) params.set("websiteDomain", next.websiteDomain);
+      if (next.lifecycle && next.lifecycle !== "active") params.set("lifecycle", next.lifecycle);
     },
     normalizeSortBy: (value) => (["name", "status", "domain", "submissions", "lastSubmission", "updatedAt"].includes(value ?? "") ? (value as FormSortKey) : "updatedAt"),
     columnStorageKey: "crm-saas-forms-columns",
@@ -124,6 +127,7 @@ export default function FormsListPage() {
     const apiStatus = mapStatusFilterToApiStatus(filters.status);
     if (apiStatus) params.set("status", apiStatus);
     if (filters.websiteDomain) params.set("websiteDomain", filters.websiteDomain);
+    if (filters.lifecycle) params.set("lifecycle", filters.lifecycle);
     params.set("limit", String(limit));
     params.set("offset", String((page - 1) * limit));
     try {
@@ -166,11 +170,68 @@ export default function FormsListPage() {
     setError(null);
     try {
       await apiRequest<{ id: string }>(`/forms/${formId}`, { method: "DELETE" });
-      toast.success(`${formName} archived.`);
+      toast.success(`${formName} moved to trash.`);
       setDeleteTarget(null);
       await loadForms();
     } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to move form to trash.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [loadForms]);
+
+  const restoreForm = useCallback(async (formId: string, formName: string) => {
+    setDeletingId(formId);
+    setError(null);
+    try {
+      await apiRequest<{ id: string }>(`/forms/${formId}/restore`, { method: "POST", body: JSON.stringify({}) });
+      toast.success(`${formName} restored.`);
+      await loadForms();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to restore form.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [loadForms]);
+
+  const permanentlyDeleteForm = useCallback(async (formId: string, formName: string) => {
+    setDeletingId(formId);
+    setError(null);
+    try {
+      await apiRequest<{ id: string }>(`/forms/${formId}/permanent`, { method: "DELETE" });
+      toast.success(`${formName} deleted permanently.`);
+      setDeleteTarget(null);
+      await loadForms();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to delete form permanently.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [loadForms]);
+
+  const archiveForm = useCallback(async (formId: string, formName: string) => {
+    setDeletingId(formId);
+    setError(null);
+    try {
+      await apiRequest(`/forms/${formId}/archive`, { method: "POST", body: JSON.stringify({}) });
+      toast.success(`${formName} archived.`);
+      await loadForms();
+    } catch (caughtError) {
       setError(caughtError instanceof ApiError ? caughtError.message : "Unable to archive form.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [loadForms]);
+
+  const unarchiveForm = useCallback(async (formId: string, formName: string) => {
+    setDeletingId(formId);
+    setError(null);
+    try {
+      await apiRequest(`/forms/${formId}/unarchive`, { method: "POST", body: JSON.stringify({}) });
+      toast.success(`${formName} moved back to draft.`);
+      await loadForms();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to unarchive form.");
     } finally {
       setDeletingId(null);
     }
@@ -185,6 +246,7 @@ export default function FormsListPage() {
       [
         filters.q ? { key: "q" as const, label: "Search", value: filters.q } : null,
         filters.status ? { key: "status" as const, label: "Status", value: mapStatusLabel(filters.status) } : null,
+        filters.lifecycle && filters.lifecycle !== "active" ? { key: "lifecycle" as const, label: "Record State", value: filters.lifecycle } : null,
         filters.websiteDomain ? { key: "websiteDomain" as const, label: "Domain", value: filters.websiteDomain } : null,
       ].filter(Boolean) as Array<{ key: keyof FormFilters; label: string; value: string }>,
     [filters],
@@ -245,20 +307,36 @@ export default function FormsListPage() {
       label: "Actions",
       renderCell: (record) => (
         <div className="flex items-center gap-2">
-          <Link href={`/dashboard/forms/${record.id}`} className={cn(buttonVariants({ variant: "outline", size: "icon-sm" }))} aria-label={`Edit ${record.name}`} title={`Edit ${record.name}`}>
-            <PencilLine className="size-4" />
-          </Link>
-          <Button
-            type="button"
-            variant="destructive"
-            size="icon-sm"
-            onClick={() => setDeleteTarget(record)}
-            disabled={deletingId === record.id}
-            aria-label={`Delete ${record.name}`}
-            title={`Delete ${record.name}`}
-          >
-            <Trash2 className="size-4" />
-          </Button>
+          {filters.lifecycle === "deleted" ? (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={() => void restoreForm(record.id, record.name)} disabled={deletingId === record.id}>
+                Restore
+              </Button>
+              <Button type="button" variant="destructive" size="sm" onClick={() => setDeleteTarget(record)} disabled={deletingId === record.id}>
+                Delete permanently
+              </Button>
+            </>
+          ) : (
+            <>
+              <Link href={`/dashboard/forms/${record.id}`} className={cn(buttonVariants({ variant: "outline", size: "icon-sm" }))} aria-label={`Edit ${record.name}`} title={`Edit ${record.name}`}>
+                <PencilLine className="size-4" />
+              </Link>
+              <Button type="button" variant="outline" size="sm" onClick={() => void (record.status === "archived" ? unarchiveForm(record.id, record.name) : archiveForm(record.id, record.name))} disabled={deletingId === record.id}>
+                {record.status === "archived" ? "Unarchive" : "Archive"}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="icon-sm"
+                onClick={() => setDeleteTarget(record)}
+                disabled={deletingId === record.id}
+                aria-label={`Delete ${record.name}`}
+                title={`Delete ${record.name}`}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </>
+          )}
         </div>
       ),
     },
@@ -361,6 +439,13 @@ export default function FormsListPage() {
             </NativeSelect>
           </Field>
           <Field>
+            <FieldLabel htmlFor="forms-filter-lifecycle">Record state</FieldLabel>
+            <NativeSelect id="forms-filter-lifecycle" value={filterDraft.lifecycle} onChange={(event) => setFilterDraft((current) => ({ ...current, lifecycle: event.target.value }))}>
+              <option value="active">Active</option>
+              <option value="deleted">Deleted</option>
+            </NativeSelect>
+          </Field>
+          <Field>
             <FieldLabel htmlFor="forms-filter-domain">Website domain</FieldLabel>
             <Input id="forms-filter-domain" value={filterDraft.websiteDomain} onChange={(event) => setFilterDraft((current) => ({ ...current, websiteDomain: event.target.value }))} placeholder="example.com" />
           </Field>
@@ -389,14 +474,18 @@ export default function FormsListPage() {
 
       <CrmConfirmDialog
         open={Boolean(deleteTarget)}
-        title="Archive form"
-        description={deleteTarget ? `${deleteTarget.name} will be marked inactive. Responses and stored data will remain intact.` : undefined}
-        warning="This only archives the form. It does not delete submissions or related CRM data."
-        confirmLabel="Archive form"
+        title={filters.lifecycle === "deleted" ? "Delete Form Permanently" : "Move Form To Trash"}
+        description={deleteTarget ? filters.lifecycle === "deleted" ? `${deleteTarget.name} will be deleted permanently.` : `${deleteTarget.name} will be removed from active records.` : undefined}
+        warning={filters.lifecycle === "deleted" ? "This action cannot be undone. Form responses will be removed with the form record." : "This moves the form to the deleted view. You can restore it later."}
+        confirmLabel={filters.lifecycle === "deleted" ? "Delete permanently" : "Move to trash"}
         submitting={deleteTarget ? deletingId === deleteTarget.id : false}
         onConfirm={() => {
           if (deleteTarget) {
-            void deleteForm(deleteTarget.id, deleteTarget.name);
+            if (filters.lifecycle === "deleted") {
+              void permanentlyDeleteForm(deleteTarget.id, deleteTarget.name);
+            } else {
+              void deleteForm(deleteTarget.id, deleteTarget.name);
+            }
           }
         }}
         onCancel={() => {

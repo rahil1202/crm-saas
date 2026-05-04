@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 
@@ -158,7 +158,10 @@ export async function listLeads(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const query = c.get("validatedQuery") as ListLeadsQuery;
 
-  const conditions = [eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt)];
+  const conditions = [
+    eq(leads.companyId, tenant.companyId),
+    query.lifecycle === "deleted" ? isNotNull(leads.deletedAt) : isNull(leads.deletedAt),
+  ];
 
   if (query.status) {
     conditions.push(eq(leads.status, query.status));
@@ -727,6 +730,48 @@ export async function deleteLead(c: Context<AppEnv>) {
   });
 
   return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function restoreLead(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const params = leadParamSchema.parse(c.req.param());
+
+  const [restored] = await db
+    .update(leads)
+    .set({ deletedAt: null, updatedAt: new Date() })
+    .where(and(eq(leads.id, params.leadId), eq(leads.companyId, tenant.companyId), isNotNull(leads.deletedAt)))
+    .returning({ id: leads.id });
+
+  if (!restored) {
+    throw AppError.notFound("Deleted lead not found");
+  }
+
+  await addLeadActivity({
+    companyId: tenant.companyId,
+    leadId: restored.id,
+    actorUserId: user.id,
+    type: "lead_restored",
+    payload: {},
+  });
+
+  return ok(c, { restored: true, id: restored.id });
+}
+
+export async function permanentlyDeleteLead(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = leadParamSchema.parse(c.req.param());
+
+  const [deleted] = await db
+    .delete(leads)
+    .where(and(eq(leads.id, params.leadId), eq(leads.companyId, tenant.companyId), isNotNull(leads.deletedAt)))
+    .returning({ id: leads.id });
+
+  if (!deleted) {
+    throw AppError.notFound("Deleted lead not found");
+  }
+
+  return ok(c, { deleted: true, permanent: true, id: deleted.id });
 }
 
 export async function convertLead(c: Context<AppEnv>) {

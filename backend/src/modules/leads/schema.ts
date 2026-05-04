@@ -5,6 +5,7 @@ export const listLeadsQuerySchema = z.object({
   status: z.enum(["new", "qualified", "proposal", "won", "lost"]).optional(),
   source: z.string().trim().optional(),
   assignedToUserId: z.string().uuid().optional(),
+  lifecycle: z.enum(["active", "deleted"]).default("active"),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
 });

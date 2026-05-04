@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, ilike, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
@@ -96,11 +96,11 @@ async function verifyTurnstile(input: { token: string; remoteIp?: string | null 
   return payload.success === true;
 }
 
-async function getFormOrThrow(companyId: string, formId: string) {
+async function getFormOrThrow(companyId: string, formId: string, options?: { includeDeleted?: boolean }) {
   const [item] = await db
     .select()
     .from(forms)
-    .where(and(eq(forms.id, formId), eq(forms.companyId, companyId), isNull(forms.deletedAt)))
+    .where(and(eq(forms.id, formId), eq(forms.companyId, companyId), options?.includeDeleted ? undefined : isNull(forms.deletedAt)))
     .limit(1);
 
   if (!item) {
@@ -166,7 +166,7 @@ export async function listForms(c: Context<AppEnv>) {
 
   const where = and(
     eq(forms.companyId, tenant.companyId),
-    isNull(forms.deletedAt),
+    query.lifecycle === "deleted" ? isNotNull(forms.deletedAt) : isNull(forms.deletedAt),
     query.status ? eq(forms.status, query.status) : undefined,
     query.websiteDomain ? ilike(forms.websiteDomain, `%${query.websiteDomain}%`) : undefined,
     query.q ? or(ilike(forms.name, `%${query.q}%`), ilike(forms.slug, `%${query.q}%`), ilike(forms.description, `%${query.q}%`)) : undefined,
@@ -383,11 +383,81 @@ export async function deleteForm(c: Context<AppEnv>) {
 
   const [deleted] = await db
     .update(forms)
-    .set({ status: "archived", updatedAt: new Date() })
+    .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(eq(forms.id, current.id))
     .returning({ id: forms.id });
 
-  return ok(c, { id: deleted.id });
+  return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function restoreForm(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const { formId } = formParamSchema.parse(c.req.param());
+  const current = await getFormOrThrow(tenant.companyId, formId, { includeDeleted: true });
+
+  if (!current.deletedAt) {
+    throw AppError.badRequest("Form is not deleted");
+  }
+
+  const [restored] = await db
+    .update(forms)
+    .set({ deletedAt: null, updatedAt: new Date() })
+    .where(eq(forms.id, current.id))
+    .returning({ id: forms.id });
+
+  return ok(c, { restored: true, id: restored.id });
+}
+
+export async function permanentlyDeleteForm(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const { formId } = formParamSchema.parse(c.req.param());
+
+  const [deleted] = await db
+    .delete(forms)
+    .where(and(eq(forms.id, formId), eq(forms.companyId, tenant.companyId), isNotNull(forms.deletedAt)))
+    .returning({ id: forms.id });
+
+  if (!deleted) {
+    throw AppError.notFound("Deleted form not found");
+  }
+
+  return ok(c, { deleted: true, permanent: true, id: deleted.id });
+}
+
+export async function archiveForm(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const { formId } = formParamSchema.parse(c.req.param());
+  const current = await getFormOrThrow(tenant.companyId, formId);
+
+  const [updated] = await db
+    .update(forms)
+    .set({ status: "archived", updatedAt: new Date() })
+    .where(eq(forms.id, current.id))
+    .returning();
+
+  return ok(c, {
+    ...updated,
+    publicUrl: buildPublicUrl(updated.slug),
+    embedSnippet: buildEmbedSnippet(updated.slug),
+  });
+}
+
+export async function unarchiveForm(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const { formId } = formParamSchema.parse(c.req.param());
+  const current = await getFormOrThrow(tenant.companyId, formId);
+
+  const [updated] = await db
+    .update(forms)
+    .set({ status: "draft", updatedAt: new Date() })
+    .where(eq(forms.id, current.id))
+    .returning();
+
+  return ok(c, {
+    ...updated,
+    publicUrl: buildPublicUrl(updated.slug),
+    embedSnippet: buildEmbedSnippet(updated.slug),
+  });
 }
 
 export async function getPublicForm(c: Context<AppEnv>) {

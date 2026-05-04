@@ -12,6 +12,8 @@ import {
   getLeadsBoard,
   importLeadsFromCsv,
   listLeads,
+  permanentlyDeleteLead,
+  restoreLead,
   updateLead,
 } from "@/modules/leads/controller";
 import {
@@ -41,4 +43,6 @@ leadRoutes.patch("/:leadId", validateJson(updateLeadSchema), updateLead);
 leadRoutes.get("/:leadId/timeline", validateQuery(leadTimelineQuerySchema), getLeadTimeline);
 leadRoutes.post("/:leadId/timeline", validateJson(createLeadTimelineSchema), createLeadTimeline);
 leadRoutes.delete("/:leadId", deleteLead);
+leadRoutes.post("/:leadId/restore", restoreLead);
+leadRoutes.delete("/:leadId/permanent", permanentlyDeleteLead);
 leadRoutes.post("/:leadId/convert", validateJson(convertLeadSchema), convertLead);

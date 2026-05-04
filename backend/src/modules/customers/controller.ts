@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, ilike, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { PDFParse } from "pdf-parse";
@@ -329,7 +329,10 @@ export async function listCustomers(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const query = c.get("validatedQuery") as ListCustomersQuery;
 
-  const conditions = [eq(customers.companyId, tenant.companyId), isNull(customers.deletedAt)];
+  const conditions = [
+    eq(customers.companyId, tenant.companyId),
+    query.lifecycle === "deleted" ? isNotNull(customers.deletedAt) : isNull(customers.deletedAt),
+  ];
   if (query.q) {
     const queryText = `%${query.q}%`;
     conditions.push(
@@ -591,4 +594,37 @@ export async function deleteCustomer(c: Context<AppEnv>) {
   }
 
   return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function restoreCustomer(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = customerParamSchema.parse(c.req.param());
+
+  const [restored] = await db
+    .update(customers)
+    .set({ updatedAt: new Date(), deletedAt: null })
+    .where(and(eq(customers.id, params.customerId), eq(customers.companyId, tenant.companyId), isNotNull(customers.deletedAt)))
+    .returning({ id: customers.id });
+
+  if (!restored) {
+    throw AppError.notFound("Deleted customer not found");
+  }
+
+  return ok(c, { restored: true, id: restored.id });
+}
+
+export async function permanentlyDeleteCustomer(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = customerParamSchema.parse(c.req.param());
+
+  const [deleted] = await db
+    .delete(customers)
+    .where(and(eq(customers.id, params.customerId), eq(customers.companyId, tenant.companyId), isNotNull(customers.deletedAt)))
+    .returning({ id: customers.id });
+
+  if (!deleted) {
+    throw AppError.notFound("Deleted customer not found");
+  }
+
+  return ok(c, { deleted: true, permanent: true, id: deleted.id });
 }

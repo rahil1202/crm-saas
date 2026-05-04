@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, CircleDot, Mail, PencilLine, Phone, Plus, Target } from "lucide-react";
+import { ArrowLeft, CircleDot, Mail, PencilLine, Phone, Plus, Target, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { CrmDetailItem } from "@/components/crm/crm-detail-primitives";
-import { CrmModalShell } from "@/components/crm/crm-list-primitives";
+import { CrmConfirmDialog, CrmModalShell } from "@/components/crm/crm-list-primitives";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -166,6 +166,7 @@ export default function LeadProfilePage() {
   const [noteOpen, setNoteOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [form, setForm] = useState<LeadFormState | null>(null);
   const [note, setNote] = useState("");
 
@@ -260,6 +261,21 @@ export default function LeadProfilePage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!leadId) return;
+    setSubmitting(true);
+    try {
+      await apiRequest(`/leads/${leadId}`, { method: "DELETE" });
+      toast.success("Lead moved to trash.");
+      window.location.href = "/dashboard/leads";
+    } catch (caughtError) {
+      toast.error(caughtError instanceof ApiError ? caughtError.message : "Unable to move lead to trash.");
+    } finally {
+      setSubmitting(false);
+      setDeleteOpen(false);
+    }
+  };
+
   if (loading) {
     return <div className="rounded-[1.6rem] border border-dashed border-border/70 bg-white/70 px-5 py-4 text-sm text-muted-foreground">Loading lead profile...</div>;
   }
@@ -318,6 +334,10 @@ export default function LeadProfilePage() {
                 <Button type="button" className="h-auto flex-col gap-2 py-3" onClick={() => void handleConvert()} disabled={converting}>
                   <Target className="size-4" />
                   <span className="text-xs">{converting ? "..." : "Convert"}</span>
+                </Button>
+                <Button type="button" variant="destructive" className="h-auto flex-col gap-2 py-3" onClick={() => setDeleteOpen(true)} disabled={submitting}>
+                  <Trash2 className="size-4" />
+                  <span className="text-xs">Delete</span>
                 </Button>
               </div>
             </div>
@@ -513,6 +533,19 @@ export default function LeadProfilePage() {
           </div>
         </OverlayModal>
       ) : null}
+
+      <CrmConfirmDialog
+        open={deleteOpen}
+        title="Move Lead To Trash"
+        description={data ? `${data.lead.title} will be removed from active records.` : undefined}
+        warning="This moves the lead to the deleted view. You can restore it later from the leads list."
+        confirmLabel="Move to trash"
+        submitting={submitting}
+        onConfirm={() => void handleDelete()}
+        onCancel={() => {
+          if (!submitting) setDeleteOpen(false);
+        }}
+      />
     </>
   );
 }

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 
 import type { AppEnv } from "@/app/route";
-import { createCampaign, createEmailAccount, deleteCampaign, getCampaignOverview, launchCampaign, listCampaigns, listDeliveryLog, listEmailAccounts, sendTestEmail, updateCampaign } from "@/modules/campaigns/controller";
+import { createCampaign, createEmailAccount, deleteCampaign, getCampaignOverview, launchCampaign, listCampaigns, listDeliveryLog, listEmailAccounts, permanentlyDeleteCampaign, restoreCampaign, sendTestEmail, updateCampaign } from "@/modules/campaigns/controller";
 import { campaignSchema, emailAccountSchema, listCampaignsSchema, listDeliveryLogSchema, testEmailSchema, updateCampaignSchema } from "@/modules/campaigns/schema";
 import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
@@ -21,3 +21,5 @@ campaignRoutes.post("/", rateLimit(routePolicies.adminSensitive), enforceBodyLim
 campaignRoutes.post("/:campaignId/launch", rateLimit(routePolicies.adminSensitive), launchCampaign);
 campaignRoutes.patch("/:campaignId", rateLimit(routePolicies.adminSensitive), enforceBodyLimit(bodyLimits.tenantDefault), validateJson(updateCampaignSchema), updateCampaign);
 campaignRoutes.delete("/:campaignId", deleteCampaign);
+campaignRoutes.post("/:campaignId/restore", restoreCampaign);
+campaignRoutes.delete("/:campaignId/permanent", permanentlyDeleteCampaign);
