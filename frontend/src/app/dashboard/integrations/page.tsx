@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +53,7 @@ export default function IntegrationsPage() {
   }, []);
 
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-4">
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Unable to load integrations</AlertTitle>
@@ -61,44 +61,58 @@ export default function IntegrationsPage() {
         </Alert>
       ) : null}
 
-      <Card className="border-border/60">
+      <Card className="border-border/60" size="sm">
         <CardHeader>
-          <CardTitle>Integrations</CardTitle>
-          <CardDescription>Select an integration to configure it step by step.</CardDescription>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <CardTitle>Integrations</CardTitle>
+              <CardDescription>Connect the channels your team uses. Open one integration to finish its setup.</CardDescription>
+            </div>
+            {loading ? <Badge variant="outline">Loading status</Badge> : null}
+          </div>
         </CardHeader>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3">
         {integrationsCatalog.map((integration) => {
           const Icon = integration.icon;
           const status = getIntegrationStatus(integration.key, hub, settings);
+          const completed = status === "completed";
 
           return (
             <Link key={integration.key} href={`/dashboard/integrations/${integration.key}`} className="group">
-              <Card className="h-full border-border/60 transition-colors group-hover:border-primary/40">
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className="flex size-9 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
-                        <Icon className="size-4" />
-                      </span>
-                      <CardTitle className="text-base">{integration.title}</CardTitle>
+              <Card className="border-border/60 transition-colors group-hover:border-primary/40" size="sm">
+                <CardContent className="flex flex-col gap-3 py-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+                      <Icon className="size-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CardTitle className="text-base">{integration.title}</CardTitle>
+                        <Badge variant={completed ? "secondary" : "outline"}>{completed ? "Completed" : "Pending"}</Badge>
+                      </div>
+                      <CardDescription>{integration.description}</CardDescription>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {integration.steps.map((step, index) => (
+                          <span key={step} className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-white/50 px-2 py-1 text-xs text-muted-foreground">
+                            {completed || (index === 0 && completed) ? <CheckCircle2 className="size-3 text-primary" /> : <Circle className="size-3" />}
+                            {step}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                    <Badge variant={status === "completed" ? "secondary" : "outline"}>{status === "completed" ? "Completed" : "Pending"}</Badge>
                   </div>
-                  <CardDescription>{integration.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex items-center justify-between text-sm text-muted-foreground">
-                  <span>{integration.steps.length} steps</span>
-                  <ArrowUpRight className="size-4 text-primary/70" />
+                  <div className="flex shrink-0 items-center gap-2 text-sm font-semibold text-primary">
+                    <span>{completed ? "Review" : "Continue"}</span>
+                    <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                  </div>
                 </CardContent>
               </Card>
             </Link>
           );
         })}
       </div>
-
-      {loading ? <p className="text-sm text-muted-foreground">Loading integrations...</p> : null}
     </div>
   );
 }

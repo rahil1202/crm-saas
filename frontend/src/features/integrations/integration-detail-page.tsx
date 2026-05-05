@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useEffect } from "react";
-import { ArrowLeft } from "lucide-react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
+import { ArrowLeft, CheckCircle2, Circle, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -256,6 +256,55 @@ function getPatchPayload(key: IntegrationKey, draft: IntegrationSettings["integr
     webhookUrl: draft.genericWebhooks.inboundUrl ?? draft.webhookUrl,
     genericWebhooks: draft.genericWebhooks,
   };
+}
+
+function PanelSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid gap-4 rounded-2xl border border-border/60 bg-white/55 p-4">
+      <div>
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        {description ? <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function AdvancedSection({
+  title,
+  description,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className="group rounded-2xl border border-border/60 bg-white/45 p-4" open={defaultOpen}>
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-3">
+        <span>
+          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Settings2 className="size-4 text-muted-foreground" />
+            {title}
+          </span>
+          {description ? <span className="mt-1 block text-sm leading-6 text-muted-foreground">{description}</span> : null}
+        </span>
+        <span className="rounded-full border border-border/70 px-2 py-1 text-xs font-semibold text-muted-foreground group-open:hidden">Show</span>
+        <span className="hidden rounded-full border border-border/70 px-2 py-1 text-xs font-semibold text-muted-foreground group-open:inline">Hide</span>
+      </summary>
+      <div className="mt-4 grid gap-4">{children}</div>
+    </details>
+  );
 }
 
 export function IntegrationDetailPage({ integrationKey }: { integrationKey: IntegrationKey }) {
@@ -709,7 +758,7 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
         : [];
 
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-4">
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Save failed</AlertTitle>
@@ -724,21 +773,18 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
         </Alert>
       ) : null}
 
-      <Card className="border-border/60">
+      <Card className="border-border/60" size="sm">
         <CardHeader>
-          <div className="mb-2">
-            <Link href="/dashboard/integrations" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
-              <ArrowLeft className="size-4" />
-              Back
-            </Link>
-          </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="flex size-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+            <div className="flex min-w-0 items-center gap-3">
+              <Link href="/dashboard/integrations" className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }))} aria-label="Back to integrations">
+                <ArrowLeft className="size-4" />
+              </Link>
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
                 <Icon className="size-5" />
               </span>
-              <div>
-                <CardTitle>{integration.title}</CardTitle>
+              <div className="min-w-0">
+                <CardTitle className="truncate">{integration.title}</CardTitle>
                 <CardDescription>{integration.description}</CardDescription>
               </div>
             </div>
@@ -749,73 +795,83 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
         </CardHeader>
       </Card>
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Card className="border-border/60">
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <Card className="border-border/60 lg:sticky lg:top-4 lg:self-start" size="sm">
           <CardHeader>
-            <CardTitle>Step by step</CardTitle>
-            <CardDescription>Complete each step to finish setup.</CardDescription>
+            <CardTitle>Setup checklist</CardTitle>
+            <CardDescription>Complete the items in order.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3">
+          <CardContent className="grid gap-2">
             {integration.steps.map((step, index) => (
-              <div key={step} className="flex items-center justify-between rounded-xl border border-border/60 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <span className="flex size-7 items-center justify-center rounded-lg bg-sky-100 text-xs font-semibold text-sky-700">
-                    {index + 1}
-                  </span>
-                  <span className="text-sm font-medium">{step}</span>
+              <div key={step} className="flex items-center gap-3 rounded-xl border border-border/60 bg-white/50 px-3 py-2.5">
+                {stepChecks[index]?.done ? <CheckCircle2 className="size-4 shrink-0 text-primary" /> : <Circle className="size-4 shrink-0 text-muted-foreground" />}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{step}</div>
+                  <div className="text-xs text-muted-foreground">{stepChecks[index]?.done ? "Done" : "Needs setup"}</div>
                 </div>
-                <Badge variant={stepChecks[index]?.done ? "secondary" : "outline"}>
-                  {stepChecks[index]?.done ? "Done" : "Pending"}
-                </Badge>
               </div>
             ))}
-            {getHubChannel(hub, integration.key)?.docs?.slice(0, 2).map((doc) => (
-              <a key={doc.url} href={doc.url} target="_blank" rel="noreferrer" className="rounded-xl border border-border/60 px-4 py-3 text-sm font-medium hover:bg-muted/20">
-                {doc.label}
-              </a>
-            ))}
+            {getHubChannel(hub, integration.key)?.docs?.slice(0, 2).length ? (
+              <div className="mt-2 border-t border-border/60 pt-3">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Docs</div>
+                <div className="grid gap-2">
+                  {getHubChannel(hub, integration.key)?.docs?.slice(0, 2).map((doc) => (
+                    <a
+                      key={doc.url}
+                      href={doc.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl border border-border/60 bg-white/40 px-3 py-2 text-sm font-medium hover:bg-white/70"
+                    >
+                      {doc.label}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
         <Card className="border-border/60">
           <CardHeader>
-            <CardTitle>Live setup</CardTitle>
-            <CardDescription>Update details and save.</CardDescription>
+            <CardTitle>Setup</CardTitle>
+            <CardDescription>Only the required settings are shown first. Advanced controls stay collapsed below.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             {oauthConfigs.length > 0 && draft ? (
-              <div className="grid gap-2">
-                {oauthConfigs.map((providerConfig) => {
-                  const linkedProvider =
-                    providerConfig.channel === "email"
-                      ? (draft.email.provider ?? draft.emailProvider)
-                      : draft.linkedin.provider;
-                  const isLinked = linkedProvider === providerConfig.provider;
+              <PanelSection title="Connect account" description="Use OAuth when available. Manual provider fields are still below for fallback setups.">
+                <div className="grid gap-2">
+                  {oauthConfigs.map((providerConfig) => {
+                    const linkedProvider =
+                      providerConfig.channel === "email"
+                        ? (draft.email.provider ?? draft.emailProvider)
+                        : draft.linkedin.provider;
+                    const isLinked = linkedProvider === providerConfig.provider;
 
-                  return (
-                    <div key={providerConfig.provider} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2.5">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        {providerConfig.title}
-                        <Badge variant={isLinked ? "secondary" : "outline"}>{isLinked ? "Linked" : "Not linked"}</Badge>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button type="button" size="sm" variant="outline" disabled={oauthLoading === providerConfig.provider} onClick={() => void startOauth(providerConfig)}>
-                          {oauthLoading === providerConfig.provider ? "Redirecting..." : isLinked ? "Reconnect" : "Connect"}
-                        </Button>
-                        {isLinked ? (
-                          <Button type="button" size="sm" variant="ghost" disabled={disconnectingProvider === providerConfig.provider} onClick={() => void disconnectOauth(providerConfig)}>
-                            {disconnectingProvider === providerConfig.provider ? "Disconnecting..." : "Disconnect"}
+                    return (
+                      <div key={providerConfig.provider} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-white/55 px-3 py-2.5">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          {providerConfig.title}
+                          <Badge variant={isLinked ? "secondary" : "outline"}>{isLinked ? "Linked" : "Not linked"}</Badge>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button type="button" size="sm" variant="outline" disabled={oauthLoading === providerConfig.provider} onClick={() => void startOauth(providerConfig)}>
+                            {oauthLoading === providerConfig.provider ? "Redirecting..." : isLinked ? "Reconnect" : "Connect"}
                           </Button>
-                        ) : null}
+                          {isLinked ? (
+                            <Button type="button" size="sm" variant="ghost" disabled={disconnectingProvider === providerConfig.provider} onClick={() => void disconnectOauth(providerConfig)}>
+                              {disconnectingProvider === providerConfig.provider ? "Disconnecting..." : "Disconnect"}
+                            </Button>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              </PanelSection>
             ) : null}
 
             {!draft ? <p className="text-sm text-muted-foreground">Loading form...</p> : null}
-
             {draft && integration.key === "email" ? (
               <FieldGroup>
                 <Field>
@@ -909,7 +965,7 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                   </div>
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-2">
+                <div className="grid gap-4">
                   <div className="rounded-2xl border border-border/60 bg-background p-4">
                     <div className="text-sm font-semibold">Embedded Signup</div>
                     <p className="mt-1 text-sm text-muted-foreground">
@@ -990,8 +1046,8 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                     </Button>
                   </div>
 
-                  <div className="rounded-2xl border border-border/60 bg-background p-4">
-                    <div className="text-sm font-semibold">Readiness by number</div>
+                  <AdvancedSection title="Readiness checks" description="Sync Meta data and test each WhatsApp number when something is blocked.">
+                    <div className="text-sm font-semibold">Numbers</div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Business verification is visible here, but sending readiness is based on token, phone, webhook, template, and pricing checks.
                     </p>
@@ -1043,10 +1099,10 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                         </div>
                       ) : null}
                     </div>
-                  </div>
+                  </AdvancedSection>
                 </div>
 
-                <div className="rounded-2xl border border-border/60 bg-background p-4">
+                <AdvancedSection title="Message pricing" description="Estimate WhatsApp pass-through costs or import official Meta rate-card data.">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold">Message pricing</div>
@@ -1144,11 +1200,12 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                       ))}
                     </div>
                   ) : null}
-                </div>
+                </AdvancedSection>
               </div>
             ) : null}
 
             {draft && integration.key === "whatsapp" ? (
+              <AdvancedSection title="Manual WhatsApp settings" description="Use these fields only when Embedded Signup is not enough.">
               <FieldGroup>
                 <Field>
                   <FieldLabel>Provider</FieldLabel>
@@ -1290,9 +1347,7 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                   />
                 </Field>
               </FieldGroup>
-            ) : null}
 
-            {draft && integration.key === "whatsapp" ? (
               <div className="grid gap-4 rounded-2xl border border-border/60 bg-muted/10 p-4">
                 <div>
                   <div className="text-sm font-semibold">Cloud API workspace</div>
@@ -1444,6 +1499,7 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                   {savingWhatsappWorkspace ? "Saving workspace..." : whatsappWorkspaceDraft.id ? "Update workspace" : "Create workspace"}
                 </Button>
               </div>
+              </AdvancedSection>
             ) : null}
 
             {draft && integration.key === "linkedin" ? (
