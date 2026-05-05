@@ -15,6 +15,7 @@ import {
   recordEmailOpen,
   recordEmailReply,
 } from "@/lib/email-runtime";
+import { assertNonEmptyUpdate, paginationMeta } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { recordLeadScoringEvent } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
@@ -131,9 +132,7 @@ export async function listCampaigns(c: Context<AppEnv>) {
         linkedCustomers,
       };
     }),
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -190,9 +189,7 @@ export async function updateCampaign(c: Context<AppEnv>) {
   const params = campaignParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as UpdateCampaignInput;
 
-  if (Object.keys(body).length === 0) {
-    throw AppError.badRequest("At least one field is required for update");
-  }
+  assertNonEmptyUpdate(body as Record<string, unknown>);
 
   if (body.customerIds !== undefined) {
     await assertValidCustomers(tenant.companyId, body.customerIds);
@@ -204,7 +201,6 @@ export async function updateCampaign(c: Context<AppEnv>) {
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.channel !== undefined ? { channel: body.channel } : {}),
       ...(body.status !== undefined ? { status: body.status } : {}),
-      ...(body.customerIds !== undefined ? {} : {}),
       ...(body.audienceDescription !== undefined ? { audienceDescription: body.audienceDescription ?? null } : {}),
       ...(body.templateId !== undefined ? { templateId: body.templateId ?? null } : {}),
       ...(body.scheduledAt !== undefined ? { scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : null } : {}),

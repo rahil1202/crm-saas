@@ -3,6 +3,19 @@ import { and, asc, desc, eq, ilike, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
 import { customers, leads, socialConversations, whatsappPhoneMappings, whatsappTemplates, whatsappWorkspaces } from "@/db/schema";
 import { AppError } from "@/lib/errors";
+import { encryptIntegrationSecret, isEncryptedSecret } from "@/lib/integration-crypto";
+import crypto from "node:crypto";
+
+function maybeEncryptSecret(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+  return isEncryptedSecret(value) ? value : encryptIntegrationSecret(value);
+}
+
+function hashVerifyToken(value?: string | null) {
+  return value ? crypto.createHash("sha256").update(value).digest("hex") : null;
+}
 
 export function normalizePhoneToE164(rawValue: string) {
   const digits = rawValue.replace(/[^\d+]/g, "");
@@ -43,13 +56,21 @@ export async function upsertWhatsappWorkspace(input: {
   name: string;
   phoneNumberId: string;
   businessAccountId?: string | null;
+  webhookKey?: string | null;
   accessToken?: string | null;
   verifyToken?: string | null;
+  verifyTokenHash?: string | null;
   appSecret?: string | null;
   isActive?: boolean;
   isVerified?: boolean;
+  activePhoneNumberIds?: string[];
   metadata?: Record<string, unknown>;
 }) {
+  const encryptedAccessToken = maybeEncryptSecret(input.accessToken);
+  const encryptedVerifyToken = maybeEncryptSecret(input.verifyToken);
+  const encryptedAppSecret = maybeEncryptSecret(input.appSecret);
+  const verifyTokenHash = input.verifyTokenHash ?? hashVerifyToken(input.verifyToken);
+
   const [workspace] = await db
     .insert(whatsappWorkspaces)
     .values({
@@ -57,11 +78,14 @@ export async function upsertWhatsappWorkspace(input: {
       name: input.name,
       phoneNumberId: input.phoneNumberId,
       businessAccountId: input.businessAccountId ?? null,
-      accessToken: input.accessToken ?? null,
-      verifyToken: input.verifyToken ?? null,
-      appSecret: input.appSecret ?? null,
+      webhookKey: input.webhookKey ?? null,
+      accessToken: encryptedAccessToken,
+      verifyToken: encryptedVerifyToken,
+      verifyTokenHash,
+      appSecret: encryptedAppSecret,
       isActive: input.isActive ?? true,
       isVerified: input.isVerified ?? false,
+      activePhoneNumberIds: input.activePhoneNumberIds ?? [],
       metadata: input.metadata ?? {},
       createdBy: input.createdBy,
     })
@@ -70,11 +94,14 @@ export async function upsertWhatsappWorkspace(input: {
       set: {
         name: input.name,
         businessAccountId: input.businessAccountId ?? null,
-        accessToken: input.accessToken ?? null,
-        verifyToken: input.verifyToken ?? null,
-        appSecret: input.appSecret ?? null,
+        webhookKey: input.webhookKey ?? null,
+        accessToken: encryptedAccessToken,
+        verifyToken: encryptedVerifyToken,
+        verifyTokenHash,
+        appSecret: encryptedAppSecret,
         isActive: input.isActive ?? true,
         isVerified: input.isVerified ?? false,
+        activePhoneNumberIds: input.activePhoneNumberIds ?? [],
         metadata: input.metadata ?? {},
         updatedAt: new Date(),
         deletedAt: null,

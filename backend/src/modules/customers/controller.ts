@@ -8,6 +8,7 @@ import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { campaignCustomers, campaigns, companyMemberships, customers, deals, leads, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
+import { assertNonEmptyUpdate, normalizeDelimitedHeader, paginationMeta, parseDelimitedRows, parseDelimitedTags } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { customerParamSchema } from "@/modules/customers/schema";
 import type { CreateCustomerInput, ImportCustomerCsvInput, ListCustomersQuery, UpdateCustomerInput } from "@/modules/customers/schema";
@@ -34,95 +35,6 @@ async function assertAssignableUser(companyId: string, assignedToUserId?: string
   }
 }
 
-function detectDelimitedSeparator(text: string) {
-  const sampleLine = text
-    .split(/\r?\n/)
-    .find((line) => line.trim().length > 0)
-    ?? "";
-
-  const tabCount = (sampleLine.match(/\t/g) ?? []).length;
-  const commaCount = (sampleLine.match(/,/g) ?? []).length;
-  const semicolonCount = (sampleLine.match(/;/g) ?? []).length;
-
-  if (tabCount >= commaCount && tabCount >= semicolonCount && tabCount > 0) {
-    return "\t";
-  }
-
-  if (semicolonCount > commaCount) {
-    return ";";
-  }
-
-  return ",";
-}
-
-function parseDelimitedRows(text: string) {
-  const delimiter = detectDelimitedSeparator(text);
-  const rows: string[][] = [];
-  let currentCell = "";
-  let currentRow: string[] = [];
-  let insideQuotes = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    const nextCharacter = text[index + 1];
-
-    if (character === '"') {
-      if (insideQuotes && nextCharacter === '"') {
-        currentCell += '"';
-        index += 1;
-        continue;
-      }
-
-      insideQuotes = !insideQuotes;
-      continue;
-    }
-
-    if (character === delimiter && !insideQuotes) {
-      currentRow.push(currentCell);
-      currentCell = "";
-      continue;
-    }
-
-    if ((character === "\n" || character === "\r") && !insideQuotes) {
-      if (character === "\r" && nextCharacter === "\n") {
-        index += 1;
-      }
-
-      currentRow.push(currentCell);
-      rows.push(currentRow);
-      currentCell = "";
-      currentRow = [];
-      continue;
-    }
-
-    currentCell += character;
-  }
-
-  if (currentCell.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentCell);
-    rows.push(currentRow);
-  }
-
-  return rows
-    .map((row) => row.map((cell) => cell.trim()))
-    .filter((row) => row.some((cell) => cell.length > 0));
-}
-
-function normalizeCsvHeader(header: string) {
-  return header.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
-}
-
-function parseCsvTags(value?: string) {
-  if (!value) {
-    return [];
-  }
-
-  return value
-    .split(/[|;,]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 20);
-}
 
 function parsePdfTextToRows(text: string) {
   const lines = text
@@ -160,7 +72,7 @@ function buildCustomerRow(row: Record<string, string>) {
     fullName,
     email: row.email || null,
     phone: row.phone || row.mobile || null,
-    tags: parseCsvTags(row.tags),
+    tags: parseDelimitedTags(row.tags),
     notes: withDefaultCallFields(row.notes || row.note || null),
   };
 }
@@ -188,7 +100,7 @@ function rowsToPreview(rows: string[][]) {
   }
 
   const [headerRow, ...dataRows] = rows;
-  const normalizedHeaders = headerRow.map(normalizeCsvHeader);
+  const normalizedHeaders = headerRow.map(normalizeDelimitedHeader);
 
   const preview = dataRows.slice(0, 50).map((rowValues, index) => {
     const rowRecord = normalizedHeaders.reduce<Record<string, string>>((accumulator, header, headerIndex) => {
@@ -266,7 +178,7 @@ async function importCustomerRows(c: Context<AppEnv>, rows: string[][]) {
   }
 
   const [headerRow, ...dataRows] = rows;
-  const normalizedHeaders = headerRow.map(normalizeCsvHeader);
+  const normalizedHeaders = headerRow.map(normalizeDelimitedHeader);
 
   if (dataRows.length > 200) {
     throw AppError.badRequest("CSV import supports up to 200 customers per request");
@@ -427,9 +339,7 @@ export async function listCustomers(c: Context<AppEnv>) {
 
   return ok(c, {
     items,
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -550,9 +460,7 @@ export async function updateCustomer(c: Context<AppEnv>) {
   const params = customerParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as UpdateCustomerInput;
 
-  if (Object.keys(body).length === 0) {
-    throw AppError.badRequest("At least one field is required for update");
-  }
+  assertNonEmptyUpdate(body as Record<string, unknown>);
 
   await assertAssignableUser(tenant.companyId, body.assignedToUserId);
 

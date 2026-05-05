@@ -72,7 +72,14 @@ const envSchema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().default(""),
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().default(""),
   WHATSAPP_APP_SECRET: z.string().default(""),
+  WHATSAPP_META_APP_ID: z.string().default(""),
+  WHATSAPP_META_APP_SECRET: z.string().default(""),
+  WHATSAPP_EMBEDDED_SIGNUP_REDIRECT_URI: z.string().url().optional(),
+  WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID: z.string().default(""),
   WHATSAPP_GRAPH_API_VERSION: z.string().default("v23.0"),
+  WHATSAPP_PHONE_MPS: z.coerce.number().positive().default(60),
+  WHATSAPP_PAIR_INTERVAL_SECONDS: z.coerce.number().int().min(1).default(6),
+  WHATSAPP_OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).default(5),
   TURNSTILE_SECRET_KEY: z.string().default(""),
 });
 

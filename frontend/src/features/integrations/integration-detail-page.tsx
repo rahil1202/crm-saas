@@ -14,7 +14,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, apiRequest } from "@/lib/api";
+import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   clearPendingIntegrationOauthContext,
@@ -32,6 +32,199 @@ import {
   type IntegrationKey,
   type IntegrationSettings,
 } from "@/features/integrations/config";
+
+interface WhatsappWorkspace {
+  id: string;
+  name: string;
+  phoneNumberId: string;
+  businessAccountId: string | null;
+  webhookKey: string | null;
+  verifyToken: string | null;
+  appSecret: string | null;
+  accessToken: string | null;
+  isActive: boolean;
+  isVerified: boolean;
+  activePhoneNumberIds: string[];
+  metadata: Record<string, unknown>;
+  updatedAt: string;
+}
+
+interface WhatsappReadiness {
+  status: "ready" | "limited" | "blocked";
+  missing: string[];
+  checks: {
+    active: boolean;
+    phoneNumberConfigured: boolean;
+    businessAccountConfigured: boolean;
+    tokenValid: boolean;
+    webhookVerified: boolean;
+    phoneConnected: boolean;
+    approvedTemplateCount: number;
+    pricingLoaded: boolean;
+  };
+  meta: Record<string, unknown>;
+}
+
+interface WhatsappOnboardingStatus {
+  status: "ready" | "limited" | "blocked";
+  activeWorkspaceId: string | null;
+  steps: Array<{ key: string; label: string; done: boolean }>;
+  workspaces: Array<{ workspace: WhatsappWorkspace; readiness: WhatsappReadiness }>;
+  embeddedSignup: { appId: string | null; configId: string | null; enabled: boolean };
+}
+
+interface WhatsappPricingRate {
+  id: string;
+  market: string;
+  countryCode: string | null;
+  currency: string;
+  category: "marketing" | "utility" | "authentication" | "authentication_international" | "service";
+  rate: string;
+  tierFrom: number;
+  tierTo: number | null;
+  effectiveFrom: string;
+  sourceVersion: string;
+}
+
+interface WhatsappPricingEstimate {
+  category: string;
+  market: string;
+  countryCode: string | null;
+  currency: string;
+  billableUnits: number;
+  unitRate: string;
+  estimatedCost: string;
+  status: "estimated" | "waived";
+  reason: string;
+}
+
+interface WhatsappWorkspaceDraft {
+  id: string | null;
+  name: string;
+  phoneNumberId: string;
+  businessAccountId: string;
+  webhookKey: string;
+  activePhoneNumberIds: string;
+  verifyToken: string;
+  appSecret: string;
+  accessToken: string;
+  isActive: boolean;
+  isVerified: boolean;
+}
+
+interface EmbeddedSignupDraft {
+  code: string;
+  accessToken: string;
+  businessAccountId: string;
+  phoneNumberId: string;
+  businessId: string;
+  name: string;
+}
+
+const emptyEmbeddedSignupDraft: EmbeddedSignupDraft = {
+  code: "",
+  accessToken: "",
+  businessAccountId: "",
+  phoneNumberId: "",
+  businessId: "",
+  name: "",
+};
+
+const emptyWhatsappWorkspaceDraft: WhatsappWorkspaceDraft = {
+  id: null,
+  name: "",
+  phoneNumberId: "",
+  businessAccountId: "",
+  webhookKey: "",
+  activePhoneNumberIds: "",
+  verifyToken: "",
+  appSecret: "",
+  accessToken: "",
+  isActive: true,
+  isVerified: false,
+};
+
+function workspaceToDraft(workspace: WhatsappWorkspace): WhatsappWorkspaceDraft {
+  return {
+    id: workspace.id,
+    name: workspace.name,
+    phoneNumberId: workspace.phoneNumberId,
+    businessAccountId: workspace.businessAccountId ?? "",
+    webhookKey: workspace.webhookKey ?? "",
+    activePhoneNumberIds: workspace.activePhoneNumberIds?.join(", ") ?? "",
+    verifyToken: "",
+    appSecret: "",
+    accessToken: "",
+    isActive: workspace.isActive,
+    isVerified: workspace.isVerified,
+  };
+}
+
+function readinessBadgeVariant(status?: string) {
+  if (status === "ready") return "secondary" as const;
+  if (status === "blocked") return "destructive" as const;
+  return "outline" as const;
+}
+
+function formatMoney(value: string | number, currency: string) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) {
+    return `${currency} ${value}`;
+  }
+  return new Intl.NumberFormat(undefined, { style: "currency", currency, maximumFractionDigits: 6 }).format(amount);
+}
+
+interface FacebookLoginResponse {
+  authResponse?: {
+    code?: string;
+    accessToken?: string;
+  };
+  status?: string;
+}
+
+interface FacebookSdk {
+  init(config: Record<string, unknown>): void;
+  login(callback: (response: FacebookLoginResponse) => void, options: Record<string, unknown>): void;
+}
+
+function getFacebookSdkWindow() {
+  return window as typeof window & { FB?: FacebookSdk; fbAsyncInit?: () => void };
+}
+
+function loadFacebookSdk(appId: string) {
+  return new Promise<FacebookSdk>((resolve, reject) => {
+    const sdkWindow = getFacebookSdkWindow();
+    if (sdkWindow.FB) {
+      resolve(sdkWindow.FB);
+      return;
+    }
+
+    sdkWindow.fbAsyncInit = () => {
+      if (!sdkWindow.FB) {
+        reject(new Error("Facebook SDK did not initialize."));
+        return;
+      }
+      sdkWindow.FB.init({
+        appId,
+        cookie: true,
+        xfbml: true,
+        version: "v23.0",
+      });
+      resolve(sdkWindow.FB);
+    };
+
+    if (!document.getElementById("facebook-jssdk")) {
+      const script = document.createElement("script");
+      script.id = "facebook-jssdk";
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = "anonymous";
+      script.src = "https://connect.facebook.net/en_US/sdk.js";
+      script.onerror = () => reject(new Error("Unable to load Facebook SDK."));
+      document.body.appendChild(script);
+    }
+  });
+}
 
 function getPatchPayload(key: IntegrationKey, draft: IntegrationSettings["integrations"]) {
   if (key === "email") {
@@ -75,6 +268,22 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
   const [disconnectingProvider, setDisconnectingProvider] = useState<IntegrationOauthProvider | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [oauthResult, setOauthResult] = useState<{ ok: boolean; provider: string | null } | null>(null);
+  const [whatsappWorkspaces, setWhatsappWorkspaces] = useState<WhatsappWorkspace[]>([]);
+  const [whatsappWorkspaceDraft, setWhatsappWorkspaceDraft] = useState<WhatsappWorkspaceDraft>(emptyWhatsappWorkspaceDraft);
+  const [savingWhatsappWorkspace, setSavingWhatsappWorkspace] = useState(false);
+  const [whatsappOnboarding, setWhatsappOnboarding] = useState<WhatsappOnboardingStatus | null>(null);
+  const [embeddedSignupDraft, setEmbeddedSignupDraft] = useState<EmbeddedSignupDraft>(emptyEmbeddedSignupDraft);
+  const [pricingRates, setPricingRates] = useState<WhatsappPricingRate[]>([]);
+  const [pricingImportJson, setPricingImportJson] = useState("");
+  const [pricingEstimate, setPricingEstimate] = useState<WhatsappPricingEstimate | null>(null);
+  const [pricingEstimateDraft, setPricingEstimateDraft] = useState({
+    to: "",
+    market: "India",
+    currency: "INR",
+    category: "marketing",
+    billableUnits: "1000",
+  });
+  const [workingWhatsappAction, setWorkingWhatsappAction] = useState<string | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -88,14 +297,33 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
           }
         }
 
-        const [hubPayload, settingsPayload] = await Promise.all([
+        const [hubPayload, settingsPayload, whatsappWorkspacePayload, whatsappOnboardingPayload, whatsappPricingPayload] = await Promise.all([
           apiRequest<IntegrationHubResponse>("/settings/integration-hub"),
           apiRequest<IntegrationSettings>("/settings/integrations"),
+          integrationKey === "whatsapp"
+            ? apiRequest<{ items: WhatsappWorkspace[] }>("/whatsapp-workspaces")
+            : Promise.resolve({ items: [] as WhatsappWorkspace[] }),
+          integrationKey === "whatsapp"
+            ? apiRequest<WhatsappOnboardingStatus>("/whatsapp/onboarding/status", { skipCache: true })
+            : Promise.resolve(null),
+          integrationKey === "whatsapp"
+            ? apiRequest<{ items: WhatsappPricingRate[] }>("/whatsapp/pricing/rates")
+            : Promise.resolve({ items: [] as WhatsappPricingRate[] }),
         ]);
 
         if (!disposed) {
           setHub(hubPayload);
           setDraft(settingsPayload.integrations);
+          setWhatsappWorkspaces(whatsappWorkspacePayload.items);
+          setWhatsappOnboarding(whatsappOnboardingPayload);
+          setPricingRates(whatsappPricingPayload.items);
+          if (integrationKey === "whatsapp") {
+            const preferred =
+              whatsappWorkspacePayload.items.find((item) => item.id === settingsPayload.integrations.whatsapp.workspaceId) ??
+              whatsappWorkspacePayload.items[0] ??
+              null;
+            setWhatsappWorkspaceDraft(preferred ? workspaceToDraft(preferred) : emptyWhatsappWorkspaceDraft);
+          }
         }
       } catch (caughtError) {
         if (!disposed) {
@@ -112,7 +340,7 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [integrationKey]);
 
   const stepChecks = useMemo(() => {
     if (!draft) {
@@ -129,8 +357,20 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
     if (integrationKey === "whatsapp") {
       return [
         { label: "Select provider", done: Boolean(draft.whatsapp.provider ?? draft.whatsappProvider) },
-        { label: "Map business IDs", done: Boolean(draft.whatsapp.phoneNumberId && draft.whatsapp.businessAccountId) },
-        { label: "Verify webhook", done: Boolean(draft.whatsapp.webhookUrl && draft.whatsapp.verifyToken && draft.whatsapp.appSecret) },
+        {
+          label: "Map business IDs",
+          done: Boolean(
+            whatsappWorkspaces.some((workspace) => workspace.isActive && workspace.phoneNumberId && workspace.businessAccountId) ||
+              (draft.whatsapp.phoneNumberId && draft.whatsapp.businessAccountId),
+          ),
+        },
+        {
+          label: "Verify webhook",
+          done: Boolean(
+            whatsappWorkspaces.some((workspace) => workspace.webhookKey && workspace.isVerified) ||
+              (draft.whatsapp.webhookUrl && draft.whatsapp.verifyToken && draft.whatsapp.appSecret),
+          ),
+        },
       ];
     }
     if (integrationKey === "linkedin") {
@@ -152,7 +392,7 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
       { label: "Set outbound or Slack URL", done: Boolean(draft.genericWebhooks.outboundUrl || draft.slackWebhookUrl) },
       { label: "Set signing hint", done: Boolean(draft.genericWebhooks.signingSecretHint) },
     ];
-  }, [draft, integrationKey]);
+  }, [draft, integrationKey, whatsappWorkspaces]);
 
   const channelStatus = useMemo(() => {
     if (stepChecks.length > 0 && stepChecks.every((step) => step.done)) {
@@ -164,6 +404,18 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
   const refreshHub = async () => {
     const nextHub = await apiRequest<IntegrationHubResponse>("/settings/integration-hub");
     setHub(nextHub);
+  };
+
+  const refreshWhatsappWorkspaces = async () => {
+    const [payload, onboardingPayload, pricingPayload] = await Promise.all([
+      apiRequest<{ items: WhatsappWorkspace[] }>("/whatsapp-workspaces", { skipCache: true }),
+      apiRequest<WhatsappOnboardingStatus>("/whatsapp/onboarding/status", { skipCache: true }),
+      apiRequest<{ items: WhatsappPricingRate[] }>("/whatsapp/pricing/rates", { skipCache: true }),
+    ]);
+    setWhatsappWorkspaces(payload.items);
+    setWhatsappOnboarding(onboardingPayload);
+    setPricingRates(pricingPayload.items);
+    return payload.items;
   };
 
   const saveIntegration = async () => {
@@ -188,6 +440,211 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
       setError(caughtError instanceof ApiError ? caughtError.message : "Unable to save integration.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveWhatsappWorkspace = async () => {
+    if (!draft) {
+      return;
+    }
+
+    setSavingWhatsappWorkspace(true);
+    setError(null);
+    try {
+      const activePhoneNumberIds = parseList(whatsappWorkspaceDraft.activePhoneNumberIds);
+      const payload = {
+        name: whatsappWorkspaceDraft.name,
+        phoneNumberId: whatsappWorkspaceDraft.phoneNumberId,
+        businessAccountId: whatsappWorkspaceDraft.businessAccountId || undefined,
+        webhookKey: whatsappWorkspaceDraft.webhookKey || undefined,
+        activePhoneNumberIds,
+        verifyToken: whatsappWorkspaceDraft.verifyToken || undefined,
+        appSecret: whatsappWorkspaceDraft.appSecret || undefined,
+        accessToken: whatsappWorkspaceDraft.accessToken || undefined,
+        isActive: whatsappWorkspaceDraft.isActive,
+        isVerified: whatsappWorkspaceDraft.isVerified,
+      };
+      const workspace = await apiRequest<WhatsappWorkspace>(
+        whatsappWorkspaceDraft.id ? `/whatsapp-workspaces/${whatsappWorkspaceDraft.id}` : "/whatsapp-workspaces",
+        {
+          method: whatsappWorkspaceDraft.id ? "PATCH" : "POST",
+          body: JSON.stringify(payload),
+        },
+      );
+
+      const eventUrl = workspace.webhookKey ? buildApiUrl(`/public/whatsapp/webhook/${workspace.webhookKey}`) : draft.whatsapp.webhookUrl;
+      const response = await apiRequest<IntegrationSettings>("/settings/integrations", {
+        method: "PATCH",
+        body: JSON.stringify({
+          integrations: {
+            whatsappProvider: draft.whatsapp.provider ?? draft.whatsappProvider ?? "meta",
+            whatsapp: {
+              ...draft.whatsapp,
+              provider: draft.whatsapp.provider ?? draft.whatsappProvider ?? "meta",
+              workspaceId: workspace.id,
+              phoneNumberId: workspace.phoneNumberId,
+              businessAccountId: workspace.businessAccountId,
+              webhookKey: workspace.webhookKey,
+              activePhoneNumberIds: workspace.activePhoneNumberIds,
+              webhookUrl: eventUrl,
+              verifyToken: whatsappWorkspaceDraft.verifyToken || draft.whatsapp.verifyToken,
+              appSecret: whatsappWorkspaceDraft.appSecret || draft.whatsapp.appSecret,
+            },
+          },
+        }),
+      });
+
+      setDraft(response.integrations);
+      setWhatsappWorkspaceDraft(workspaceToDraft(workspace));
+      await Promise.all([refreshWhatsappWorkspaces(), refreshHub()]);
+      toast.success("WhatsApp workspace saved.");
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to save WhatsApp workspace.");
+    } finally {
+      setSavingWhatsappWorkspace(false);
+    }
+  };
+
+  const exchangeEmbeddedSignup = async () => {
+    setWorkingWhatsappAction("embedded");
+    setError(null);
+    try {
+      const response = await apiRequest<{ workspace: WhatsappWorkspace; verifyToken: string; webhookUrl: string }>("/whatsapp/onboarding/embedded/exchange", {
+        method: "POST",
+        body: JSON.stringify({
+          ...embeddedSignupDraft,
+          code: embeddedSignupDraft.code || undefined,
+          accessToken: embeddedSignupDraft.accessToken || undefined,
+          businessAccountId: embeddedSignupDraft.businessAccountId,
+          phoneNumberId: embeddedSignupDraft.phoneNumberId,
+          businessId: embeddedSignupDraft.businessId || undefined,
+          name: embeddedSignupDraft.name || undefined,
+        }),
+      });
+      setWhatsappWorkspaceDraft(workspaceToDraft(response.workspace));
+      setEmbeddedSignupDraft(emptyEmbeddedSignupDraft);
+      await refreshWhatsappWorkspaces();
+      toast.success(`WhatsApp number added. Verify token: ${response.verifyToken}`);
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to exchange Embedded Signup result.");
+    } finally {
+      setWorkingWhatsappAction(null);
+    }
+  };
+
+  const launchEmbeddedSignup = async () => {
+    const appId = whatsappOnboarding?.embeddedSignup.appId;
+    const configId = whatsappOnboarding?.embeddedSignup.configId;
+    if (!appId || !configId) {
+      setError("Set WHATSAPP_META_APP_ID and WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID before launching Embedded Signup.");
+      return;
+    }
+
+    setWorkingWhatsappAction("embedded-launch");
+    setError(null);
+    try {
+      const sdk = await loadFacebookSdk(appId);
+      sdk.login(
+        (response) => {
+          if (response.authResponse?.code || response.authResponse?.accessToken) {
+            setEmbeddedSignupDraft((current) => ({
+              ...current,
+              code: response.authResponse?.code ?? current.code,
+              accessToken: response.authResponse?.accessToken ?? current.accessToken,
+            }));
+            toast.success("Embedded Signup returned auth credentials. Add WABA and phone IDs from session logging, then exchange.");
+          } else {
+            setError("Embedded Signup did not return auth credentials.");
+          }
+          setWorkingWhatsappAction(null);
+        },
+        {
+          config_id: configId,
+          response_type: "code",
+          override_default_response_type: true,
+          extras: {
+            setup: {},
+          },
+        },
+      );
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to launch Embedded Signup.");
+      setWorkingWhatsappAction(null);
+    }
+  };
+
+  const syncWorkspaceMeta = async (workspaceId: string) => {
+    setWorkingWhatsappAction(`sync:${workspaceId}`);
+    setError(null);
+    try {
+      await apiRequest(`/whatsapp/workspaces/${workspaceId}/sync-meta`, { method: "POST", body: JSON.stringify({}) });
+      await refreshWhatsappWorkspaces();
+      toast.success("Meta workspace status synced.");
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to sync Meta workspace status.");
+    } finally {
+      setWorkingWhatsappAction(null);
+    }
+  };
+
+  const testWorkspaceReadiness = async (workspaceId: string) => {
+    setWorkingWhatsappAction(`test:${workspaceId}`);
+    setError(null);
+    try {
+      const response = await apiRequest<{ readiness: WhatsappReadiness }>(`/whatsapp/workspaces/${workspaceId}/test-readiness`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      toast[response.readiness.status === "ready" ? "success" : "warning"](
+        response.readiness.status === "ready" ? "Workspace is ready." : `Workspace needs attention: ${response.readiness.missing[0] ?? "Review checklist."}`,
+      );
+      await refreshWhatsappWorkspaces();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to test WhatsApp readiness.");
+    } finally {
+      setWorkingWhatsappAction(null);
+    }
+  };
+
+  const importPricingRates = async () => {
+    setWorkingWhatsappAction("pricing-import");
+    setError(null);
+    try {
+      const parsed = JSON.parse(pricingImportJson) as unknown;
+      const response = await apiRequest<{ imported: number }>("/whatsapp/pricing/import-rate-card", {
+        method: "POST",
+        body: JSON.stringify(parsed),
+      });
+      setPricingImportJson("");
+      await refreshWhatsappWorkspaces();
+      toast.success(`Imported ${response.imported} WhatsApp pricing rows.`);
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to import pricing. Paste valid rate-card JSON.");
+    } finally {
+      setWorkingWhatsappAction(null);
+    }
+  };
+
+  const estimatePricing = async () => {
+    setWorkingWhatsappAction("pricing-estimate");
+    setError(null);
+    try {
+      const response = await apiRequest<WhatsappPricingEstimate>("/whatsapp/pricing/estimate", {
+        method: "POST",
+        body: JSON.stringify({
+          to: pricingEstimateDraft.to || undefined,
+          market: pricingEstimateDraft.market || undefined,
+          currency: pricingEstimateDraft.currency,
+          category: pricingEstimateDraft.category,
+          billableUnits: Number(pricingEstimateDraft.billableUnits) || 1,
+          serviceWindowOpen: pricingEstimateDraft.category === "service" ? true : undefined,
+        }),
+      });
+      setPricingEstimate(response);
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to estimate pricing.");
+    } finally {
+      setWorkingWhatsappAction(null);
     }
   };
 
@@ -431,6 +888,267 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
             ) : null}
 
             {draft && integration.key === "whatsapp" ? (
+              <div className="grid gap-4">
+                <div className="rounded-2xl border border-border/60 bg-muted/10 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Connect WhatsApp</div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Guided onboarding covers Meta connection, phone number readiness, webhook verification, templates, test send, and pricing.
+                      </p>
+                    </div>
+                    <Badge variant={readinessBadgeVariant(whatsappOnboarding?.status)}>{whatsappOnboarding?.status ?? "loading"}</Badge>
+                  </div>
+                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+                    {(whatsappOnboarding?.steps ?? []).map((step) => (
+                      <div key={step.key} className="flex items-center justify-between rounded-xl border border-border/60 bg-background px-3 py-2 text-sm">
+                        <span>{step.label}</span>
+                        <Badge variant={step.done ? "secondary" : "outline"}>{step.done ? "Done" : "Needed"}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <div className="rounded-2xl border border-border/60 bg-background p-4">
+                    <div className="text-sm font-semibold">Embedded Signup</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Launch Meta Embedded Signup, then exchange the returned code/access token with WABA and phone IDs from session logging.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant={whatsappOnboarding?.embeddedSignup.enabled ? "secondary" : "outline"}>
+                        {whatsappOnboarding?.embeddedSignup.enabled ? "Meta app configured" : "Meta app env missing"}
+                      </Badge>
+                      {whatsappOnboarding?.embeddedSignup.configId ? <Badge variant="outline">Config {whatsappOnboarding.embeddedSignup.configId}</Badge> : null}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mt-4"
+                      onClick={() => void launchEmbeddedSignup()}
+                      disabled={!whatsappOnboarding?.embeddedSignup.enabled || workingWhatsappAction === "embedded-launch"}
+                    >
+                      {workingWhatsappAction === "embedded-launch" ? "Launching Meta..." : "Launch Meta Embedded Signup"}
+                    </Button>
+                    <FieldGroup className="mt-4">
+                      <Field>
+                        <FieldLabel>Signup code or auth code</FieldLabel>
+                        <Input
+                          value={embeddedSignupDraft.code}
+                          onChange={(event) => setEmbeddedSignupDraft((current) => ({ ...current, code: event.target.value }))}
+                          placeholder="Returned by Meta Embedded Signup"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Access token</FieldLabel>
+                        <Input
+                          value={embeddedSignupDraft.accessToken}
+                          onChange={(event) => setEmbeddedSignupDraft((current) => ({ ...current, accessToken: event.target.value }))}
+                          placeholder="Optional if code exchange is configured"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>WABA ID</FieldLabel>
+                        <Input
+                          value={embeddedSignupDraft.businessAccountId}
+                          onChange={(event) => setEmbeddedSignupDraft((current) => ({ ...current, businessAccountId: event.target.value }))}
+                          placeholder="WhatsApp Business Account ID"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Phone number ID</FieldLabel>
+                        <Input
+                          value={embeddedSignupDraft.phoneNumberId}
+                          onChange={(event) => setEmbeddedSignupDraft((current) => ({ ...current, phoneNumberId: event.target.value }))}
+                          placeholder="Meta business phone number ID"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Business ID</FieldLabel>
+                        <Input
+                          value={embeddedSignupDraft.businessId}
+                          onChange={(event) => setEmbeddedSignupDraft((current) => ({ ...current, businessId: event.target.value }))}
+                          placeholder="Optional Meta business portfolio ID"
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>Workspace name</FieldLabel>
+                        <Input
+                          value={embeddedSignupDraft.name}
+                          onChange={(event) => setEmbeddedSignupDraft((current) => ({ ...current, name: event.target.value }))}
+                          placeholder="Primary WhatsApp number"
+                        />
+                      </Field>
+                    </FieldGroup>
+                    <Button
+                      type="button"
+                      className="mt-4"
+                      onClick={() => void exchangeEmbeddedSignup()}
+                      disabled={workingWhatsappAction === "embedded" || !embeddedSignupDraft.businessAccountId || !embeddedSignupDraft.phoneNumberId}
+                    >
+                      {workingWhatsappAction === "embedded" ? "Connecting..." : "Add WhatsApp number"}
+                    </Button>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/60 bg-background p-4">
+                    <div className="text-sm font-semibold">Readiness by number</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Business verification is visible here, but sending readiness is based on token, phone, webhook, template, and pricing checks.
+                    </p>
+                    <div className="mt-4 grid gap-3">
+                      {(whatsappOnboarding?.workspaces ?? []).map(({ workspace, readiness }) => (
+                        <div key={workspace.id} className="rounded-xl border border-border/60 p-3 text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{workspace.name}</span>
+                            <Badge variant={readinessBadgeVariant(readiness.status)}>{readiness.status}</Badge>
+                            <Badge variant="outline">{workspace.phoneNumberId}</Badge>
+                          </div>
+                          <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                            <span>Business verification: {String(readiness.meta.businessVerificationStatus ?? "unknown")}</span>
+                            <span>Phone status: {String(readiness.meta.phoneRegistrationStatus ?? "unknown")}</span>
+                            <span>Quality: {String(readiness.meta.qualityRating ?? "unknown")} • Limit: {String(readiness.meta.messagingLimit ?? "unknown")}</span>
+                          </div>
+                          {readiness.missing.length > 0 ? (
+                            <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                              {readiness.missing.map((item) => (
+                                <span key={item}>Needs: {item}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void syncWorkspaceMeta(workspace.id)}
+                              disabled={workingWhatsappAction === `sync:${workspace.id}`}
+                            >
+                              {workingWhatsappAction === `sync:${workspace.id}` ? "Syncing..." : "Sync Meta"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void testWorkspaceReadiness(workspace.id)}
+                              disabled={workingWhatsappAction === `test:${workspace.id}`}
+                            >
+                              Test readiness
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      {whatsappOnboarding && whatsappOnboarding.workspaces.length === 0 ? (
+                        <div className="rounded-xl border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
+                          Add a WhatsApp number with Embedded Signup or Manual Setup to start readiness checks.
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border/60 bg-background p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">Message pricing</div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Uses imported Meta pass-through rates. Costs are estimated at queue time and finalized when delivery webhooks arrive.
+                      </p>
+                    </div>
+                    <Badge variant={pricingRates.length > 0 ? "secondary" : "outline"}>{pricingRates.length} rates</Badge>
+                  </div>
+                  <div className="mt-4 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                    <div className="grid gap-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel>Market</FieldLabel>
+                          <Input
+                            value={pricingEstimateDraft.market}
+                            onChange={(event) => setPricingEstimateDraft((current) => ({ ...current, market: event.target.value }))}
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Currency</FieldLabel>
+                          <Input
+                            value={pricingEstimateDraft.currency}
+                            onChange={(event) => setPricingEstimateDraft((current) => ({ ...current, currency: event.target.value.toUpperCase() }))}
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Category</FieldLabel>
+                          <NativeSelect
+                            value={pricingEstimateDraft.category}
+                            onChange={(event) => setPricingEstimateDraft((current) => ({ ...current, category: event.target.value }))}
+                            className="h-10 rounded-xl px-3 text-sm"
+                          >
+                            <option value="marketing">Marketing</option>
+                            <option value="utility">Utility</option>
+                            <option value="authentication">Authentication</option>
+                            <option value="authentication_international">Authentication International</option>
+                            <option value="service">Service</option>
+                          </NativeSelect>
+                        </Field>
+                        <Field>
+                          <FieldLabel>Delivered messages</FieldLabel>
+                          <Input
+                            value={pricingEstimateDraft.billableUnits}
+                            onChange={(event) => setPricingEstimateDraft((current) => ({ ...current, billableUnits: event.target.value }))}
+                          />
+                        </Field>
+                      </div>
+                      <Button type="button" variant="outline" onClick={() => void estimatePricing()} disabled={workingWhatsappAction === "pricing-estimate"}>
+                        {workingWhatsappAction === "pricing-estimate" ? "Estimating..." : "Estimate cost"}
+                      </Button>
+                      {pricingEstimate ? (
+                        <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-sm">
+                          <div className="font-medium">
+                            {formatMoney(pricingEstimate.estimatedCost, pricingEstimate.currency)} estimated
+                          </div>
+                          <div className="mt-1 text-muted-foreground">
+                            {pricingEstimate.billableUnits} x {formatMoney(pricingEstimate.unitRate, pricingEstimate.currency)} • {pricingEstimate.category} • {pricingEstimate.reason}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-3">
+                      <Field>
+                        <FieldLabel>Import official Meta rate-card JSON</FieldLabel>
+                        <Textarea
+                          value={pricingImportJson}
+                          onChange={(event) => setPricingImportJson(event.target.value)}
+                          className="min-h-32 font-mono text-xs"
+                          placeholder='{"sourceVersion":"meta-2026-01","sourceUrl":"https://developers.facebook.com/docs/whatsapp/pricing#rate-cards","records":[{"market":"India","countryCode":"IN","currency":"INR","category":"marketing","rate":"0.80","effectiveFrom":"2026-01-01T00:00:00.000Z"}]}'
+                        />
+                        <FieldDescription>Do not scrape live pricing. Import official rate-card data with source version and effective date.</FieldDescription>
+                      </Field>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void importPricingRates()}
+                        disabled={workingWhatsappAction === "pricing-import" || !pricingImportJson.trim()}
+                      >
+                        {workingWhatsappAction === "pricing-import" ? "Importing..." : "Import rate card"}
+                      </Button>
+                    </div>
+                  </div>
+                  {pricingRates.length > 0 ? (
+                    <div className="mt-4 grid gap-2 md:grid-cols-2">
+                      {pricingRates.slice(0, 8).map((rate) => (
+                        <div key={rate.id} className="rounded-xl border border-border/60 px-3 py-2 text-sm">
+                          <div className="font-medium">
+                            {rate.market} • {rate.category.replace("_", " ")}
+                          </div>
+                          <div className="text-muted-foreground">
+                            {formatMoney(rate.rate, rate.currency)} per delivered message • {rate.sourceVersion}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {draft && integration.key === "whatsapp" ? (
               <FieldGroup>
                 <Field>
                   <FieldLabel>Provider</FieldLabel>
@@ -475,7 +1193,7 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                   </NativeSelect>
                 </Field>
                 <Field>
-                  <FieldLabel>Workspace ID</FieldLabel>
+                  <FieldLabel>Default workspace ID</FieldLabel>
                   <Input
                     value={valueOrEmpty(draft.whatsapp.workspaceId)}
                     onChange={(event) =>
@@ -483,6 +1201,17 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                     }
                     placeholder="Workspace UUID"
                   />
+                </Field>
+                <Field>
+                  <FieldLabel>Webhook key</FieldLabel>
+                  <Input
+                    value={valueOrEmpty(draft.whatsapp.webhookKey)}
+                    onChange={(event) =>
+                      setDraft((current) => (current ? { ...current, whatsapp: { ...current.whatsapp, webhookKey: event.target.value || null } } : current))
+                    }
+                    placeholder="tenant-specific webhook slug"
+                  />
+                  <FieldDescription>Use the keyed endpoint below for Meta verification and event delivery.</FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel>Phone number ID</FieldLabel>
@@ -529,7 +1258,10 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                 <Field>
                   <FieldLabel>Webhook URL</FieldLabel>
                   <Input
-                    value={valueOrEmpty(draft.whatsapp.webhookUrl ?? draft.webhookUrl)}
+                    value={valueOrEmpty(
+                      draft.whatsapp.webhookUrl ??
+                        (draft.whatsapp.webhookKey ? buildApiUrl(`/public/whatsapp/webhook/${draft.whatsapp.webhookKey}`) : draft.webhookUrl),
+                    )}
                     onChange={(event) =>
                       setDraft((current) =>
                         current
@@ -541,10 +1273,177 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
                           : current,
                       )
                     }
-                    placeholder="https://api.example.com/whatsapp/webhook"
+                    placeholder={buildApiUrl("/public/whatsapp/webhook/:webhookKey")}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel>Active phone number IDs</FieldLabel>
+                  <Textarea
+                    value={(draft.whatsapp.activePhoneNumberIds ?? []).join(", ")}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        current ? { ...current, whatsapp: { ...current.whatsapp, activePhoneNumberIds: parseList(event.target.value) } } : current,
+                      )
+                    }
+                    className="min-h-20"
+                    placeholder="Comma or newline separated phone number IDs routed to this workspace"
                   />
                 </Field>
               </FieldGroup>
+            ) : null}
+
+            {draft && integration.key === "whatsapp" ? (
+              <div className="grid gap-4 rounded-2xl border border-border/60 bg-muted/10 p-4">
+                <div>
+                  <div className="text-sm font-semibold">Cloud API workspace</div>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    This writes to the backend workspace used by signature verification, session windows, outbox sends, media uploads, and webhook routing.
+                  </p>
+                </div>
+
+                {whatsappWorkspaces.length > 0 ? (
+                  <div className="grid gap-2">
+                    {whatsappWorkspaces.map((workspace) => (
+                      <button
+                        key={workspace.id}
+                        type="button"
+                        onClick={() => setWhatsappWorkspaceDraft(workspaceToDraft(workspace))}
+                        className={cn(
+                          "rounded-xl border px-3 py-2 text-left text-sm transition hover:bg-muted/30",
+                          whatsappWorkspaceDraft.id === workspace.id ? "border-primary/40 bg-muted/30" : "border-border/60",
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{workspace.name}</span>
+                          <Badge variant={workspace.isActive ? "secondary" : "outline"}>{workspace.isActive ? "Active" : "Inactive"}</Badge>
+                          <Badge variant={workspace.isVerified ? "secondary" : "outline"}>{workspace.isVerified ? "Verified" : "Unverified"}</Badge>
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          Phone {workspace.phoneNumberId} {workspace.webhookKey ? `• webhook ${workspace.webhookKey}` : ""}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
+                    No WhatsApp Cloud API workspace has been saved yet.
+                  </div>
+                )}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={() => setWhatsappWorkspaceDraft(emptyWhatsappWorkspaceDraft)}
+                >
+                  New workspace
+                </Button>
+
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel>Workspace name</FieldLabel>
+                    <Input
+                      value={whatsappWorkspaceDraft.name}
+                      onChange={(event) => setWhatsappWorkspaceDraft((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="Primary WhatsApp number"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Phone number ID</FieldLabel>
+                    <Input
+                      value={whatsappWorkspaceDraft.phoneNumberId}
+                      onChange={(event) => setWhatsappWorkspaceDraft((current) => ({ ...current, phoneNumberId: event.target.value }))}
+                      placeholder="Meta phone number ID"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Business account ID</FieldLabel>
+                    <Input
+                      value={whatsappWorkspaceDraft.businessAccountId}
+                      onChange={(event) => setWhatsappWorkspaceDraft((current) => ({ ...current, businessAccountId: event.target.value }))}
+                      placeholder="WABA ID"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Webhook key</FieldLabel>
+                    <Input
+                      value={whatsappWorkspaceDraft.webhookKey}
+                      onChange={(event) => setWhatsappWorkspaceDraft((current) => ({ ...current, webhookKey: event.target.value }))}
+                      placeholder="company-whatsapp-prod"
+                    />
+                    <FieldDescription>
+                      Event URL:{" "}
+                      <span className="break-all font-mono text-xs">
+                        {buildApiUrl(`/public/whatsapp/webhook/${whatsappWorkspaceDraft.webhookKey || ":webhookKey"}`)}
+                      </span>
+                    </FieldDescription>
+                  </Field>
+                  <Field>
+                    <FieldLabel>Active phone IDs</FieldLabel>
+                    <Textarea
+                      value={whatsappWorkspaceDraft.activePhoneNumberIds}
+                      onChange={(event) => setWhatsappWorkspaceDraft((current) => ({ ...current, activePhoneNumberIds: event.target.value }))}
+                      className="min-h-20"
+                      placeholder="Usually the primary phone number ID, plus any routed aliases"
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Access token</FieldLabel>
+                    <Input
+                      value={whatsappWorkspaceDraft.accessToken}
+                      onChange={(event) => setWhatsappWorkspaceDraft((current) => ({ ...current, accessToken: event.target.value }))}
+                      placeholder={whatsappWorkspaceDraft.id ? "Leave blank to keep existing token" : "System user token"}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Verify token</FieldLabel>
+                    <Input
+                      value={whatsappWorkspaceDraft.verifyToken}
+                      onChange={(event) => setWhatsappWorkspaceDraft((current) => ({ ...current, verifyToken: event.target.value }))}
+                      placeholder={whatsappWorkspaceDraft.id ? "Leave blank to keep existing token" : "Webhook verify token"}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>App secret</FieldLabel>
+                    <Input
+                      value={whatsappWorkspaceDraft.appSecret}
+                      onChange={(event) => setWhatsappWorkspaceDraft((current) => ({ ...current, appSecret: event.target.value }))}
+                      placeholder={whatsappWorkspaceDraft.id ? "Leave blank to keep existing secret" : "Meta app secret"}
+                    />
+                  </Field>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Field className="flex-row items-start gap-3 rounded-xl border border-border/60 bg-background p-3">
+                      <Checkbox
+                        checked={whatsappWorkspaceDraft.isActive}
+                        onCheckedChange={(checked) => setWhatsappWorkspaceDraft((current) => ({ ...current, isActive: checked === true }))}
+                      />
+                      <div>
+                        <FieldLabel>Active workspace</FieldLabel>
+                        <FieldDescription>Eligible for send and webhook routing.</FieldDescription>
+                      </div>
+                    </Field>
+                    <Field className="flex-row items-start gap-3 rounded-xl border border-border/60 bg-background p-3">
+                      <Checkbox
+                        checked={whatsappWorkspaceDraft.isVerified}
+                        onCheckedChange={(checked) => setWhatsappWorkspaceDraft((current) => ({ ...current, isVerified: checked === true }))}
+                      />
+                      <div>
+                        <FieldLabel>Webhook verified</FieldLabel>
+                        <FieldDescription>Mark after Meta challenge succeeds.</FieldDescription>
+                      </div>
+                    </Field>
+                  </div>
+                </FieldGroup>
+
+                <Button
+                  type="button"
+                  onClick={() => void saveWhatsappWorkspace()}
+                  disabled={savingWhatsappWorkspace || !whatsappWorkspaceDraft.name || !whatsappWorkspaceDraft.phoneNumberId}
+                >
+                  {savingWhatsappWorkspace ? "Saving workspace..." : whatsappWorkspaceDraft.id ? "Update workspace" : "Create workspace"}
+                </Button>
+              </div>
             ) : null}
 
             {draft && integration.key === "linkedin" ? (

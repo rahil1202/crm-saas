@@ -16,7 +16,14 @@ import {
 import { processQueuedEmailMessages, queueLeadEmail } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
 import { processDueSequenceRuns } from "@/lib/sequence-runtime";
-import { sendWhatsappMessage, expireConversationStates } from "@/lib/whatsapp-runtime";
+import {
+  sendWhatsappMessage,
+  expireConversationStates,
+  processQueuedWhatsappOutbox,
+  processQueuedWhatsappWebhookEvents,
+  type WhatsappIngestedItem,
+} from "@/lib/whatsapp-runtime";
+import { resumeActiveChatbotFlowForConversation } from "@/lib/chatbot-flow-engine";
 
 type RuntimeContext = Record<string, unknown> & {
   leadId?: string | null;
@@ -881,6 +888,30 @@ export async function cancelAutomationRun(companyId: string, runId: string) {
   return run;
 }
 
+async function dispatchWhatsappIngestedItems(items: WhatsappIngestedItem[]) {
+  for (const item of items) {
+    await resumeActiveChatbotFlowForConversation({
+      companyId: item.companyId,
+      socialConversationId: item.conversationId,
+      inboundMessageBody: item.body,
+      lastInboundMessageId: item.messageId,
+    });
+
+    await recordTriggerEvent({
+      companyId: item.companyId,
+      triggerType: "whatsapp.replied",
+      eventKey: `whatsapp.replied:${item.conversationId}:${item.messageId}`,
+      entityType: "conversation",
+      entityId: item.conversationId,
+      payload: {
+        conversationId: item.conversationId,
+        messageId: item.messageId,
+        leadId: item.leadId,
+      },
+    });
+  }
+}
+
 async function runtimeTick() {
   if (workerBusy) {
     return;
@@ -894,6 +925,8 @@ async function runtimeTick() {
     }
 
     await processQueuedEmailMessages(25);
+    await processQueuedWhatsappWebhookEvents(25, dispatchWhatsappIngestedItems);
+    await processQueuedWhatsappOutbox(25);
     await processDueSequenceRuns(25);
     await queueLeadInactiveTriggers();
     await expireConversationStates();

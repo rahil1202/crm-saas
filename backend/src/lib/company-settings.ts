@@ -106,6 +106,8 @@ export interface IntegrationSettingsPayload {
     workspaceId: string | null;
     phoneNumberId: string | null;
     businessAccountId: string | null;
+    webhookKey: string | null;
+    activePhoneNumberIds: string[];
     verifyToken: string | null;
     appSecret: string | null;
     webhookUrl: string | null;
@@ -209,6 +211,8 @@ const defaultIntegrations: CompanySettingsPayload["integrations"] = {
     workspaceId: null,
     phoneNumberId: null,
     businessAccountId: null,
+    webhookKey: null,
+    activePhoneNumberIds: [],
     verifyToken: null,
     appSecret: null,
     webhookUrl: null,
@@ -359,6 +363,8 @@ export function normalizeIntegrationSettings(value: unknown): IntegrationSetting
       workspaceId: asNullableString(whatsapp.workspaceId),
       phoneNumberId: asNullableString(whatsapp.phoneNumberId),
       businessAccountId: asNullableString(whatsapp.businessAccountId),
+      webhookKey: asNullableString(whatsapp.webhookKey),
+      activePhoneNumberIds: asStringArray(whatsapp.activePhoneNumberIds),
       verifyToken: asNullableString(whatsapp.verifyToken),
       appSecret: asNullableString(whatsapp.appSecret),
       webhookUrl: asNullableString(whatsapp.webhookUrl) ?? webhookUrl,

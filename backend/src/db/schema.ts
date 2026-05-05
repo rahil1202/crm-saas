@@ -4,6 +4,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -56,6 +57,11 @@ export const emailMessageStatusEnum = pgEnum("email_message_status", ["queued", 
 export const emailEventTypeEnum = pgEnum("email_event_type", ["sent", "delivered", "opened", "clicked", "replied", "failed"]);
 export const conversationStateStatusEnum = pgEnum("conversation_state_status", ["active", "paused", "completed", "expired"]);
 export const whatsappTemplateStatusEnum = pgEnum("whatsapp_template_status", ["draft", "approved", "rejected", "paused"]);
+export const whatsappOutboxStatusEnum = pgEnum("whatsapp_outbox_status", ["queued", "sending", "sent", "retrying", "failed", "blocked", "canceled"]);
+export const whatsappWebhookEventStatusEnum = pgEnum("whatsapp_webhook_event_status", ["queued", "processing", "processed", "ignored", "failed"]);
+export const whatsappMessageEventTypeEnum = pgEnum("whatsapp_message_event_type", ["accepted", "sent", "delivered", "read", "failed"]);
+export const whatsappPricingCategoryEnum = pgEnum("whatsapp_pricing_category", ["marketing", "utility", "authentication", "authentication_international", "service"]);
+export const whatsappMessageCostStatusEnum = pgEnum("whatsapp_message_cost_status", ["estimated", "final", "waived"]);
 export const sequenceStatusEnum = pgEnum("sequence_status", ["draft", "active", "paused", "archived"]);
 export const sequenceStepChannelEnum = pgEnum("sequence_step_channel", ["email", "whatsapp"]);
 export const sequenceRunStatusEnum = pgEnum("sequence_run_status", ["queued", "running", "completed", "failed", "skipped", "canceled"]);
@@ -1986,11 +1992,14 @@ export const whatsappWorkspaces = pgTable(
     name: varchar("name", { length: 180 }).notNull(),
     phoneNumberId: varchar("phone_number_id", { length: 120 }).notNull(),
     businessAccountId: varchar("business_account_id", { length: 120 }),
+    webhookKey: varchar("webhook_key", { length: 120 }),
     accessToken: text("access_token"),
     verifyToken: varchar("verify_token", { length: 240 }),
+    verifyTokenHash: varchar("verify_token_hash", { length: 128 }),
     appSecret: varchar("app_secret", { length: 240 }),
     isActive: boolean("is_active").notNull().default(true),
     isVerified: boolean("is_verified").notNull().default(false),
+    activePhoneNumberIds: jsonb("active_phone_number_ids").$type<string[]>().notNull().default([]),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdBy: uuid("created_by")
       .notNull()
@@ -2001,6 +2010,7 @@ export const whatsappWorkspaces = pgTable(
   },
   (table) => ({
     companyPhoneUnique: uniqueIndex("whatsapp_workspaces_company_phone_unique").on(table.companyId, table.phoneNumberId),
+    webhookKeyUnique: uniqueIndex("whatsapp_workspaces_webhook_key_unique").on(table.webhookKey),
     companyActiveIdx: index("whatsapp_workspaces_company_active_idx").on(table.companyId, table.isActive),
   }),
 );
@@ -2064,11 +2074,230 @@ export const whatsappWebhookEvents = pgTable(
       .references(() => companies.id, { onDelete: "cascade" }),
     workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
     eventKey: varchar("event_key", { length: 220 }).notNull(),
+    eventType: varchar("event_type", { length: 80 }).notNull().default("unknown"),
+    status: whatsappWebhookEventStatusEnum("status").notNull().default("queued"),
+    rawBody: text("raw_body"),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
-    processedAt: timestamp("processed_at", { withTimezone: true }).defaultNow().notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
   },
   (table) => ({
     companyEventUnique: uniqueIndex("whatsapp_webhook_events_company_key_unique").on(table.companyId, table.eventKey),
+    queueIdx: index("whatsapp_webhook_events_queue_idx").on(table.status, table.receivedAt),
+  }),
+);
+
+export const whatsappSessions = pgTable(
+  "whatsapp_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => socialConversations.id, { onDelete: "cascade" }),
+    phoneE164: varchar("phone_e164", { length: 24 }).notNull(),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
+    serviceWindowExpiresAt: timestamp("service_window_expires_at", { withTimezone: true }),
+    state: varchar("state", { length: 40 }).notNull().default("closed"),
+    lastOutboundAt: timestamp("last_outbound_at", { withTimezone: true }),
+    lastTemplateAt: timestamp("last_template_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    conversationUnique: uniqueIndex("whatsapp_sessions_conversation_unique").on(table.companyId, table.conversationId),
+    phoneIdx: index("whatsapp_sessions_phone_idx").on(table.companyId, table.phoneE164),
+    windowIdx: index("whatsapp_sessions_window_idx").on(table.companyId, table.serviceWindowExpiresAt),
+  }),
+);
+
+export const whatsappOutbox = pgTable(
+  "whatsapp_outbox",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    conversationId: uuid("conversation_id").references(() => socialConversations.id, { onDelete: "set null" }),
+    socialMessageId: uuid("social_message_id").references(() => socialMessages.id, { onDelete: "set null" }),
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    toPhoneE164: varchar("to_phone_e164", { length: 24 }).notNull(),
+    mode: varchar("mode", { length: 24 }).notNull().default("auto"),
+    resolvedMode: varchar("resolved_mode", { length: 24 }).notNull().default("text"),
+    messageType: varchar("message_type", { length: 40 }).notNull().default("text"),
+    status: whatsappOutboxStatusEnum("status").notNull().default("queued"),
+    priority: integer("priority").notNull().default(100),
+    idempotencyKey: varchar("idempotency_key", { length: 180 }),
+    requestPayload: jsonb("request_payload").$type<Record<string, unknown>>().notNull().default({}),
+    metaPayload: jsonb("meta_payload").$type<Record<string, unknown>>().notNull().default({}),
+    providerMessageId: varchar("provider_message_id", { length: 180 }),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    idempotencyUnique: uniqueIndex("whatsapp_outbox_company_idempotency_unique").on(table.companyId, table.idempotencyKey),
+    queueIdx: index("whatsapp_outbox_queue_idx").on(table.status, table.nextAttemptAt, table.priority, table.createdAt),
+    conversationIdx: index("whatsapp_outbox_conversation_idx").on(table.companyId, table.conversationId, table.createdAt),
+    pairIdx: index("whatsapp_outbox_pair_idx").on(table.workspaceId, table.toPhoneE164, table.sentAt),
+  }),
+);
+
+export const whatsappMessageLinks = pgTable(
+  "whatsapp_message_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    outboxId: uuid("outbox_id").references(() => whatsappOutbox.id, { onDelete: "set null" }),
+    socialMessageId: uuid("social_message_id").references(() => socialMessages.id, { onDelete: "set null" }),
+    conversationId: uuid("conversation_id").references(() => socialConversations.id, { onDelete: "set null" }),
+    providerMessageId: varchar("provider_message_id", { length: 180 }).notNull(),
+    phoneNumberId: varchar("phone_number_id", { length: 120 }),
+    waId: varchar("wa_id", { length: 80 }),
+    direction: socialMessageDirectionEnum("direction").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    providerUnique: uniqueIndex("whatsapp_message_links_provider_unique").on(table.providerMessageId),
+    messageIdx: index("whatsapp_message_links_message_idx").on(table.companyId, table.socialMessageId),
+  }),
+);
+
+export const whatsappMessageEvents = pgTable(
+  "whatsapp_message_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    outboxId: uuid("outbox_id").references(() => whatsappOutbox.id, { onDelete: "set null" }),
+    socialMessageId: uuid("social_message_id").references(() => socialMessages.id, { onDelete: "set null" }),
+    providerMessageId: varchar("provider_message_id", { length: 180 }).notNull(),
+    eventType: whatsappMessageEventTypeEnum("event_type").notNull(),
+    eventKey: varchar("event_key", { length: 240 }).notNull(),
+    providerTimestamp: timestamp("provider_timestamp", { withTimezone: true }),
+    errorCode: varchar("error_code", { length: 80 }),
+    errorMessage: text("error_message"),
+    pricing: jsonb("pricing").$type<Record<string, unknown>>().notNull().default({}),
+    conversation: jsonb("conversation").$type<Record<string, unknown>>().notNull().default({}),
+    rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    eventUnique: uniqueIndex("whatsapp_message_events_key_unique").on(table.companyId, table.eventKey),
+    providerIdx: index("whatsapp_message_events_provider_idx").on(table.providerMessageId, table.createdAt),
+    messageIdx: index("whatsapp_message_events_message_idx").on(table.companyId, table.socialMessageId, table.createdAt),
+  }),
+);
+
+export const whatsappPricingRateCards = pgTable(
+  "whatsapp_pricing_rate_cards",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    market: varchar("market", { length: 120 }).notNull(),
+    countryCode: varchar("country_code", { length: 8 }),
+    currency: varchar("currency", { length: 3 }).notNull(),
+    category: whatsappPricingCategoryEnum("category").notNull(),
+    rate: numeric("rate", { precision: 18, scale: 8 }).notNull(),
+    tierFrom: integer("tier_from").notNull().default(1),
+    tierTo: integer("tier_to"),
+    effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
+    effectiveTo: timestamp("effective_to", { withTimezone: true }),
+    sourceVersion: varchar("source_version", { length: 180 }).notNull(),
+    sourceUrl: text("source_url"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    lookupIdx: index("whatsapp_pricing_rate_cards_lookup_idx").on(table.companyId, table.market, table.currency, table.category, table.effectiveFrom),
+    versionUnique: uniqueIndex("whatsapp_pricing_rate_cards_version_unique").on(
+      table.companyId,
+      table.market,
+      table.currency,
+      table.category,
+      table.tierFrom,
+      table.sourceVersion,
+    ),
+  }),
+);
+
+export const whatsappMessageCosts = pgTable(
+  "whatsapp_message_costs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    outboxId: uuid("outbox_id").references(() => whatsappOutbox.id, { onDelete: "set null" }),
+    socialMessageId: uuid("social_message_id").references(() => socialMessages.id, { onDelete: "set null" }),
+    providerMessageId: varchar("provider_message_id", { length: 180 }),
+    pricingRateCardId: uuid("pricing_rate_card_id").references(() => whatsappPricingRateCards.id, { onDelete: "set null" }),
+    category: whatsappPricingCategoryEnum("category").notNull(),
+    market: varchar("market", { length: 120 }).notNull(),
+    countryCode: varchar("country_code", { length: 8 }),
+    currency: varchar("currency", { length: 3 }).notNull(),
+    billableUnits: integer("billable_units").notNull().default(1),
+    unitRate: numeric("unit_rate", { precision: 18, scale: 8 }).notNull().default("0"),
+    estimatedCost: numeric("estimated_cost", { precision: 18, scale: 8 }).notNull().default("0"),
+    finalCost: numeric("final_cost", { precision: 18, scale: 8 }),
+    status: whatsappMessageCostStatusEnum("status").notNull().default("estimated"),
+    sourceEventId: uuid("source_event_id").references(() => whatsappMessageEvents.id, { onDelete: "set null" }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    providerIdx: index("whatsapp_message_costs_provider_idx").on(table.providerMessageId),
+    outboxIdx: index("whatsapp_message_costs_outbox_idx").on(table.companyId, table.outboxId),
+    socialMessageIdx: index("whatsapp_message_costs_social_message_idx").on(table.companyId, table.socialMessageId),
+  }),
+);
+
+export const whatsappMediaAssets = pgTable(
+  "whatsapp_media_assets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    mediaType: varchar("media_type", { length: 40 }).notNull(),
+    sourceUrl: text("source_url"),
+    checksum: varchar("checksum", { length: 128 }),
+    providerMediaId: varchar("provider_media_id", { length: 180 }),
+    caption: varchar("caption", { length: 500 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    checksumUnique: uniqueIndex("whatsapp_media_assets_checksum_unique").on(table.companyId, table.workspaceId, table.checksum),
+    providerIdx: index("whatsapp_media_assets_provider_idx").on(table.providerMediaId),
   }),
 );
 

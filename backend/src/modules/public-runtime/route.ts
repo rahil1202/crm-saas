@@ -36,7 +36,14 @@ publicRuntimeRoutes.post(
   bookPublicMeeting,
 );
 publicRuntimeRoutes.get("/whatsapp/webhook", verifyWhatsappWebhook);
+publicRuntimeRoutes.get("/whatsapp/webhook/:webhookKey", verifyWhatsappWebhook);
 publicRuntimeRoutes.post("/whatsapp/webhook", protectWebhook({
+  provider: "whatsapp",
+  policy: routePolicies.publicWebhookStrict,
+  maxBytes: bodyLimits.webhookStrict,
+  requiredHeaders: ["x-hub-signature-256"],
+}), ingestWhatsappProviderWebhook);
+publicRuntimeRoutes.post("/whatsapp/webhook/:webhookKey", protectWebhook({
   provider: "whatsapp",
   policy: routePolicies.publicWebhookStrict,
   maxBytes: bodyLimits.webhookStrict,

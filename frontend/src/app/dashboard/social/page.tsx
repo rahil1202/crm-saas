@@ -53,8 +53,13 @@ interface SocialConversation {
 interface SocialMessage {
   id: string;
   direction: "inbound" | "outbound";
+  messageType: string;
+  deliveryStatus: string;
+  providerMessageId: string | null;
   senderName: string | null;
   body: string;
+  metadata: Record<string, unknown>;
+  cost: WhatsappMessageCost | null;
   sentAt: string;
 }
 
@@ -62,6 +67,9 @@ interface WhatsappLogItem {
   id: string;
   conversationId: string;
   direction: "inbound" | "outbound";
+  messageType: string;
+  deliveryStatus: string;
+  providerMessageId: string | null;
   senderName: string | null;
   body: string;
   sentAt: string;
@@ -70,6 +78,53 @@ interface WhatsappLogItem {
   contactHandle: string;
   accountName: string;
   accountHandle: string;
+  cost: WhatsappMessageCost | null;
+}
+
+interface WhatsappMessageCost {
+  id: string;
+  category: string;
+  market: string;
+  currency: string;
+  estimatedCost: string;
+  finalCost: string | null;
+  status: "estimated" | "final" | "waived";
+}
+
+interface WhatsappWorkspace {
+  id: string;
+  name: string;
+  phoneNumberId: string;
+  businessAccountId: string | null;
+  webhookKey: string | null;
+  isActive: boolean;
+  isVerified: boolean;
+  activePhoneNumberIds: string[];
+}
+
+interface WhatsappOutboxResponse {
+  conversation: { id: string } | null;
+  message: { id: string; deliveryStatus?: string; providerMessageId?: string | null } | null;
+  outbox: { id: string; status: string; resolvedMode: string; nextAttemptAt?: string | null };
+  session: { serviceWindowExpiresAt: string | null; state?: string | null } | null;
+}
+
+interface WhatsappSession {
+  id: string;
+  state: string;
+  lastInboundAt: string | null;
+  serviceWindowExpiresAt: string | null;
+  lastOutboundAt: string | null;
+  lastTemplateAt: string | null;
+}
+
+interface WhatsappPricingEstimate {
+  category: string;
+  market: string;
+  currency: string;
+  estimatedCost: string;
+  status: "estimated" | "waived";
+  reason: string;
 }
 
 interface Member {
@@ -86,10 +141,40 @@ const selectClassName =
   "h-9 w-full rounded-md border border-border/70 bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/40";
 const cardClassName = "border-border/60 shadow-none";
 
+function getProviderMessageId(message: { providerMessageId?: string | null; metadata?: Record<string, unknown> }) {
+  return message.providerMessageId ?? (typeof message.metadata?.providerMessageId === "string" ? message.metadata.providerMessageId : null);
+}
+
+function deliveryBadgeVariant(status?: string | null) {
+  if (status === "failed" || status === "blocked") {
+    return "destructive" as const;
+  }
+  if (status === "delivered" || status === "read" || status === "sent") {
+    return "secondary" as const;
+  }
+  return "outline" as const;
+}
+
+function formatDateTime(value?: string | null) {
+  return value ? new Date(value).toLocaleString() : "not available";
+}
+
+function formatCost(cost: WhatsappMessageCost | null) {
+  if (!cost) {
+    return null;
+  }
+  const value = Number(cost.finalCost ?? cost.estimatedCost);
+  const amount = Number.isFinite(value) ? new Intl.NumberFormat(undefined, { style: "currency", currency: cost.currency, maximumFractionDigits: 6 }).format(value) : `${cost.currency} ${cost.finalCost ?? cost.estimatedCost}`;
+  return `${amount} • ${cost.category} • ${cost.status}`;
+}
+
 export default function SocialPage() {
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [conversations, setConversations] = useState<SocialConversation[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [whatsappWorkspaces, setWhatsappWorkspaces] = useState<WhatsappWorkspace[]>([]);
+  const [whatsappSession, setWhatsappSession] = useState<WhatsappSession | null>(null);
+  const [replyPricingEstimate, setReplyPricingEstimate] = useState<WhatsappPricingEstimate | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SocialMessage[]>([]);
   const [whatsappLog, setWhatsappLog] = useState<WhatsappLogItem[]>([]);
@@ -126,8 +211,19 @@ export default function SocialPage() {
     [conversations, selectedConversationId],
   );
   const whatsappAccounts = useMemo(() => accounts.filter((account) => account.platform === "whatsapp"), [accounts]);
-  const whatsappWebhookGetUrl = useMemo(() => buildApiUrl("/public/whatsapp/webhook"), []);
-  const whatsappWebhookPostUrl = whatsappWebhookGetUrl;
+  const whatsappWebhookUrls = useMemo(
+    () =>
+      whatsappWorkspaces
+        .filter((workspace) => workspace.webhookKey)
+        .map((workspace) => ({
+          id: workspace.id,
+          name: workspace.name,
+          url: buildApiUrl(`/public/whatsapp/webhook/${workspace.webhookKey}`),
+          isActive: workspace.isActive,
+          isVerified: workspace.isVerified,
+        })),
+    [whatsappWorkspaces],
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -139,14 +235,16 @@ export default function SocialPage() {
     }
 
     try {
-      const [accountData, inboxData, memberData] = await Promise.all([
+      const [accountData, inboxData, memberData, workspaceData] = await Promise.all([
         apiRequest<{ items: SocialAccount[] }>("/social/accounts"),
         apiRequest<{ items: SocialConversation[] }>(`/social/inbox?${params.toString()}`),
         apiRequest<{ members: Member[] }>("/users/current-company"),
+        apiRequest<{ items: WhatsappWorkspace[] }>("/whatsapp-workspaces"),
       ]);
       setAccounts(accountData.items);
       setConversations(inboxData.items);
       setMembers(memberData.members.filter((member) => member.status === "active"));
+      setWhatsappWorkspaces(workspaceData.items);
       setCaptureAccountId((current) => current || accountData.items[0]?.id || "");
       setTestWhatsappAccountId((current) => current || accountData.items.find((account) => account.platform === "whatsapp")?.id || "");
       setCaptureAssignedTo((current) => current || memberData.members.find((member) => member.status === "active")?.userId || "");
@@ -163,6 +261,15 @@ export default function SocialPage() {
       setMessages(data.items);
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load conversation messages");
+    }
+  }, []);
+
+  const loadWhatsappSession = useCallback(async (conversationId: string) => {
+    try {
+      const data = await apiRequest<{ session: WhatsappSession | null }>(`/whatsapp/conversations/${conversationId}/session`, { skipCache: true });
+      setWhatsappSession(data.session);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load WhatsApp session");
     }
   }, []);
 
@@ -192,6 +299,35 @@ export default function SocialPage() {
       setMessages([]);
     }
   }, [loadMessages, selectedConversationId]);
+
+  useEffect(() => {
+    if (selectedConversation?.platform === "whatsapp") {
+      void loadWhatsappSession(selectedConversation.id);
+    } else {
+      setWhatsappSession(null);
+    }
+  }, [loadWhatsappSession, selectedConversation]);
+
+  useEffect(() => {
+    if (selectedConversation?.platform !== "whatsapp") {
+      setReplyPricingEstimate(null);
+      return;
+    }
+
+    const serviceWindowOpen = Boolean(whatsappSession?.serviceWindowExpiresAt && new Date(whatsappSession.serviceWindowExpiresAt) > new Date());
+    void apiRequest<WhatsappPricingEstimate>("/whatsapp/pricing/estimate", {
+      method: "POST",
+      body: JSON.stringify({
+        to: selectedConversation.contactHandle,
+        category: serviceWindowOpen ? "service" : "utility",
+        serviceWindowOpen,
+        billableUnits: 1,
+        currency: selectedConversation.contactHandle.startsWith("+91") || selectedConversation.contactHandle.startsWith("91") ? "INR" : "USD",
+      }),
+    })
+      .then(setReplyPricingEstimate)
+      .catch(() => setReplyPricingEstimate(null));
+  }, [selectedConversation, whatsappSession]);
 
   const handleCreateAccount = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -236,7 +372,7 @@ export default function SocialPage() {
     setWhatsappTestMessage(null);
 
     try {
-      const response = await apiRequest<{ message: { id: string }; conversation: { id: string } }>("/social/whatsapp/test-send", {
+      const response = await apiRequest<WhatsappOutboxResponse>("/social/whatsapp/test-send", {
         method: "POST",
         body: JSON.stringify({
           accountId: testWhatsappAccountId || undefined,
@@ -245,7 +381,11 @@ export default function SocialPage() {
           message: testWhatsappMessage,
         }),
       });
-      setWhatsappTestMessage(`Sent live WhatsApp test. Conversation ${response.conversation.id}, message ${response.message.id}.`);
+      setWhatsappTestMessage(
+        `Queued WhatsApp test. Conversation ${response.conversation?.id ?? "pending"}, message ${
+          response.message?.id ?? "pending"
+        }, outbox ${response.outbox.id} is ${response.outbox.status} (${response.outbox.resolvedMode}).`,
+      );
       await Promise.all([loadData(), loadWhatsappLog()]);
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to send WhatsApp test");
@@ -293,7 +433,7 @@ export default function SocialPage() {
 
     try {
       if (selectedConversation?.platform === "whatsapp") {
-        await apiRequest("/social/whatsapp/send", {
+        await apiRequest<WhatsappOutboxResponse>("/social/whatsapp/send", {
           method: "POST",
           body: JSON.stringify({
             accountId: selectedConversation.socialAccountId,
@@ -313,7 +453,11 @@ export default function SocialPage() {
         });
       }
       setReplyBody("");
-      await Promise.all([loadData(), loadMessages(selectedConversationId)]);
+      await Promise.all([
+        loadData(),
+        loadMessages(selectedConversationId),
+        selectedConversation?.platform === "whatsapp" ? loadWhatsappSession(selectedConversationId) : Promise.resolve(),
+      ]);
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to send reply");
     } finally {
@@ -503,17 +647,35 @@ export default function SocialPage() {
                   </div>
                 ) : null}
                 <div className="rounded-xl border border-border/70 bg-muted/20 p-4 text-sm">
-                  <div className="font-medium">Meta verification URL</div>
-                  <div className="mt-2 break-all text-muted-foreground">{whatsappWebhookGetUrl}</div>
-                  <div className="mt-4 font-medium">Meta event URL</div>
-                  <div className="mt-2 break-all text-muted-foreground">{whatsappWebhookPostUrl}</div>
+                  <div className="font-medium">Meta webhook URLs</div>
+                  <div className="mt-1 text-muted-foreground">
+                    Meta verification and event subscriptions must use keyed workspace URLs so the backend can choose the correct app secret and phone routing.
+                  </div>
+                  {whatsappWebhookUrls.length > 0 ? (
+                    <div className="mt-3 grid gap-3">
+                      {whatsappWebhookUrls.map((workspace) => (
+                        <div key={workspace.id} className="rounded-lg border border-border/60 bg-background p-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{workspace.name}</span>
+                            <Badge variant={workspace.isActive ? "secondary" : "outline"}>{workspace.isActive ? "Active" : "Inactive"}</Badge>
+                            <Badge variant={workspace.isVerified ? "secondary" : "outline"}>{workspace.isVerified ? "Verified" : "Unverified"}</Badge>
+                          </div>
+                          <div className="mt-2 break-all font-mono text-xs text-muted-foreground">{workspace.url}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-lg border border-dashed border-border/60 bg-background p-3 text-muted-foreground">
+                      No keyed WhatsApp workspace URL is configured. Create one in Integration Hub before setting up Meta webhooks.
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
             <Card className={cardClassName}>
               <CardHeader>
                 <CardTitle>Send WhatsApp test</CardTitle>
-                <CardDescription>Dispatch a live Meta WhatsApp message through a configured account before using inbox replies or automations.</CardDescription>
+                <CardDescription>Queues a live Meta WhatsApp message through the outbox. Delivery, read, and failure states update from webhooks.</CardDescription>
               </CardHeader>
               <CardContent>
                 <form className="grid gap-4" onSubmit={handleWhatsappTestSend}>
@@ -564,12 +726,15 @@ export default function SocialPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{item.contactName ?? item.contactHandle}</span>
                           <Badge variant="outline">{item.direction}</Badge>
+                          <Badge variant="outline">{item.messageType}</Badge>
+                          <Badge variant={deliveryBadgeVariant(item.deliveryStatus)}>{item.deliveryStatus}</Badge>
                           <Badge variant="secondary">{item.accountName}</Badge>
+                          {formatCost(item.cost) ? <Badge variant="outline">{formatCost(item.cost)}</Badge> : null}
                         </div>
                         <div className="mt-2 text-sm">{item.body}</div>
                         <div className="mt-2 text-xs text-muted-foreground">
                           {new Date(item.sentAt).toLocaleString()}
-                          {typeof item.metadata?.providerMessageId === "string" ? ` • provider ${item.metadata.providerMessageId}` : ""}
+                          {getProviderMessageId(item) ? ` • provider ${getProviderMessageId(item)}` : ""}
                         </div>
                       </div>
                     ))}
@@ -790,6 +955,20 @@ export default function SocialPage() {
                       <div className="text-xs text-muted-foreground">
                         Status summary: {JSON.stringify(selectedConversation.messageStatusSummary ?? {})}
                       </div>
+                      {selectedConversation.platform === "whatsapp" ? (
+                        <div className="rounded-lg border border-border/60 bg-background p-3 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-foreground">Session window</span>
+                            <Badge variant={whatsappSession?.state === "open" ? "secondary" : "outline"}>{whatsappSession?.state ?? "unknown"}</Badge>
+                          </div>
+                          <div className="mt-2">
+                            Service window expires: {formatDateTime(whatsappSession?.serviceWindowExpiresAt)}
+                          </div>
+                          <div className="mt-1">
+                            Last inbound: {formatDateTime(whatsappSession?.lastInboundAt)} • last outbound: {formatDateTime(whatsappSession?.lastOutboundAt)}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="grid gap-3 rounded-xl border border-border/70 p-4">
@@ -797,10 +976,16 @@ export default function SocialPage() {
                         <div key={message.id} className="rounded-xl border border-border/70 bg-muted/10 px-4 py-3">
                           <div className="flex flex-wrap items-center gap-2">
                             <Badge variant={message.direction === "inbound" ? "destructive" : "secondary"}>{message.direction}</Badge>
+                            <Badge variant="outline">{message.messageType}</Badge>
+                            <Badge variant={deliveryBadgeVariant(message.deliveryStatus)}>{message.deliveryStatus}</Badge>
+                            {formatCost(message.cost) ? <Badge variant="outline">{formatCost(message.cost)}</Badge> : null}
                             <span className="text-sm text-muted-foreground">{message.senderName ?? "Unknown sender"}</span>
                             <span className="text-sm text-muted-foreground">{new Date(message.sentAt).toLocaleString()}</span>
                           </div>
                           <div className="mt-2 text-sm">{message.body}</div>
+                          {getProviderMessageId(message) ? (
+                            <div className="mt-2 break-all text-xs text-muted-foreground">Provider message ID: {getProviderMessageId(message)}</div>
+                          ) : null}
                         </div>
                       ))}
                       {messages.length === 0 ? <div className="text-sm text-muted-foreground">No messages yet for this conversation.</div> : null}
@@ -811,7 +996,11 @@ export default function SocialPage() {
                       <Textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} className="min-h-24" />
                       {selectedConversation.platform === "whatsapp" ? (
                         <div className="mt-2 text-xs text-muted-foreground">
-                          This reply uses the live Meta WhatsApp runtime instead of the local-only inbox stub.
+                          This reply is queued through the WhatsApp outbox. The backend uses the session window to choose free-form or template mode.
+                          {replyPricingEstimate
+                            ? ` Estimated charge: ${replyPricingEstimate.currency} ${replyPricingEstimate.estimatedCost} (${replyPricingEstimate.category}, ${replyPricingEstimate.reason}).`
+                            : ""}
+                          {whatsappSession?.state !== "open" ? " Outside the 24-hour service window, use an approved template to avoid a blocked send." : ""}
                         </div>
                       ) : null}
                     </Field>

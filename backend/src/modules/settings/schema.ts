@@ -81,6 +81,8 @@ export const integrationsSchema = z.object({
       workspaceId: z.string().uuid().nullable().optional(),
       phoneNumberId: z.string().trim().max(120).nullable().optional(),
       businessAccountId: z.string().trim().max(120).nullable().optional(),
+      webhookKey: z.string().trim().max(120).nullable().optional(),
+      activePhoneNumberIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
       verifyToken: z.string().trim().max(240).nullable().optional(),
       appSecret: z.string().trim().max(240).nullable().optional(),
       webhookUrl: z.string().url().nullable().optional(),

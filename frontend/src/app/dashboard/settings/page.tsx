@@ -147,6 +147,8 @@ interface RuntimeReadiness {
     globalAccessTokenConfigured: boolean;
     accountCount: number;
     configuredAccountCount: number;
+    workspaceCount: number;
+    verifiedWorkspaceCount: number;
     verifyUrl: string;
     eventUrl: string;
   };
@@ -1743,6 +1745,9 @@ export default function SettingsPage() {
                     </div>
                     <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
                       Configured WhatsApp accounts: {runtimeReadiness?.whatsapp.configuredAccountCount ?? 0} / {runtimeReadiness?.whatsapp.accountCount ?? 0}
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      Verified workspaces: {runtimeReadiness?.whatsapp.verifiedWorkspaceCount ?? 0} / {runtimeReadiness?.whatsapp.workspaceCount ?? 0}
                     </div>
                   </div>
                   <div className="rounded-xl border border-border/60 bg-background px-4 py-3 text-sm">

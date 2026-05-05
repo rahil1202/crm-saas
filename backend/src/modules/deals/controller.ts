@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import { customers, dealActivities, deals, leads, partnerCompanies, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
+import { assertNonEmptyUpdate, paginationMeta } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { createNotification } from "@/lib/notifications";
 import { dealParamSchema } from "@/modules/deals/schema";
@@ -88,9 +89,7 @@ export async function listDeals(c: Context<AppEnv>) {
 
   return ok(c, {
     items,
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -296,9 +295,7 @@ export async function updateDeal(c: Context<AppEnv>) {
   const params = dealParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as UpdateDealInput;
 
-  if (Object.keys(body).length === 0) {
-    throw AppError.badRequest("At least one field is required for update");
-  }
+  assertNonEmptyUpdate(body as Record<string, unknown>);
 
   const [before] = await db
     .select({ status: deals.status, pipeline: deals.pipeline, stage: deals.stage })

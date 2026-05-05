@@ -20,6 +20,7 @@ import {
 } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
+import { assertNonEmptyUpdate, paginationMeta } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { createNotification } from "@/lib/notifications";
 import { followUpParamSchema, taskParamSchema } from "@/modules/tasks/schema";
@@ -290,9 +291,7 @@ export async function listTasks(c: Context<AppEnv>) {
       ...item,
       associations: associationsByTaskId.get(item.id) ?? [],
     })),
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -763,9 +762,7 @@ export async function listFollowUps(c: Context<AppEnv>) {
 
   return ok(c, {
     items,
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -938,9 +935,7 @@ export async function updateFollowUp(c: Context<AppEnv>) {
   const params = followUpParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as UpdateFollowUpInput;
 
-  if (Object.keys(body).length === 0) {
-    throw AppError.badRequest("At least one field is required for update");
-  }
+  assertNonEmptyUpdate(body as Record<string, unknown>);
 
   let completedAt: Date | null | undefined = undefined;
   if (body.status === "completed") {

@@ -8,6 +8,7 @@ import { campaignCustomers, campaigns, customers, dealActivities, deals, leadAct
 import { ok } from "@/lib/api";
 import { queueLeadScoreChangedTrigger, recordTriggerEvent } from "@/lib/automation-runtime";
 import { getCompanySettings } from "@/lib/company-settings";
+import { assertNonEmptyUpdate, normalizeDelimitedHeader, paginationMeta, parseDelimitedRows, parseDelimitedTags } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { recordLeadScoringEvent, routeLead } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
@@ -66,73 +67,6 @@ async function assertValidPartnerCompany(companyId: string, partnerCompanyId?: s
   }
 }
 
-function parseCsvRows(csv: string) {
-  const rows: string[][] = [];
-  let currentCell = "";
-  let currentRow: string[] = [];
-  let insideQuotes = false;
-
-  for (let index = 0; index < csv.length; index += 1) {
-    const character = csv[index];
-    const nextCharacter = csv[index + 1];
-
-    if (character === '"') {
-      if (insideQuotes && nextCharacter === '"') {
-        currentCell += '"';
-        index += 1;
-        continue;
-      }
-
-      insideQuotes = !insideQuotes;
-      continue;
-    }
-
-    if (character === "," && !insideQuotes) {
-      currentRow.push(currentCell);
-      currentCell = "";
-      continue;
-    }
-
-    if ((character === "\n" || character === "\r") && !insideQuotes) {
-      if (character === "\r" && nextCharacter === "\n") {
-        index += 1;
-      }
-
-      currentRow.push(currentCell);
-      rows.push(currentRow);
-      currentCell = "";
-      currentRow = [];
-      continue;
-    }
-
-    currentCell += character;
-  }
-
-  if (currentCell.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentCell);
-    rows.push(currentRow);
-  }
-
-  return rows
-    .map((row) => row.map((cell) => cell.trim()))
-    .filter((row) => row.some((cell) => cell.length > 0));
-}
-
-function normalizeCsvHeader(header: string) {
-  return header.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
-}
-
-function parseCsvTags(value?: string) {
-  if (!value) {
-    return [];
-  }
-
-  return value
-    .split(/[|;,]/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 20);
-}
 
 function parseCsvLeadRow(row: Record<string, string>) {
   const title = row.title || row.lead_title || row.company || row.full_name || row.fullname || row.name || row.email;
@@ -150,7 +84,7 @@ function parseCsvLeadRow(row: Record<string, string>) {
     status,
     score: Number.isNaN(score) ? scoreValue : score,
     notes: row.notes || row.note || undefined,
-    tags: parseCsvTags(row.tags),
+    tags: parseDelimitedTags(row.tags),
   });
 }
 
@@ -188,9 +122,7 @@ export async function listLeads(c: Context<AppEnv>) {
 
   return ok(c, {
     items,
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -351,13 +283,13 @@ export async function importLeadsFromCsv(c: Context<AppEnv>) {
   const user = c.get("user");
   const body = c.get("validatedBody") as ImportLeadCsvInput;
 
-  const parsedRows = parseCsvRows(body.csv);
+  const parsedRows = parseDelimitedRows(body.csv, { delimiter: "," });
   if (parsedRows.length < 2) {
     throw AppError.badRequest("CSV must include a header row and at least one data row");
   }
 
   const [headerRow, ...dataRows] = parsedRows;
-  const normalizedHeaders = headerRow.map(normalizeCsvHeader);
+  const normalizedHeaders = headerRow.map(normalizeDelimitedHeader);
 
   if (!normalizedHeaders.includes("title") && !normalizedHeaders.includes("full_name") && !normalizedHeaders.includes("fullname") && !normalizedHeaders.includes("name") && !normalizedHeaders.includes("email")) {
     throw AppError.badRequest("CSV requires a title, full_name, name, or email column");
@@ -441,9 +373,7 @@ export async function updateLead(c: Context<AppEnv>) {
   const params = leadParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as UpdateLeadInput;
 
-  if (Object.keys(body).length === 0) {
-    throw AppError.badRequest("At least one field is required for update");
-  }
+  assertNonEmptyUpdate(body as Record<string, unknown>);
 
   const [before] = await db
     .select({ status: leads.status, score: leads.score })

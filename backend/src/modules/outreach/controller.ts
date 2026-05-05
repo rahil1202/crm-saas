@@ -16,6 +16,7 @@ import {
 } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
+import { normalizeDelimitedHeader, paginationMeta, parseDelimitedRows } from "@/lib/controller-utils";
 import { getDefaultEmailAccount, queueEmailMessage } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
 import { runOutreachAgent } from "@/lib/outreach-agent-runtime";
@@ -105,58 +106,6 @@ const starterLeads = [
     },
   },
 ];
-
-function parseCsvRows(csv: string) {
-  const rows: string[][] = [];
-  let currentCell = "";
-  let currentRow: string[] = [];
-  let insideQuotes = false;
-
-  for (let index = 0; index < csv.length; index += 1) {
-    const character = csv[index];
-    const nextCharacter = csv[index + 1];
-
-    if (character === '"') {
-      if (insideQuotes && nextCharacter === '"') {
-        currentCell += '"';
-        index += 1;
-        continue;
-      }
-      insideQuotes = !insideQuotes;
-      continue;
-    }
-
-    if (character === "," && !insideQuotes) {
-      currentRow.push(currentCell);
-      currentCell = "";
-      continue;
-    }
-
-    if ((character === "\n" || character === "\r") && !insideQuotes) {
-      if (character === "\r" && nextCharacter === "\n") {
-        index += 1;
-      }
-      currentRow.push(currentCell);
-      rows.push(currentRow);
-      currentCell = "";
-      currentRow = [];
-      continue;
-    }
-
-    currentCell += character;
-  }
-
-  if (currentCell.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentCell);
-    rows.push(currentRow);
-  }
-
-  return rows.map((row) => row.map((cell) => cell.trim())).filter((row) => row.some((cell) => cell.length > 0));
-}
-
-function normalizeCsvHeader(header: string) {
-  return header.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
-}
 
 function buildSearchConditions(q?: string) {
   if (!q) return [];
@@ -267,9 +216,7 @@ export async function listOutreachAccounts(c: Context<AppEnv>) {
       contacts: byAccount.get(item.id) ?? [],
       contactsCount: (byAccount.get(item.id) ?? []).length,
     })),
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -319,9 +266,7 @@ export async function listOutreachContacts(c: Context<AppEnv>) {
 
   return ok(c, {
     items,
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -730,13 +675,13 @@ export async function importOutreachFromCsv(c: Context<AppEnv>) {
   const user = c.get("user");
   const body = c.get("validatedBody") as ImportOutreachCsvInput;
 
-  const parsedRows = parseCsvRows(body.csv);
+  const parsedRows = parseDelimitedRows(body.csv, { delimiter: "," });
   if (parsedRows.length < 2) {
     throw AppError.badRequest("CSV must include a header row and at least one data row");
   }
 
   const [headerRow, ...dataRows] = parsedRows;
-  const normalizedHeaders = headerRow.map(normalizeCsvHeader);
+  const normalizedHeaders = headerRow.map(normalizeDelimitedHeader);
 
   const requiredColumns = ["company", "company_name", "account", "name", "full_name", "email"];
   if (!normalizedHeaders.some((header) => requiredColumns.includes(header))) {

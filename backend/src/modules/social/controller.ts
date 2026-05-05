@@ -1,18 +1,21 @@
-import { and, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { recordTriggerEvent } from "@/lib/automation-runtime";
-import { resumeActiveChatbotFlowForConversation } from "@/lib/chatbot-flow-engine";
-import { recordLeadScoringEvent, routeLead } from "@/lib/lead-intelligence";
+import { routeLead } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
 import { ok } from "@/lib/api";
+import { assertNonEmptyUpdate, paginationMeta } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
-import { ingestMetaWhatsappWebhook, sendWhatsappMessage, verifyWhatsappWebhookChallenge } from "@/lib/whatsapp-runtime";
+import {
+  enqueueMetaWhatsappWebhook,
+  queueWhatsappMessage,
+  verifyWhatsappWebhookChallengeForWorkspace,
+} from "@/lib/whatsapp-runtime";
 import { getConversationStatusTimeline, resolvePhoneMapping } from "@/lib/whatsapp-workspace";
 import { recordSecurityAuditLog } from "@/lib/security";
-import { companyMemberships, leads, profiles, socialAccounts, socialConversations, socialMessages } from "@/db/schema";
+import { companyMemberships, leads, profiles, socialAccounts, socialConversations, socialMessages, whatsappMessageCosts } from "@/db/schema";
 import {
   socialAccountParamSchema,
   socialConversationParamSchema,
@@ -137,7 +140,12 @@ export async function listWhatsappLog(c: Context<AppEnv>) {
     .orderBy(desc(socialMessages.sentAt))
     .limit(query.limit);
 
-  return ok(c, { items });
+  const costs = items.length
+    ? await db.select().from(whatsappMessageCosts).where(and(eq(whatsappMessageCosts.companyId, tenant.companyId), inArray(whatsappMessageCosts.socialMessageId, items.map((item) => item.id))))
+    : [];
+  const costsByMessage = new Map(costs.map((cost) => [cost.socialMessageId, cost]));
+
+  return ok(c, { items: items.map((item) => ({ ...item, cost: costsByMessage.get(item.id) ?? null })) });
 }
 
 export async function createSocialAccount(c: Context<AppEnv>) {
@@ -167,9 +175,7 @@ export async function updateSocialAccount(c: Context<AppEnv>) {
   const params = socialAccountParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as UpdateSocialAccountInput;
 
-  if (Object.keys(body).length === 0) {
-    throw AppError.badRequest("At least one social account field is required");
-  }
+  assertNonEmptyUpdate(body as Record<string, unknown>, "At least one social account field is required");
 
   const [updated] = await db
     .update(socialAccounts)
@@ -264,9 +270,7 @@ export async function listSocialInbox(c: Context<AppEnv>) {
 
   return ok(c, {
     items,
-    total: totalRows[0]?.count ?? 0,
-    limit: query.limit,
-    offset: query.offset,
+    ...paginationMeta(totalRows, query),
   });
 }
 
@@ -345,7 +349,12 @@ export async function getSocialMessages(c: Context<AppEnv>) {
     .where(and(eq(socialMessages.companyId, tenant.companyId), eq(socialMessages.conversationId, params.conversationId)))
     .orderBy(asc(socialMessages.sentAt), asc(socialMessages.createdAt));
 
-  return ok(c, { items });
+  const costs = items.length
+    ? await db.select().from(whatsappMessageCosts).where(and(eq(whatsappMessageCosts.companyId, tenant.companyId), inArray(whatsappMessageCosts.socialMessageId, items.map((item) => item.id))))
+    : [];
+  const costsByMessage = new Map(costs.map((cost) => [cost.socialMessageId, cost]));
+
+  return ok(c, { items: items.map((item) => ({ ...item, cost: costsByMessage.get(item.id) ?? null })) });
 }
 
 export async function createSocialMessage(c: Context<AppEnv>) {
@@ -391,9 +400,7 @@ export async function updateSocialConversation(c: Context<AppEnv>) {
   const params = socialConversationParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as UpdateSocialConversationInput;
 
-  if (Object.keys(body).length === 0) {
-    throw AppError.badRequest("At least one social conversation field is required");
-  }
+  assertNonEmptyUpdate(body as Record<string, unknown>, "At least one social conversation field is required");
 
   await assertAssignableUser(tenant.companyId, body.assignedToUserId);
 
@@ -508,19 +515,25 @@ export async function sendWhatsappConversationMessage(c: Context<AppEnv>) {
   const user = c.get("user");
   const body = c.get("validatedBody") as SendWhatsappMessageInput;
 
-  const sent = await sendWhatsappMessage({
+  const queued = await queueWhatsappMessage({
     companyId: tenant.companyId,
-    accountId: body.accountId,
-    contactHandle: body.contactHandle,
+    createdBy: user.id,
+    to: body.contactHandle,
     contactName: body.contactName,
-    messageTemplate: body.message,
-    messageType: body.messageType,
+    mode: body.messageType === "template" ? "template" : "auto",
+    text: body.message,
     template: body.template,
     interactive: body.interactive,
-    media: body.media,
-    createdBy: user.id,
-    leadId: body.leadId,
-    customerId: body.customerId,
+    media: body.media
+      ? {
+          ...body.media,
+          mediaType: body.media.mediaType ?? "image",
+        }
+      : undefined,
+    crmRef: {
+      leadId: body.leadId,
+      customerId: body.customerId,
+    },
     variables: body.variables,
   });
 
@@ -540,7 +553,16 @@ export async function sendWhatsappConversationMessage(c: Context<AppEnv>) {
     },
   });
 
-  return ok(c, sent, 201);
+  return ok(
+    c,
+    {
+      conversation: queued.conversation,
+      message: queued.message,
+      outbox: queued.outbox,
+      session: queued.session,
+    },
+    202,
+  );
 }
 
 export async function assignWhatsappConversation(c: Context<AppEnv>) {
@@ -619,47 +641,12 @@ export async function getWhatsappStatusTimeline(c: Context<AppEnv>) {
 }
 
 export async function verifyWhatsappWebhook(c: Context) {
-  const challenge = verifyWhatsappWebhookChallenge(c.req.query());
+  const challenge = await verifyWhatsappWebhookChallengeForWorkspace(c.req.param("webhookKey") ?? null, c.req.query());
   return c.text(challenge, 200);
 }
 
 export async function ingestWhatsappProviderWebhook(c: Context) {
   const rawBody = (c.get("rawBody") as string | undefined) ?? (await c.req.text());
-  const ingested = await ingestMetaWhatsappWebhook(rawBody, c.req.header("x-hub-signature-256") ?? null);
-
-  for (const item of ingested.ingested) {
-    await resumeActiveChatbotFlowForConversation({
-      companyId: item.companyId,
-      socialConversationId: item.conversationId,
-      inboundMessageBody: item.body,
-      lastInboundMessageId: item.messageId,
-    });
-
-    await recordTriggerEvent({
-      companyId: item.companyId,
-      triggerType: "whatsapp.replied",
-      eventKey: `whatsapp.replied:${item.conversationId}:${item.messageId}`,
-      entityType: "conversation",
-      entityId: item.conversationId,
-      payload: {
-        conversationId: item.conversationId,
-        messageId: item.messageId,
-        leadId: item.leadId,
-      },
-    });
-    if (item.leadId) {
-      await recordLeadScoringEvent({
-        companyId: item.companyId,
-        leadId: item.leadId,
-        eventType: "whatsapp.replied",
-        channel: "whatsapp",
-        sourceId: item.messageId,
-        payload: {
-          conversationId: item.conversationId,
-        },
-      });
-    }
-  }
-
-  return c.json({ success: true, ingested: ingested.ingested.length }, 200);
+  const queued = await enqueueMetaWhatsappWebhook(rawBody, c.req.header("x-hub-signature-256") ?? null, c.req.param("webhookKey") ?? null);
+  return c.json({ success: true, queued: !queued.duplicate, duplicate: queued.duplicate, eventId: queued.eventId }, 200);
 }

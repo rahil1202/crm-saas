@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { evaluateActionCondition } from "@/lib/automation-runtime";
+import { inferWhatsappMarket, inferWhatsappMessageCategory, normalizeWhatsappPricingCategory } from "@/lib/whatsapp-pricing";
 import { normalizePhoneToE164 } from "@/lib/whatsapp-workspace";
 
 describe("Phase V2 phone normalization", () => {
@@ -44,5 +45,22 @@ describe("Phase V2 conditional branching helper", () => {
         { score: 75, channel: "email", source: "campaign" },
       ),
     ).toBe(true);
+  });
+});
+
+describe("WhatsApp pricing helpers", () => {
+  test("normalizes Meta pricing category aliases", () => {
+    expect(normalizeWhatsappPricingCategory("Authentication International")).toBe("authentication_international");
+    expect(normalizeWhatsappPricingCategory("auth")).toBe("authentication");
+  });
+
+  test("maps service-window replies to service pricing", () => {
+    expect(inferWhatsappMessageCategory({ resolvedMode: "freeform", serviceWindowOpen: true })).toBe("service");
+    expect(inferWhatsappMessageCategory({ resolvedMode: "template", templateCategory: "marketing", serviceWindowOpen: false })).toBe("marketing");
+  });
+
+  test("infers common recipient markets from phone prefixes", () => {
+    expect(inferWhatsappMarket("+919876543210").market).toBe("India");
+    expect(inferWhatsappMarket("+14155550123").currency).toBe("USD");
   });
 });

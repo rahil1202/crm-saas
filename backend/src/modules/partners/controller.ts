@@ -21,6 +21,7 @@ import {
 } from "@/db/schema";
 import { assertPasswordPolicy, createManagedSupabaseUser, findManagedSupabaseUserByEmail, updateManagedSupabaseUser } from "@/lib/auth";
 import { ok } from "@/lib/api";
+import { assertNonEmptyUpdate, paginationMeta } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { ensurePartnerCustomRole } from "@/lib/partner-role-access";
 import { leavePartnerCompanySchema, partnerCompanyParamSchema, partnerParamSchema, partnerUserParamSchema } from "@/modules/partners/schema";

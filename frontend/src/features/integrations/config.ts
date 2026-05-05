@@ -38,6 +38,8 @@ export interface IntegrationSettings {
       workspaceId: string | null;
       phoneNumberId: string | null;
       businessAccountId: string | null;
+      webhookKey?: string | null;
+      activePhoneNumberIds?: string[];
       verifyToken: string | null;
       appSecret: string | null;
       webhookUrl: string | null;

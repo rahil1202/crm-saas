@@ -3,7 +3,7 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { companySettings, emailAccounts, socialAccounts } from "@/db/schema";
+import { companySettings, emailAccounts, socialAccounts, whatsappWorkspaces } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings, mergeIntegrationSettings, normalizeIntegrationSettings } from "@/lib/company-settings";
 import { env } from "@/lib/config";
@@ -131,7 +131,7 @@ export async function getRuntimeReadiness(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const settings = await getCompanySettings(tenant.companyId);
 
-  const [companyEmailAccounts, companyWhatsappAccounts] = await Promise.all([
+  const [companyEmailAccounts, companyWhatsappAccounts, companyWhatsappWorkspaces] = await Promise.all([
     db
       .select()
       .from(emailAccounts)
@@ -140,6 +140,10 @@ export async function getRuntimeReadiness(c: Context<AppEnv>) {
       .select()
       .from(socialAccounts)
       .where(and(eq(socialAccounts.companyId, tenant.companyId), eq(socialAccounts.platform, "whatsapp"), isNull(socialAccounts.deletedAt))),
+    db
+      .select()
+      .from(whatsappWorkspaces)
+      .where(and(eq(whatsappWorkspaces.companyId, tenant.companyId), isNull(whatsappWorkspaces.deletedAt))),
   ]);
 
   const whatsappConfiguredAccounts = companyWhatsappAccounts.filter((account) => {
@@ -147,6 +151,10 @@ export async function getRuntimeReadiness(c: Context<AppEnv>) {
     const token = account.metadata?.accessToken;
     return typeof phoneNumberId === "string" && phoneNumberId.length > 0 && (typeof token === "string" && token.length > 0 || Boolean(env.WHATSAPP_ACCESS_TOKEN));
   });
+  const activeWhatsappWorkspaces = companyWhatsappWorkspaces.filter((workspace) => workspace.isActive);
+  const verifiedWhatsappWorkspaces = activeWhatsappWorkspaces.filter((workspace) => workspace.isVerified && workspace.webhookKey && workspace.appSecret && workspace.verifyTokenHash);
+  const primaryWebhookKey = verifiedWhatsappWorkspaces[0]?.webhookKey ?? activeWhatsappWorkspaces.find((workspace) => workspace.webhookKey)?.webhookKey ?? null;
+  const whatsappWebhookUrl = `${env.BACKEND_URL}/api/v1/public/whatsapp/webhook${primaryWebhookKey ? `/${primaryWebhookKey}` : ""}`;
 
   return ok(c, {
     email: {
@@ -161,14 +169,19 @@ export async function getRuntimeReadiness(c: Context<AppEnv>) {
     },
     whatsapp: {
       provider: settings.integrations.whatsapp.provider ?? settings.integrations.whatsappProvider,
-      envReady: Boolean(env.WHATSAPP_WEBHOOK_VERIFY_TOKEN && env.WHATSAPP_APP_SECRET && (env.WHATSAPP_ACCESS_TOKEN || whatsappConfiguredAccounts.length > 0)),
-      verifyTokenConfigured: Boolean(env.WHATSAPP_WEBHOOK_VERIFY_TOKEN),
-      appSecretConfigured: Boolean(env.WHATSAPP_APP_SECRET),
+      envReady: Boolean(
+        verifiedWhatsappWorkspaces.length > 0 ||
+          (env.WHATSAPP_WEBHOOK_VERIFY_TOKEN && env.WHATSAPP_APP_SECRET && (env.WHATSAPP_ACCESS_TOKEN || whatsappConfiguredAccounts.length > 0)),
+      ),
+      verifyTokenConfigured: Boolean(env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || verifiedWhatsappWorkspaces.length > 0),
+      appSecretConfigured: Boolean(env.WHATSAPP_APP_SECRET || verifiedWhatsappWorkspaces.length > 0),
       globalAccessTokenConfigured: Boolean(env.WHATSAPP_ACCESS_TOKEN),
       accountCount: companyWhatsappAccounts.length,
       configuredAccountCount: whatsappConfiguredAccounts.length,
-      verifyUrl: `${env.BACKEND_URL}/api/v1/public/whatsapp/webhook`,
-      eventUrl: `${env.BACKEND_URL}/api/v1/public/whatsapp/webhook`,
+      workspaceCount: companyWhatsappWorkspaces.length,
+      verifiedWorkspaceCount: verifiedWhatsappWorkspaces.length,
+      verifyUrl: whatsappWebhookUrl,
+      eventUrl: whatsappWebhookUrl,
     },
   });
 }
