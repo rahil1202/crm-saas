@@ -1186,7 +1186,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <div className="flex flex-col gap-6">
+      <div className="flex max-w-full min-w-0 flex-col gap-6">
         {error ? (
           <Alert variant="destructive">
             <ShieldCheck />
@@ -1195,7 +1195,7 @@ export default function SettingsPage() {
           </Alert>
         ) : null}
 
-        <Tabs defaultValue="company" queryKey="tab" className="flex flex-col gap-6">
+        <Tabs defaultValue="company" queryKey="tab" className="flex max-w-full min-w-0 flex-col gap-6">
           <TabsList>
             <TabsTrigger value="company">Company</TabsTrigger>
             <TabsTrigger value="preferences">Preferences</TabsTrigger>

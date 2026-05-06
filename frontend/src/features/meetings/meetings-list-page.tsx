@@ -396,7 +396,7 @@ export default function MeetingsListPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-full min-w-0 space-y-4">
       <CrmListPageHeader
         title="Meetings"
         actions={
@@ -420,13 +420,13 @@ export default function MeetingsListPage() {
         }
       />
 
-      <div className="rounded-[1.25rem] border border-border/60 bg-white px-4 py-3 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)]">
+      <div className="max-w-full min-w-0 rounded-[1.25rem] border border-border/60 bg-white px-4 py-3 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <div className="text-sm font-semibold text-slate-900">Booking Links</div>
             <div className="text-xs text-muted-foreground">{meetingTypes.length} active link type(s)</div>
           </div>
-          <Button type="button" variant="outline" onClick={() => { setTypeModalOpen(true); resetTypeEditor(); }}>
+          <Button type="button" variant="outline" className="max-w-full whitespace-normal" onClick={() => { setTypeModalOpen(true); resetTypeEditor(); }}>
             Create New Booking Link
           </Button>
         </div>
@@ -438,7 +438,7 @@ export default function MeetingsListPage() {
                   <div className="truncate text-sm font-medium text-slate-900">{type.title}</div>
                   <div className="truncate text-xs text-muted-foreground">{type.publicUrl}</div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button type="button" size="sm" variant="outline" onClick={() => void copyToClipboard(type.publicUrl)}>
                     <Copy className="size-4" />
                     Copy
@@ -458,8 +458,8 @@ export default function MeetingsListPage() {
         )}
       </div>
 
-      <div className="rounded-[1.35rem] border border-border/60 bg-white shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)]">
-        <div className="border-b border-border/60 px-4">
+      <div className="max-w-full min-w-0 overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)]">
+        <div className="min-w-0 border-b border-border/60 px-4">
           <Tabs value={scope} onValueChange={(value) => { setScope(value as MeetingScope); setPage(1); }}>
             <TabsList variant="line" className="border-b border-border/60 p-0">
               <TabsTrigger value="all" className="rounded-none px-4 py-3 text-sm">All Meetings</TabsTrigger>

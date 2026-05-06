@@ -20,11 +20,11 @@ export function CrmListPageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="grid min-w-0 gap-3 rounded-[1.25rem] border border-border/60 bg-white px-5 py-4 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+    <div className="grid max-w-full min-w-0 gap-3 rounded-[1.25rem] border border-border/60 bg-white px-5 py-4 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
       <div className="min-w-0">
         <h1 className="text-[1.7rem] font-semibold tracking-[-0.03em] text-slate-900">{title}</h1>
       </div>
-      {actions ? <div className="flex min-w-0 flex-wrap gap-2 lg:justify-end [&>button]:min-w-[120px] [&>button]:justify-center">{actions}</div> : null}
+      {actions ? <div className="flex max-w-full min-w-0 flex-wrap gap-2 lg:justify-end [&>button]:min-w-[120px] [&>button]:justify-center">{actions}</div> : null}
     </div>
   );
 }
@@ -285,7 +285,7 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
   const colSpan = visibleColumns.length + (selectable ? 1 : 0) + (actionColumn ? 1 : 0);
 
   return (
-    <div className="overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)]">
+    <div className="max-w-full min-w-0 overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)]">
       <div className="overflow-x-auto">
         <table className="min-w-full border-separate border-spacing-0">
           <thead className="bg-slate-50/90">

@@ -56,7 +56,7 @@ function Tabs({
       data-slot="tabs"
       data-orientation={orientation}
       className={cn(
-        "group/tabs flex gap-2 data-horizontal:flex-col",
+        "group/tabs flex min-w-0 gap-2 data-horizontal:flex-col",
         className
       )}
       defaultValue={queryKey ? undefined : defaultValue}
@@ -68,7 +68,7 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-2xl border border-border/70 bg-white/65 p-1 text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] group-data-horizontal/tabs:h-auto group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none data-[variant=line]:border-0 data-[variant=line]:bg-transparent data-[variant=line]:p-0 data-[variant=line]:shadow-none",
+  "group/tabs-list inline-flex w-fit max-w-full min-w-0 items-center justify-start overflow-x-auto rounded-2xl border border-border/70 bg-white/65 p-1 text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] group-data-horizontal/tabs:h-auto group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col group-data-vertical/tabs:overflow-x-visible data-[variant=line]:rounded-none data-[variant=line]:border-0 data-[variant=line]:bg-transparent data-[variant=line]:p-0 data-[variant=line]:shadow-none",
   {
     variants: {
       variant: {
@@ -117,7 +117,7 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
   return (
     <TabsPrimitive.Panel
       data-slot="tabs-content"
-      className={cn("flex-1 text-sm outline-none", className)}
+      className={cn("min-w-0 flex-1 text-sm outline-none", className)}
       {...props}
     />
   )
