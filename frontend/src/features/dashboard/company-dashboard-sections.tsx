@@ -5,10 +5,10 @@ import {
   Activity,
   ArrowRight,
   BriefcaseBusiness,
+  CalendarClock,
   CalendarPlus,
   ChartColumnBig,
   CheckCircle2,
-  HeartPulse,
   Megaphone,
   Plus,
   UserPlus,
@@ -17,8 +17,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { DashboardInsightsResponse } from "@/features/dashboard/types";
 import {
-  DashboardMetricCard,
+  ConversionGraph,
   DashboardPanel,
+  DonutChartCard,
   MetricPill,
   ToneBadge,
   formatCompactNumber,
@@ -29,62 +30,69 @@ import {
 
 export function CompanyDashboardSections({ data }: { data: DashboardInsightsResponse }) {
   const quickActions = [
-    {
-      href: "/dashboard/leads",
-      label: "Add lead",
-      detail: "Capture and qualify a new lead",
-      icon: UserPlus,
-    },
-    {
-      href: "/dashboard/tasks",
-      label: "Add task",
-      detail: "Create a follow-up action",
-      icon: CheckCircle2,
-    },
-    {
-      href: "/dashboard/deals",
-      label: "Add deal",
-      detail: "Open a new pipeline opportunity",
-      icon: BriefcaseBusiness,
-    },
-    {
-      href: "/dashboard/meetings",
-      label: "Add meeting",
-      detail: "Schedule a customer call",
-      icon: CalendarPlus,
-    },
-    {
-      href: "/dashboard/campaigns/add",
-      label: "Add campaign",
-      detail: "Launch a new outbound campaign",
-      icon: Megaphone,
-    },
+    { href: "/dashboard/leads", label: "Add lead", icon: UserPlus, tint: "text-sky-700", bg: "bg-sky-100" },
+    { href: "/dashboard/tasks", label: "Add task", icon: CheckCircle2, tint: "text-emerald-700", bg: "bg-emerald-100" },
+    { href: "/dashboard/deals", label: "Add deal", icon: BriefcaseBusiness, tint: "text-blue-700", bg: "bg-blue-100" },
+    { href: "/dashboard/meetings", label: "Add meeting", icon: CalendarPlus, tint: "text-cyan-700", bg: "bg-cyan-100" },
+    { href: "/dashboard/campaigns/add", label: "Add campaign", icon: Megaphone, tint: "text-violet-700", bg: "bg-violet-100" },
   ];
 
   const insightPages = [
     {
       href: "/dashboard/analytics",
       title: "Analytics workspace",
-      detail: "Lead velocity, pipeline forecast, and source distribution charts.",
+      detail: "Lead velocity, source mix, forecast trends, and pipeline concentration.",
       icon: ChartColumnBig,
-    },
-    {
-      href: "/dashboard/health",
-      title: "Health workspace",
-      detail: "Conversion rates, task pressure, campaign quality, and risk signals.",
-      icon: HeartPulse,
+      accent: "from-sky-500 to-blue-600",
     },
     {
       href: "/dashboard/reports",
       title: "Advanced stats",
-      detail: "Time-window reporting with deeper CRM, partner, and campaign breakdowns.",
+      detail: "Time-window reporting for CRM, partner, and campaign performance.",
       icon: Activity,
+      accent: "from-cyan-500 to-emerald-500",
     },
+  ];
+
+  const conversionItems = [
+    { label: "Lead to customer", value: data.conversion.leadToCustomerRate },
+    { label: "Win rate", value: data.conversion.openDealWinRate },
+    { label: "Task completion", value: data.conversion.taskCompletionRate },
+    { label: "Meeting completion", value: data.conversion.meetingCompletionRate },
+    { label: "Campaign delivery", value: data.conversion.campaignDeliveryRate },
+    { label: "Campaign engagement", value: data.conversion.campaignEngagementRate },
   ];
 
   return (
     <div className="grid gap-6">
-      <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+      <section className="overflow-hidden rounded-[1.6rem] border border-white/75 bg-white/92 p-3 shadow-[0_22px_60px_-42px_rgba(15,23,42,0.34)] backdrop-blur-sm">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
+          {quickActions.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="group relative flex min-h-20 items-center gap-3 overflow-hidden rounded-[1.1rem] border border-slate-200/75 bg-white px-3 py-3 transition-all hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_18px_42px_-30px_rgba(14,116,255,0.45)]"
+              >
+                <span className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-sky-400 via-cyan-300 to-blue-500 opacity-0 transition-opacity group-hover:opacity-100" />
+                <span className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${item.bg} ${item.tint}`}>
+                  <Icon className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-slate-950">{item.label}</span>
+                  <span className="mt-1 inline-flex items-center gap-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                    <Plus className="size-3" />
+                    Quick
+                  </span>
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="overflow-hidden rounded-[2rem] border border-sky-300/35 bg-linear-to-br from-sky-950 via-blue-700 to-cyan-400 p-6 text-white shadow-[0_34px_90px_-50px_rgba(14,116,255,0.6)]">
           <div className="grid gap-6">
             <div className="flex flex-wrap items-center gap-3">
@@ -94,9 +102,9 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
               </ToneBadge>
             </div>
             <div className="grid gap-3">
-              <h1 className="max-w-4xl text-3xl font-semibold tracking-tight md:text-4xl">Overview first, deep analysis in dedicated pages.</h1>
+              <h1 className="max-w-4xl text-3xl font-semibold tracking-tight md:text-4xl">Clean command center for daily CRM movement.</h1>
               <p className="max-w-3xl text-sm leading-7 text-white/78 md:text-base">
-                Dashboard now stays focused on daily execution. Use the Analytics and Health pages for full graphs and deep diagnostics.
+                Quick actions, conversion health, pipeline momentum, meetings, and priority deal signals are grouped for faster review.
               </p>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
@@ -109,7 +117,7 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
 
         <DashboardPanel
           title="Conversion health"
-          description="Fast read on how the workspace is moving from pipeline to revenue."
+          description="Interactive rate graph for core movement and execution quality."
           action={
             <Link href="/dashboard/health">
               <Button size="sm" variant="outline" className="border-sky-200 bg-white/80">
@@ -118,96 +126,57 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
             </Link>
           }
         >
-          <div className="grid gap-3">
-            {[
-              ["Lead to customer", `${data.conversion.leadToCustomerRate}%`],
-              ["Win rate", `${data.conversion.openDealWinRate}%`],
-              ["Task completion", `${data.conversion.taskCompletionRate}%`],
-              ["Meeting completion", `${data.conversion.meetingCompletionRate}%`],
-              ["Campaign delivery", `${data.conversion.campaignDeliveryRate}%`],
-              ["Campaign engagement", `${data.conversion.campaignEngagementRate}%`],
-            ].map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between rounded-2xl border border-sky-100 bg-sky-50/60 px-4 py-3">
-                <span className="text-sm text-slate-600">{label}</span>
-                <span className="text-base font-semibold text-slate-950">{value}</span>
-              </div>
-            ))}
-          </div>
+          <ConversionGraph items={conversionItems} />
         </DashboardPanel>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <DashboardMetricCard
-          label="Lead velocity"
-          value={data.overview.newLeads}
-          hint={`${data.overview.newCustomers} customers created in the same window`}
-          accent="linear-gradient(90deg,#0ea5e9,#2563eb)"
+      <section className="grid gap-3 lg:grid-cols-3">
+        <DonutChartCard
+          title="Lead velocity"
+          href="/dashboard/analytics"
+          items={[
+            { label: "New leads", value: data.overview.newLeads, color: "#0ea5e9" },
+            { label: "New customers", value: data.overview.newCustomers, color: "#2563eb" },
+          ]}
         />
-        <DashboardMetricCard
-          label="Execution pressure"
-          value={data.overview.overdueTasks + data.overview.dueTodayTasks}
-          hint={`${data.overview.overdueTasks} overdue and ${data.overview.dueTodayTasks} due today`}
-          accent="linear-gradient(90deg,#fb7185,#f97316)"
+        <DonutChartCard
+          title="Execution pressure"
+          href="/dashboard/tasks"
+          items={[
+            { label: "Overdue", value: data.overview.overdueTasks, color: "#fb7185" },
+            { label: "Due today", value: data.overview.dueTodayTasks, color: "#f97316" },
+          ]}
         />
-        <DashboardMetricCard
-          label="Meetings scheduled"
-          value={data.overview.scheduledMeetings}
-          hint={`${data.overview.recentMeetings} meetings created in the current window`}
-          accent="linear-gradient(90deg,#22c55e,#06b6d4)"
-        />
-        <DashboardMetricCard
-          label="Knowledge base"
-          value={data.overview.documentCount}
-          hint={`${data.overview.recentDocuments} recent document uploads`}
-          accent="linear-gradient(90deg,#a855f7,#2563eb)"
+        <DonutChartCard
+          title="Meetings scheduled"
+          href="/dashboard/meetings"
+          items={[
+            { label: "Scheduled", value: data.overview.scheduledMeetings, color: "#22c55e" },
+            { label: "Recent", value: data.overview.recentMeetings, color: "#06b6d4" },
+          ]}
         />
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        {quickActions.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="group rounded-[1.4rem] border border-white/75 bg-white/88 p-4 shadow-[0_18px_52px_-38px_rgba(15,23,42,0.34)] transition-all hover:-translate-y-0.5 hover:border-sky-200"
-            >
-              <div className="flex items-center justify-between">
-                <span className="flex size-11 items-center justify-center rounded-2xl bg-sky-100 text-sky-700">
-                  <Icon className="size-4" />
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-sky-700">
-                  <Plus className="size-3" />
-                  Quick
-                </span>
-              </div>
-              <div className="mt-4">
-                <div className="font-semibold text-slate-950">{item.label}</div>
-                <div className="mt-1 text-sm text-slate-500">{item.detail}</div>
-              </div>
-            </Link>
-          );
-        })}
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-2">
         {insightPages.map((page) => {
           const Icon = page.icon;
           return (
             <Link
               key={page.href}
               href={page.href}
-              className="group rounded-[1.4rem] border border-sky-100 bg-sky-50/55 p-5 transition-all hover:-translate-y-0.5 hover:border-sky-300"
+              className="group overflow-hidden rounded-[1.5rem] border border-white/75 bg-white/90 p-5 shadow-[0_20px_58px_-42px_rgba(15,23,42,0.34)] transition-all hover:-translate-y-0.5 hover:border-sky-200"
             >
-              <div className="flex items-center justify-between">
-                <span className="flex size-10 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm">
-                  <Icon className="size-4" />
-                </span>
-                <ArrowRight className="size-4 text-sky-600 transition-transform group-hover:translate-x-0.5" />
-              </div>
-              <div className="mt-4">
-                <div className="font-semibold text-slate-900">{page.title}</div>
-                <div className="mt-1 text-sm text-slate-600">{page.detail}</div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <span className={`flex size-12 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br ${page.accent} text-white shadow-[0_18px_35px_-24px_rgba(14,116,255,0.65)]`}>
+                    <Icon className="size-5" />
+                  </span>
+                  <div>
+                    <div className="font-semibold text-slate-950">{page.title}</div>
+                    <div className="mt-1 max-w-xl text-sm leading-6 text-slate-600">{page.detail}</div>
+                  </div>
+                </div>
+                <ArrowRight className="size-4 shrink-0 text-sky-600 transition-transform group-hover:translate-x-0.5" />
               </div>
             </Link>
           );
@@ -215,18 +184,29 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1fr_0.95fr_0.95fr]">
-        <DashboardPanel title="Recent activity" description="Cross-module events ordered by the latest CRM movement.">
+        <DashboardPanel
+          title="Recent activity"
+          description="Latest movement across leads, deals, tasks, meetings, and files."
+          action={
+            <Link href="/dashboard/recent-activity">
+              <Button size="sm" variant="outline" className="border-sky-200 bg-white">
+                View all
+                <ArrowRight className="size-4" />
+              </Button>
+            </Link>
+          }
+        >
           <div className="grid gap-3">
             {data.activityFeed.map((item) => (
-              <div key={item.id} className="rounded-2xl border border-sky-100 bg-white px-4 py-3">
+              <div key={item.id} className="rounded-2xl border border-sky-100 bg-white px-4 py-3 transition-colors hover:bg-sky-50/55">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium text-slate-950">{item.title}</div>
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-slate-950">{item.title}</div>
                     <div className="mt-1 text-sm text-slate-500">{item.detail}</div>
                   </div>
                   <ToneBadge tone={item.tone}>{item.type}</ToneBadge>
                 </div>
-                <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
                   <span>{formatDateTime(item.timestamp)}</span>
                   {typeof item.amount === "number" ? (
                     <span>{item.type === "document" ? `${formatCompactNumber(item.amount)} bytes` : formatCurrency(item.amount, true)}</span>
@@ -237,13 +217,24 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
           </div>
         </DashboardPanel>
 
-        <DashboardPanel title="Upcoming meetings" description="The next scheduled meetings from the CRM calendar.">
-          <div className="grid gap-3">
+        <DashboardPanel
+          title="Upcoming meetings"
+          description="The next scheduled meetings from the CRM calendar."
+          action={
+            <Link href="/dashboard/meetings">
+              <Button size="sm" variant="outline" className="border-sky-200 bg-white">
+                Open
+                <CalendarClock className="size-4" />
+              </Button>
+            </Link>
+          }
+        >
+          <Link href="/dashboard/meetings" className="grid gap-3">
             {data.meetingOverview.items.map((meeting) => (
-              <div key={meeting.id} className="rounded-2xl border border-sky-100 bg-sky-50/55 px-4 py-3">
+              <div key={meeting.id} className="rounded-2xl border border-sky-100 bg-sky-50/55 px-4 py-3 transition-colors hover:border-sky-200 hover:bg-white">
                 <div className="font-medium text-slate-950">{meeting.title}</div>
-                <div className="mt-1 text-sm text-slate-500 capitalize">
-                  {meeting.source} • {meeting.status.replaceAll("_", " ")}
+                <div className="mt-1 text-sm capitalize text-slate-500">
+                  {meeting.source} / {meeting.status.replaceAll("_", " ")}
                 </div>
                 <div className="mt-2 text-xs text-slate-500">{formatDateTime(meeting.startsAt)}</div>
               </div>
@@ -253,38 +244,47 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
                 No upcoming meetings are scheduled yet.
               </div>
             ) : null}
-          </div>
+          </Link>
         </DashboardPanel>
 
-        <DashboardPanel title="Top deals" description="Highest-value opportunities currently visible in the workspace.">
+        <DashboardPanel
+          title="Top deals"
+          description="Highest-value opportunities currently visible in the workspace."
+          action={
+            <Link href="/dashboard/top-deals">
+              <Button size="sm" variant="outline" className="border-sky-200 bg-white">
+                View all
+                <ArrowRight className="size-4" />
+              </Button>
+            </Link>
+          }
+        >
           <div className="grid gap-3">
             {data.topDeals.map((deal) => (
-              <div key={deal.id} className="rounded-2xl border border-sky-100 bg-white px-4 py-3">
+              <Link
+                key={deal.id}
+                href={`/dashboard/deals/${deal.id}`}
+                className="rounded-2xl border border-sky-100 bg-white px-4 py-3 transition-colors hover:border-sky-200 hover:bg-sky-50/55"
+              >
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium text-slate-950">{deal.title}</div>
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-slate-950">{deal.title}</div>
                     <div className="mt-1 text-sm text-slate-500">
-                      {deal.stage} • {deal.status}
+                      {deal.stage} / {deal.status}
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     <div className="font-semibold text-slate-950">{formatCurrency(deal.value, true)}</div>
                     <div className="text-xs text-slate-500">{formatDate(deal.expectedCloseDate)}</div>
                   </div>
                 </div>
-              </div>
+              </Link>
             ))}
             {data.topDeals.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border/80 px-4 py-8 text-sm text-muted-foreground">
                 No high-value deals found yet.
               </div>
             ) : null}
-            <Link href="/dashboard/deals">
-              <Button variant="outline" className="justify-between border-sky-200 bg-white">
-                Review full pipeline
-                <ArrowRight className="size-4" />
-              </Button>
-            </Link>
           </div>
         </DashboardPanel>
       </section>

@@ -423,7 +423,7 @@ export async function getDashboardInsights(c: Context<AppEnv>) {
   const topDeals = dealRows
     .slice()
     .sort((left, right) => right.value - left.value || new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime())
-    .slice(0, 5)
+    .slice(0, query.topDealsLimit)
     .map((deal) => ({
       id: deal.id,
       title: deal.title,

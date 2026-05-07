@@ -1,6 +1,8 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import Link from "next/link";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { ExternalLink } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -247,6 +249,219 @@ export function ForecastArea({
             <div className="mt-1 text-xs text-slate-500">{item.dealCount} deals</div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+const chartColors = ["#0ea5e9", "#2563eb", "#06b6d4", "#22c55e", "#f97316", "#a855f7"];
+
+function getTotal(items: Array<{ value: number }>) {
+  return items.reduce((total, item) => total + Math.max(item.value, 0), 0);
+}
+
+export function DonutChartCard({
+  title,
+  items,
+  href,
+  formatter = formatCompactNumber,
+}: {
+  title: string;
+  href?: string;
+  items: Array<{
+    label: string;
+    value: number;
+    color?: string;
+  }>;
+  formatter?: (value: number) => ReactNode;
+}) {
+  const total = getTotal(items);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeItem = items[activeIndex] ?? items[0];
+  const radius = 34;
+  const circumference = 2 * Math.PI * radius;
+
+  const segments = useMemo(() => {
+    return items.map((item, index) => {
+      const value = Math.max(item.value, 0);
+      const ratio = total > 0 ? value / total : 1 / Math.max(items.length, 1);
+      const dash = ratio * circumference;
+      const offset = items
+        .slice(0, index)
+        .reduce((sum, previous) => {
+          const previousValue = Math.max(previous.value, 0);
+          const previousRatio = total > 0 ? previousValue / total : 1 / Math.max(items.length, 1);
+          return sum + previousRatio * circumference;
+        }, 0);
+
+      const segment = {
+        ...item,
+        color: item.color ?? chartColors[index % chartColors.length],
+        dasharray: `${dash} ${circumference - dash}`,
+        dashoffset: -offset,
+      };
+      return segment;
+    });
+  }, [circumference, items, total]);
+
+  const content = (
+    <Card className="h-full overflow-hidden border-white/75 bg-white/92 shadow-[0_24px_65px_-44px_rgba(15,23,42,0.35)] backdrop-blur-sm transition-all group-hover:-translate-y-0.5 group-hover:border-sky-200 group-hover:shadow-[0_28px_70px_-46px_rgba(14,116,255,0.44)]">
+      <CardHeader className="gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <CardDescription className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-sky-700/90">
+            {title}
+          </CardDescription>
+          {href ? (
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-700 transition-colors group-hover:border-sky-200 group-hover:bg-sky-100">
+              <ExternalLink className="size-3.5" />
+            </span>
+          ) : null}
+        </div>
+        <div className="grid gap-4">
+          <div className="grid grid-cols-[116px_1fr] items-center gap-4">
+            <div className="relative size-28">
+              <svg viewBox="0 0 100 100" className="size-28 -rotate-90 drop-shadow-sm" role="img" aria-label={`${title} breakdown`}>
+                <circle cx="50" cy="50" r={radius} fill="none" stroke="#e0f2fe" strokeWidth="14" />
+                <circle cx="50" cy="50" r="23" fill="#ffffff" />
+                <circle cx="50" cy="50" r="44" fill="none" stroke="#f8fafc" strokeWidth="1" />
+              {segments.map((segment, index) => (
+                <circle
+                  key={segment.label}
+                  cx="50"
+                  cy="50"
+                  r={radius}
+                  fill="none"
+                  stroke={segment.color}
+                  strokeWidth={activeIndex === index ? 15 : 12}
+                  strokeDasharray={segment.dasharray}
+                  strokeDashoffset={segment.dashoffset}
+                  strokeLinecap="round"
+                  className="cursor-pointer transition-all"
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onFocus={() => setActiveIndex(index)}
+                  tabIndex={0}
+                />
+              ))}
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                <div className="text-2xl font-semibold text-slate-950">{formatter(activeItem?.value ?? 0)}</div>
+                <div className="max-w-20 truncate text-[0.66rem] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  {activeItem?.label ?? "No data"}
+                </div>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-sky-100 bg-sky-50/55 px-4 py-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-700/80">Total</div>
+              <div className="mt-1 text-3xl font-semibold text-slate-950">{formatter(total)}</div>
+              <div className="mt-1 text-xs text-slate-500">Open full workspace</div>
+            </div>
+          </div>
+          <div className="grid gap-2">
+              {segments.map((segment, index) => (
+                <div
+                  key={segment.label}
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-sm transition-colors",
+                    activeIndex === index ? "border-sky-200 bg-sky-50 text-slate-950" : "border-transparent bg-transparent text-slate-600 hover:bg-sky-50/70",
+                  )}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onFocus={() => setActiveIndex(index)}
+                  tabIndex={0}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: segment.color }} />
+                    <span className="truncate">{segment.label}</span>
+                  </span>
+                  <span className="font-semibold">{formatter(segment.value)}</span>
+                </div>
+              ))}
+            </div>
+        </div>
+      </CardHeader>
+    </Card>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className="group block h-full">
+        {content}
+      </Link>
+    );
+  }
+
+  return content;
+}
+
+export function ConversionGraph({
+  items,
+}: {
+  items: Array<{
+    label: string;
+    value: number;
+  }>;
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeItem = items[activeIndex] ?? items[0];
+  const score =
+    items.length === 0
+      ? 0
+      : Math.round(items.reduce((total, item) => total + Math.min(Math.max(item.value, 0), 100), 0) / items.length);
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-4 rounded-[1.5rem] border border-sky-100 bg-linear-to-br from-sky-50 via-white to-cyan-50 p-4 sm:grid-cols-[150px_1fr] sm:items-center">
+        <div className="relative mx-auto size-36">
+          <svg viewBox="0 0 100 100" className="size-36 -rotate-90" role="img" aria-label="Conversion health score">
+            <circle cx="50" cy="50" r="38" fill="none" stroke="#e0f2fe" strokeWidth="12" />
+            <circle
+              cx="50"
+              cy="50"
+              r="38"
+              fill="none"
+              stroke="#0284c7"
+              strokeLinecap="round"
+              strokeWidth="12"
+              strokeDasharray={`${(score / 100) * 238.76} ${238.76 - (score / 100) * 238.76}`}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+            <div className="text-3xl font-semibold text-slate-950">{score}%</div>
+            <div className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-slate-500">Score</div>
+          </div>
+        </div>
+
+        <div className="grid gap-3">
+          <div>
+            <div className="text-sm font-semibold text-slate-950">{activeItem?.label ?? "Conversion"}</div>
+            <div className="mt-1 text-xs text-slate-500">Hover a row to focus the health signal.</div>
+          </div>
+          <div className="grid gap-2">
+            {items.map((item, index) => (
+              <button
+                key={item.label}
+                type="button"
+                className={cn(
+                  "grid gap-1 rounded-xl border px-3 py-2 text-left transition-colors",
+                  activeIndex === index ? "border-sky-200 bg-white shadow-sm" : "border-transparent hover:bg-white/70",
+                )}
+                onMouseEnter={() => setActiveIndex(index)}
+                onFocus={() => setActiveIndex(index)}
+                onClick={() => setActiveIndex(index)}
+              >
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium text-slate-700">{item.label}</span>
+                  <span className="font-semibold text-slate-950">{item.value}%</span>
+                </div>
+                <span className="block h-2 overflow-hidden rounded-full bg-sky-100">
+                  <span
+                    className={cn("block h-full rounded-full transition-all", activeIndex === index ? "bg-sky-600" : "bg-sky-400")}
+                    style={{ width: `${Math.min(Math.max(item.value, 0), 100)}%` }}
+                  />
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

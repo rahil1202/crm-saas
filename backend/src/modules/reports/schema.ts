@@ -9,6 +9,7 @@ export const reportDashboardQuerySchema = z.object({
   periodDays: z.coerce.number().int().min(7).max(365).default(30),
   forecastMonths: z.coerce.number().int().min(1).max(12).default(6),
   activityLimit: z.coerce.number().int().min(4).max(20).default(8),
+  topDealsLimit: z.coerce.number().int().min(1).max(20).default(5),
 });
 
 export type ReportSummaryQuery = z.infer<typeof reportSummaryQuerySchema>;

@@ -117,6 +117,14 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Stats & Reports",
     description: "Detailed CRM stats, lead and deal analysis, forecast charts, and campaign reporting for the active workspace.",
   },
+  "/dashboard/recent-activity": {
+    title: "Recent Activity",
+    description: "Expanded CRM activity feed across leads, deals, tasks, meetings, and documents.",
+  },
+  "/dashboard/top-deals": {
+    title: "Top Deals",
+    description: "Highest-value opportunities currently visible in the active workspace.",
+  },
   "/dashboard/settings": {
     title: "Settings",
     description: "Manage operator security, company profile, branches, and team access for the active CRM workspace.",
