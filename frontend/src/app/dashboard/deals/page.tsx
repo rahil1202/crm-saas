@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import {
   CrmAppliedFiltersBar,
+  CrmBulkSelectionBar,
   CrmColumnSettings,
   CrmDataTable,
   CrmFilterDrawer,
@@ -22,7 +23,6 @@ import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -388,6 +388,7 @@ export default function DealsPage() {
     defaultVisibility: defaultDocumentColumnVisibility,
   });
   const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkPipeline, setBulkPipeline] = useState("");
   const [bulkStage, setBulkStage] = useState("");
@@ -736,6 +737,27 @@ export default function DealsPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    const ids = [...selectedDealIds];
+    if (ids.length === 0) return;
+
+    setDeletingId("bulk");
+    setError(null);
+    try {
+      await Promise.all(ids.map((id) => apiRequest(`/deals/${id}`, { method: "DELETE" })));
+      toast.success(`${ids.length} deal${ids.length === 1 ? "" : "s"} deleted`);
+      setSelectedDealIds([]);
+      setBulkDeleteOpen(false);
+      await loadDeals();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete selected deals";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const dealColumns: Array<ColumnDefinition<Deal, Exclude<DealColumnKey, "actions">, DealSortKey>> = [
     {
       key: "title",
@@ -939,14 +961,6 @@ export default function DealsPage() {
           extraContent={
             tab !== "documents" ? (
               <>
-                <div className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2">
-                  <Checkbox
-                    checked={paginatedDeals.length > 0 && selectedDealIds.length === paginatedDeals.length}
-                    onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
-                    aria-label="Select all visible deals"
-                  />
-                  <span className="text-sm text-muted-foreground">{selectedDealIds.length} selected</span>
-                </div>
                 <NativeSelect value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className="h-10 w-40 rounded-xl px-3 text-sm">
                   <option value="">Keep status</option>
                   {dealStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
@@ -972,6 +986,18 @@ export default function DealsPage() {
                   {bulkUpdating ? "Updating..." : "Apply bulk update"}
                 </Button>
               </>
+            ) : null
+          }
+          selectionBar={
+            tab !== "documents" ? (
+              <CrmBulkSelectionBar
+                selectedCount={selectedDealIds.length}
+                allVisibleSelected={paginatedDeals.length > 0 && paginatedDeals.every((deal) => selectedDealIds.includes(deal.id))}
+                onToggleAllVisible={toggleSelectAllVisible}
+                onClose={() => setSelectedDealIds([])}
+                onDelete={() => setBulkDeleteOpen(true)}
+                deleteDisabled={deletingId === "bulk"}
+              />
             ) : null
           }
         />
@@ -1201,6 +1227,18 @@ export default function DealsPage() {
           </div>
         </CrmModalShell>
       ) : null}
+
+      <CrmModalShell open={bulkDeleteOpen} title="Delete Selected Deals" description={`${selectedDealIds.length} deal${selectedDealIds.length === 1 ? "" : "s"} selected.`} onClose={() => setBulkDeleteOpen(false)} maxWidthClassName="max-w-xl">
+        <div className="grid gap-4">
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">Selected deals will be removed from the workspace.</div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="destructive" onClick={() => setBulkDeleteOpen(false)} disabled={deletingId === "bulk"}>Close</Button>
+            <Button type="button" onClick={() => void handleBulkDelete()} disabled={deletingId === "bulk"}>
+              {deletingId === "bulk" ? "Working..." : "Delete"}
+            </Button>
+          </div>
+        </div>
+      </CrmModalShell>
 
       <CrmFilterDrawer
         open={modalMode === "filter"}

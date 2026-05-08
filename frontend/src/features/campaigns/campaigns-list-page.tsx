@@ -7,7 +7,9 @@ import { toast } from "sonner";
 
 import {
   CrmAppliedFiltersBar,
+  CrmBulkSelectionBar,
   CrmColumnSettings,
+  CrmConfirmDialog,
   CrmDataTable,
   CrmFilterDrawer,
   CrmListPageHeader,
@@ -22,7 +24,6 @@ import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -294,6 +295,7 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedCampaignIds, setSelectedCampaignIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const {
     columnVisibility: templateColumnVisibility,
     toggleColumn: toggleTemplateColumn,
@@ -523,6 +525,35 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
     }
   };
 
+  const handleBulkDelete = async () => {
+    const ids = [...selectedCampaignIds];
+    if (ids.length === 0) {
+      return;
+    }
+
+    setActionLoading(true);
+    setError(null);
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          filters.lifecycle === "deleted"
+            ? apiRequest(`/campaigns/${id}/permanent`, { method: "DELETE", body: JSON.stringify({}) })
+            : apiRequest(`/campaigns/${id}`, { method: "DELETE", body: JSON.stringify({}) }),
+        ),
+      );
+      toast.success(`${ids.length} campaign${ids.length === 1 ? "" : "s"} ${filters.lifecycle === "deleted" ? "deleted permanently" : "moved to trash"}.`);
+      setSelectedCampaignIds([]);
+      setBulkDeleteOpen(false);
+      await loadCampaigns();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete selected campaigns";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const deleteTemplate = async (templateId: string) => {
     setError(null);
     try {
@@ -703,16 +734,16 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
             }
             void loadCampaigns();
           }}
-          extraContent={
+          selectionBar={
             effectiveTab !== "documents" ? (
-              <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-white px-3 py-2 text-sm text-muted-foreground">
-                <Checkbox
-                  checked={sortedCampaigns.length > 0 && selectedCampaignIds.length === sortedCampaigns.length}
-                  onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
-                  aria-label="Select all visible campaigns"
-                />
-                <span>{selectedCampaignIds.length} selected</span>
-              </div>
+              <CrmBulkSelectionBar
+                selectedCount={selectedCampaignIds.length}
+                allVisibleSelected={sortedCampaigns.length > 0 && sortedCampaigns.every((campaign) => selectedCampaignIds.includes(campaign.id))}
+                onToggleAllVisible={toggleSelectAllVisible}
+                onClose={() => setSelectedCampaignIds([])}
+                onDelete={() => setBulkDeleteOpen(true)}
+                deleteDisabled={actionLoading}
+              />
             ) : null
           }
         />
@@ -944,6 +975,17 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
           </div>
         </CrmModalShell>
       ) : null}
+
+      <CrmConfirmDialog
+        open={bulkDeleteOpen}
+        title={filters.lifecycle === "deleted" ? "Delete Selected Campaigns Permanently" : "Move Selected Campaigns To Trash"}
+        description={`${selectedCampaignIds.length} campaign${selectedCampaignIds.length === 1 ? "" : "s"} selected.`}
+        warning={filters.lifecycle === "deleted" ? "This action cannot be undone." : "Selected campaigns will move to the deleted view and can be restored later."}
+        confirmLabel={filters.lifecycle === "deleted" ? "Delete permanently" : "Move to trash"}
+        submitting={actionLoading}
+        onCancel={() => setBulkDeleteOpen(false)}
+        onConfirm={() => void handleBulkDelete()}
+      />
 
       <CrmColumnSettings
         open={columnSettingsOpen && effectiveTab !== "documents"}

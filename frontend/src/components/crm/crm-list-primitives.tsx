@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Filter, RefreshCw, Search, Settings2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Filter, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
 
 import type { ColumnDefinition, ColumnVisibility, CrmListTabKey, CrmSortDirection } from "@/components/crm/types";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +64,7 @@ export function CrmListToolbar({
   onOpenColumns,
   extraContent,
   onRefresh,
+  selectionBar,
 }: {
   searchValue: string;
   searchPlaceholder: string;
@@ -73,9 +74,11 @@ export function CrmListToolbar({
   onOpenColumns: () => void;
   extraContent?: ReactNode;
   onRefresh?: () => void;
+  selectionBar?: ReactNode;
 }) {
   return (
     <div className="grid gap-3 border-b border-border/60 bg-slate-50/45 px-4 py-4">
+      {selectionBar ? <div>{selectionBar}</div> : null}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -109,6 +112,48 @@ export function CrmListToolbar({
           </Button>
         </div>
         {extraContent ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{extraContent}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+export function CrmBulkSelectionBar({
+  selectedCount,
+  allVisibleSelected,
+  onToggleAllVisible,
+  onClose,
+  onDelete,
+  deleteDisabled,
+  extraContent,
+}: {
+  selectedCount: number;
+  allVisibleSelected: boolean;
+  onToggleAllVisible: (checked: boolean) => void;
+  onClose: () => void;
+  onDelete: () => void;
+  deleteDisabled?: boolean;
+  extraContent?: ReactNode;
+}) {
+  if (selectedCount <= 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-wrap items-center gap-3 text-sm text-slate-700">
+        <Checkbox checked={allVisibleSelected} onCheckedChange={(checked) => onToggleAllVisible(checked === true)} aria-label="Select all visible rows" />
+        <span className="text-lg font-semibold text-slate-500">{selectedCount} Selected</span>
+        {extraContent ? <div className="flex flex-wrap items-center gap-2">{extraContent}</div> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="ghost" size="sm" className="h-10 rounded-xl px-3 text-rose-600 hover:text-rose-700" onClick={onDelete} disabled={deleteDisabled}>
+          <Trash2 className="size-4" />
+          Delete
+        </Button>
+        <Button type="button" variant="ghost" size="sm" className="h-10 rounded-xl px-3" onClick={onClose}>
+          <X className="size-4" />
+          Close
+        </Button>
       </div>
     </div>
   );

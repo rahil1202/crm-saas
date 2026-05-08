@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import {
   CrmAppliedFiltersBar,
+  CrmBulkSelectionBar,
   CrmColumnSettings,
   CrmConfirmDialog,
   CrmDataTable,
@@ -532,12 +533,23 @@ export default function DocumentsPage() {
           filterCount={appliedFilterChips.length}
           onOpenColumns={() => setColumnOpen(true)}
           onRefresh={() => void loadDocuments()}
-          extraContent={selectedDocumentIds.length > 0 ? (
-            <Button type="button" variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
-              <Trash2 className="size-4" />
-              Delete selected ({selectedDocumentIds.length})
-            </Button>
-          ) : undefined}
+          selectionBar={
+            <CrmBulkSelectionBar
+              selectedCount={selectedDocumentIds.length}
+              allVisibleSelected={items.filter((item) => deletableIds.has(item.id)).length > 0 && items.filter((item) => deletableIds.has(item.id)).every((item) => selectedDocumentIds.includes(item.id))}
+              onToggleAllVisible={(checked) => {
+                if (!checked) {
+                  setSelectedDocumentIds((current) => current.filter((id) => !items.some((item) => item.id === id)));
+                  return;
+                }
+                const addable = items.filter((item) => deletableIds.has(item.id)).map((item) => item.id);
+                setSelectedDocumentIds((current) => Array.from(new Set([...current, ...addable])));
+              }}
+              onClose={() => setSelectedDocumentIds([])}
+              onDelete={() => setBulkDeleteOpen(true)}
+              deleteDisabled={deleting}
+            />
+          }
         />
 
         <CrmAppliedFiltersBar

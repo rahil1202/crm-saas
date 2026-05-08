@@ -23,6 +23,7 @@ import { toast } from "sonner";
 
 import {
   CrmAppliedFiltersBar,
+  CrmBulkSelectionBar,
   CrmColumnSettings,
   CrmConfirmDialog,
   CrmDataTable,
@@ -365,6 +366,8 @@ export default function PartnersPage() {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedPartnerIds, setSelectedPartnerIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const {
     tab,
@@ -517,6 +520,10 @@ export default function PartnersPage() {
   const total = filteredPartners.length;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const paginatedPartners = filteredPartners.slice((page - 1) * limit, page * limit);
+
+  useEffect(() => {
+    setSelectedPartnerIds((current) => current.filter((id) => paginatedPartners.some((partner) => partner.id === id)));
+  }, [paginatedPartners]);
 
   useEffect(() => {
     if (page > totalPages) {
@@ -774,6 +781,41 @@ export default function PartnersPage() {
     }
   };
 
+  const togglePartnerSelection = (rowId: string, checked: boolean) => {
+    setSelectedPartnerIds((current) => (checked ? Array.from(new Set([...current, rowId])) : current.filter((id) => id !== rowId)));
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    if (!checked) {
+      setSelectedPartnerIds((current) => current.filter((id) => !paginatedPartners.some((partner) => partner.id === id)));
+      return;
+    }
+    setSelectedPartnerIds((current) => Array.from(new Set([...current, ...paginatedPartners.map((partner) => partner.id)])));
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedPartnerIds];
+    if (ids.length === 0) {
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      await Promise.all(ids.map((id) => apiRequest(`/partners/${id}`, { method: "DELETE" })));
+      toast.success(`${ids.length} partner${ids.length === 1 ? "" : "s"} removed`);
+      setSelectedPartnerIds([]);
+      setBulkDeleteOpen(false);
+      await loadData();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete selected partners";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleExport = async () => {
     try {
       const rows = filteredPartners.map((partner) => ({
@@ -887,6 +929,16 @@ export default function PartnersPage() {
               {tab === "mine" ? `${filteredPartners.length} partners created by you` : `${filteredPartners.length} partners in workspace`}
             </div>
           }
+          selectionBar={
+            <CrmBulkSelectionBar
+              selectedCount={selectedPartnerIds.length}
+              allVisibleSelected={paginatedPartners.length > 0 && paginatedPartners.every((partner) => selectedPartnerIds.includes(partner.id))}
+              onToggleAllVisible={toggleSelectAllVisible}
+              onClose={() => setSelectedPartnerIds([])}
+              onDelete={() => setBulkDeleteOpen(true)}
+              deleteDisabled={submitting}
+            />
+          }
         />
 
         <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} onClear={clearAllFilters} />
@@ -898,6 +950,10 @@ export default function PartnersPage() {
           loading={loading}
           emptyLabel={tab === "mine" ? "You have not added any partners yet." : "No partners found."}
           columnVisibility={columnVisibility}
+          selectable
+          selectedRowIds={selectedPartnerIds}
+          onToggleRow={togglePartnerSelection}
+          onToggleAllVisible={toggleSelectAllVisible}
           sortBy={sortBy}
           sortDir={sortDir}
           onSort={requestSort}
@@ -1154,6 +1210,17 @@ export default function PartnersPage() {
           onConfirm={() => void handleDelete()}
         />
       ) : null}
+
+      <CrmConfirmDialog
+        open={bulkDeleteOpen}
+        title="Delete Selected Partners"
+        description={`${selectedPartnerIds.length} partner${selectedPartnerIds.length === 1 ? "" : "s"} selected.`}
+        warning="This action cannot be undone. Selected partner companies will be permanently removed."
+        confirmLabel="Confirm delete"
+        submitting={submitting}
+        onCancel={() => setBulkDeleteOpen(false)}
+        onConfirm={() => void handleBulkDelete()}
+      />
 
       <CrmFilterDrawer
         open={modalMode === "filter"}

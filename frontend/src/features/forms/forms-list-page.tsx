@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import {
   CrmAppliedFiltersBar,
   CrmColumnSettings,
+  CrmBulkSelectionBar,
   CrmDataTable,
   CrmFilterDrawer,
   CrmListPageHeader,
@@ -74,6 +75,8 @@ export default function FormsListPage() {
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<FormListItem | null>(null);
+  const [selectedFormIds, setSelectedFormIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnOpen, setColumnOpen] = useState(false);
   const {
@@ -241,6 +244,10 @@ export default function FormsListPage() {
     void loadForms();
   }, [loadForms]);
 
+  useEffect(() => {
+    setSelectedFormIds((current) => current.filter((id) => items.some((item) => item.id === id)));
+  }, [items]);
+
   const appliedFilters = useMemo(
     () =>
       [
@@ -350,6 +357,43 @@ export default function FormsListPage() {
     toast.success("Forms exported.");
   };
 
+  const toggleFormSelection = (rowId: string, checked: boolean) => {
+    setSelectedFormIds((current) => (checked ? Array.from(new Set([...current, rowId])) : current.filter((id) => id !== rowId)));
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    if (!checked) {
+      setSelectedFormIds((current) => current.filter((id) => !items.some((item) => item.id === id)));
+      return;
+    }
+    setSelectedFormIds((current) => Array.from(new Set([...current, ...items.map((item) => item.id)])));
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedItems = items.filter((item) => selectedFormIds.includes(item.id));
+    if (selectedItems.length === 0) {
+      return;
+    }
+
+    setDeletingId("bulk");
+    setError(null);
+    try {
+      await Promise.all(
+        selectedItems.map((item) =>
+          filters.lifecycle === "deleted" ? apiRequest(`/forms/${item.id}/permanent`, { method: "DELETE" }) : apiRequest(`/forms/${item.id}`, { method: "DELETE" }),
+        ),
+      );
+      toast.success(`${selectedItems.length} form${selectedItems.length === 1 ? "" : "s"} ${filters.lifecycle === "deleted" ? "deleted permanently" : "moved to trash"}.`);
+      setSelectedFormIds([]);
+      setBulkDeleteOpen(false);
+      await loadForms();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to delete selected forms.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="grid gap-6">
       {error ? (
@@ -387,6 +431,16 @@ export default function FormsListPage() {
           filterCount={appliedFilters.length}
           onOpenColumns={() => setColumnOpen(true)}
           onRefresh={() => void loadForms()}
+          selectionBar={
+            <CrmBulkSelectionBar
+              selectedCount={selectedFormIds.length}
+              allVisibleSelected={items.length > 0 && items.every((item) => selectedFormIds.includes(item.id))}
+              onToggleAllVisible={toggleSelectAllVisible}
+              onClose={() => setSelectedFormIds([])}
+              onDelete={() => setBulkDeleteOpen(true)}
+              deleteDisabled={deletingId === "bulk"}
+            />
+          }
         />
         <CrmAppliedFiltersBar chips={appliedFilters} onRemove={removeAppliedFilter} onClear={clearAllFilters} emptyLabel="No active form filters." />
         <CrmDataTable
@@ -396,6 +450,10 @@ export default function FormsListPage() {
           loading={loading}
           emptyLabel="No forms found."
           columnVisibility={columnVisibility}
+          selectable
+          selectedRowIds={selectedFormIds}
+          onToggleRow={toggleFormSelection}
+          onToggleAllVisible={toggleSelectAllVisible}
           sortBy={sortBy}
           sortDir={sortDir}
           onSort={requestSort}
@@ -491,6 +549,21 @@ export default function FormsListPage() {
         onCancel={() => {
           if (!deletingId) {
             setDeleteTarget(null);
+          }
+        }}
+      />
+
+      <CrmConfirmDialog
+        open={bulkDeleteOpen}
+        title={filters.lifecycle === "deleted" ? "Delete Selected Forms Permanently" : "Move Selected Forms To Trash"}
+        description={`${selectedFormIds.length} form${selectedFormIds.length === 1 ? "" : "s"} selected.`}
+        warning={filters.lifecycle === "deleted" ? "This action cannot be undone. All selected forms will be removed permanently." : "This moves the selected forms to the deleted view. You can restore them later."}
+        confirmLabel={filters.lifecycle === "deleted" ? "Delete permanently" : "Move to trash"}
+        submitting={deletingId === "bulk"}
+        onConfirm={() => void handleBulkDelete()}
+        onCancel={() => {
+          if (deletingId !== "bulk") {
+            setBulkDeleteOpen(false);
           }
         }}
       />

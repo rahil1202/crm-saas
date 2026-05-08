@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import {
   CrmAppliedFiltersBar,
+  CrmBulkSelectionBar,
   CrmColumnSettings,
   CrmDataTable,
   CrmFilterDrawer,
@@ -22,7 +23,6 @@ import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -424,6 +424,7 @@ export default function LeadsPage() {
     defaultVisibility: defaultDocumentColumnVisibility,
   });
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkSource, setBulkSource] = useState("");
   const [bulkUpdating, setBulkUpdating] = useState(false);
@@ -735,6 +736,33 @@ export default function LeadsPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    const ids = [...selectedLeadIds];
+    if (ids.length === 0) return;
+
+    setDeletingId("bulk");
+    setError(null);
+    try {
+      await Promise.all(
+        ids.map((id) =>
+          filters.lifecycle === "deleted"
+            ? apiRequest(`/leads/${id}/permanent`, { method: "DELETE" })
+            : apiRequest(`/leads/${id}`, { method: "DELETE" }),
+        ),
+      );
+      toast.success(`${ids.length} lead${ids.length === 1 ? "" : "s"} ${filters.lifecycle === "deleted" ? "deleted permanently" : "moved to trash"}`);
+      setSelectedLeadIds([]);
+      setBulkDeleteOpen(false);
+      await loadLeads();
+    } catch (requestError) {
+      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete selected leads";
+      setError(message);
+      toast.error(message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const handleImport = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setImporting(true);
@@ -994,14 +1022,6 @@ export default function LeadsPage() {
           extraContent={
             tab !== "documents" && filters.lifecycle !== "deleted" ? (
               <>
-                <div className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2">
-                  <Checkbox
-                    checked={paginatedLeads.length > 0 && selectedLeadIds.length === paginatedLeads.length}
-                    onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
-                    aria-label="Select all visible leads"
-                  />
-                  <span className="text-sm text-muted-foreground">{selectedLeadIds.length} selected</span>
-                </div>
                 <NativeSelect value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className="h-10 w-44 rounded-xl px-3 text-sm">
                   <option value="">Keep current status</option>
                   {leadStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
@@ -1014,6 +1034,18 @@ export default function LeadsPage() {
                   {bulkUpdating ? "Updating..." : "Apply bulk update"}
                 </Button>
               </>
+            ) : null
+          }
+          selectionBar={
+            tab !== "documents" ? (
+              <CrmBulkSelectionBar
+                selectedCount={selectedLeadIds.length}
+                allVisibleSelected={paginatedLeads.length > 0 && paginatedLeads.every((lead) => selectedLeadIds.includes(lead.id))}
+                onToggleAllVisible={toggleSelectAllVisible}
+                onClose={() => setSelectedLeadIds([])}
+                onDelete={() => setBulkDeleteOpen(true)}
+                deleteDisabled={deletingId === "bulk"}
+              />
             ) : null
           }
         />
@@ -1236,6 +1268,26 @@ export default function LeadsPage() {
           </div>
         </CrmModalShell>
       ) : null}
+
+      <CrmModalShell
+        open={bulkDeleteOpen}
+        title={filters.lifecycle === "deleted" ? "Delete Selected Leads Permanently" : "Move Selected Leads To Trash"}
+        description={`${selectedLeadIds.length} lead${selectedLeadIds.length === 1 ? "" : "s"} selected.`}
+        onClose={() => setBulkDeleteOpen(false)}
+        maxWidthClassName="max-w-xl"
+      >
+        <div className="grid gap-4">
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {filters.lifecycle === "deleted" ? "This action cannot be undone." : "Selected leads will move to the deleted view and can be restored later."}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="destructive" onClick={() => setBulkDeleteOpen(false)} disabled={deletingId === "bulk"}>Close</Button>
+            <Button type="button" onClick={() => void handleBulkDelete()} disabled={deletingId === "bulk"}>
+              {deletingId === "bulk" ? "Working..." : filters.lifecycle === "deleted" ? "Delete permanently" : "Move to trash"}
+            </Button>
+          </div>
+        </div>
+      </CrmModalShell>
 
       <CrmFilterDrawer
         open={modalMode === "filter"}

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import {
   CrmAppliedFiltersBar,
+  CrmBulkSelectionBar,
   CrmColumnSettings,
   CrmConfirmDialog,
   CrmDataTable,
@@ -260,6 +261,8 @@ export default function TasksListPage() {
 
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const [assignees, setAssignees] = useState<TaskAssignee[]>([]);
   const [assigneeModalOpen, setAssigneeModalOpen] = useState(false);
@@ -385,6 +388,10 @@ export default function TasksListPage() {
   useEffect(() => {
     void loadTasks();
   }, [loadTasks]);
+
+  useEffect(() => {
+    setSelectedTaskIds((current) => current.filter((id) => tasks.some((task) => task.id === id)));
+  }, [tasks]);
 
   useEffect(() => {
     void loadAssignees();
@@ -607,6 +614,38 @@ export default function TasksListPage() {
     }
   };
 
+  const toggleTaskSelection = (rowId: string, checked: boolean) => {
+    setSelectedTaskIds((current) => (checked ? Array.from(new Set([...current, rowId])) : current.filter((id) => id !== rowId)));
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    if (!checked) {
+      setSelectedTaskIds((current) => current.filter((id) => !sortedRows.some((task) => task.id === id)));
+      return;
+    }
+    setSelectedTaskIds((current) => Array.from(new Set([...current, ...sortedRows.map((task) => task.id)])));
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedTaskIds];
+    if (ids.length === 0) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await Promise.all(ids.map((id) => apiRequest(`/tasks/${id}`, { method: "DELETE", body: JSON.stringify({}) })));
+      toast.success(`${ids.length} task${ids.length === 1 ? "" : "s"} deleted.`);
+      setSelectedTaskIds([]);
+      setBulkDeleteOpen(false);
+      await loadTasks();
+    } catch (caughtError) {
+      toast.error(caughtError instanceof ApiError ? caughtError.message : "Unable to delete selected tasks.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handleAssigneeSearch = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     await loadAssignees(assigneeSearch);
@@ -691,6 +730,16 @@ export default function TasksListPage() {
               </NativeSelect>
             </div>
           }
+          selectionBar={
+            <CrmBulkSelectionBar
+              selectedCount={selectedTaskIds.length}
+              allVisibleSelected={sortedRows.length > 0 && sortedRows.every((task) => selectedTaskIds.includes(task.id))}
+              onToggleAllVisible={toggleSelectAllVisible}
+              onClose={() => setSelectedTaskIds([])}
+              onDelete={() => setBulkDeleteOpen(true)}
+              deleteDisabled={deleting}
+            />
+          }
         />
 
         <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} onClear={clearAllFilters} emptyLabel="No active filters." />
@@ -711,6 +760,10 @@ export default function TasksListPage() {
                 loading={loading}
                 emptyLabel="No tasks found."
                 columnVisibility={columnVisibility}
+                selectable
+                selectedRowIds={selectedTaskIds}
+                onToggleRow={toggleTaskSelection}
+                onToggleAllVisible={toggleSelectAllVisible}
                 sortBy={sortBy}
                 sortDir={sortDir}
                 onSort={requestSort}
@@ -756,6 +809,17 @@ export default function TasksListPage() {
         onToggleColumn={toggleColumn}
         onReset={resetColumns}
         onClose={() => setColumnSettingsOpen(false)}
+      />
+
+      <CrmConfirmDialog
+        open={bulkDeleteOpen}
+        title="Delete Selected Tasks"
+        description={`${selectedTaskIds.length} task${selectedTaskIds.length === 1 ? "" : "s"} selected.`}
+        warning="The selected tasks will be permanently removed from this workspace."
+        confirmLabel="Delete"
+        submitting={deleting}
+        onCancel={() => setBulkDeleteOpen(false)}
+        onConfirm={() => void handleBulkDelete()}
       />
 
       <CrmFilterDrawer

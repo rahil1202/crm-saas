@@ -6,7 +6,9 @@ import { Download, Import, PencilLine, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  CrmBulkSelectionBar,
   CrmColumnSettings,
+  CrmConfirmDialog,
   CrmDataTable,
   CrmFilterDrawer,
   CrmAppliedFiltersBar,
@@ -23,7 +25,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -687,6 +688,8 @@ export default function CustomersPage() {
   const [submittingEdit, setSubmittingEdit] = useState(false);
   const [submittingQuickUpdate, setSubmittingQuickUpdate] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importMode, setImportMode] = useState<ImportMode>("paste");
   const [importText, setImportText] = useState(defaultImportText);
@@ -842,6 +845,10 @@ export default function CustomersPage() {
       setPage(totalPages);
     }
   }, [loading, page, total, totalPages]);
+
+  useEffect(() => {
+    setSelectedCustomerIds((current) => current.filter((id) => customersWithDetails.some((customer) => customer.id === id)));
+  }, [customersWithDetails]);
 
   const closeModal = () => {
     setModalMode(null);
@@ -1046,6 +1053,41 @@ export default function CustomersPage() {
       await loadCustomers();
     } catch (caughtError) {
       setError(caughtError instanceof ApiError ? caughtError.message : "Unable to move contact to trash.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const toggleCustomerSelection = (rowId: string, checked: boolean) => {
+    setSelectedCustomerIds((current) => (checked ? Array.from(new Set([...current, rowId])) : current.filter((id) => id !== rowId)));
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    if (!checked) {
+      setSelectedCustomerIds((current) => current.filter((id) => !customersWithDetails.some((customer) => customer.id === id)));
+      return;
+    }
+    setSelectedCustomerIds((current) => Array.from(new Set([...current, ...customersWithDetails.map((customer) => customer.id)])));
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedCustomerIds];
+    if (ids.length === 0) {
+      return;
+    }
+
+    setDeletingId("bulk");
+    setError(null);
+    try {
+      await Promise.all(
+        ids.map((id) => (filters.lifecycle === "deleted" ? apiRequest(`/customers/${id}/permanent`, { method: "DELETE" }) : apiRequest(`/customers/${id}`, { method: "DELETE" }))),
+      );
+      toast.success(`${ids.length} contact${ids.length === 1 ? "" : "s"} ${filters.lifecycle === "deleted" ? "deleted permanently" : "moved to trash"}.`);
+      setSelectedCustomerIds([]);
+      setBulkDeleteOpen(false);
+      await loadCustomers();
+    } catch (caughtError) {
+      setError(caughtError instanceof ApiError ? caughtError.message : "Unable to delete selected contacts.");
     } finally {
       setDeletingId(null);
     }
@@ -1326,6 +1368,18 @@ export default function CustomersPage() {
             }
             void loadCustomers();
           }}
+          selectionBar={
+            tab !== "documents" ? (
+              <CrmBulkSelectionBar
+                selectedCount={selectedCustomerIds.length}
+                allVisibleSelected={customersWithDetails.length > 0 && customersWithDetails.every((customer) => selectedCustomerIds.includes(customer.id))}
+                onToggleAllVisible={toggleSelectAllVisible}
+                onClose={() => setSelectedCustomerIds([])}
+                onDelete={() => setBulkDeleteOpen(true)}
+                deleteDisabled={deletingId === "bulk"}
+              />
+            ) : null
+          }
         />
 
         <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} />
@@ -1360,6 +1414,10 @@ export default function CustomersPage() {
             loading={loading}
             emptyLabel="No contacts found."
             columnVisibility={columnVisibility}
+            selectable
+            selectedRowIds={selectedCustomerIds}
+            onToggleRow={toggleCustomerSelection}
+            onToggleAllVisible={toggleSelectAllVisible}
             sortBy={sortBy}
             sortDir={sortDir}
             onSort={(key) => requestSort(key, getDefaultSortDirection(key))}
@@ -1607,6 +1665,17 @@ export default function CustomersPage() {
           </form>
         </CrmModalShell>
       ) : null}
+
+      <CrmConfirmDialog
+        open={bulkDeleteOpen}
+        title={filters.lifecycle === "deleted" ? "Delete Selected Contacts Permanently" : "Move Selected Contacts To Trash"}
+        description={`${selectedCustomerIds.length} contact${selectedCustomerIds.length === 1 ? "" : "s"} selected.`}
+        warning={filters.lifecycle === "deleted" ? "This action cannot be undone. Selected contacts will be deleted permanently." : "This moves the selected contacts to the deleted view. You can restore them later."}
+        confirmLabel={filters.lifecycle === "deleted" ? "Delete permanently" : "Move to trash"}
+        submitting={deletingId === "bulk"}
+        onCancel={() => setBulkDeleteOpen(false)}
+        onConfirm={() => void handleBulkDelete()}
+      />
 
       {modalMode === "import" ? (
         <CrmModalShell
