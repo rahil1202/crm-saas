@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Building2, Clock3, KeyRound, LifeBuoy, MailCheck, MapPinned, Palette, QrCode, ShieldCheck, Smartphone, UserPlus, Users, Workflow } from "lucide-react";
+import { Building2, Clock3, Compass, KeyRound, LifeBuoy, MailCheck, MapPinned, Palette, QrCode, ShieldCheck, Smartphone, UserPlus, Users, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,6 +16,7 @@ import { Progress, ProgressLabel } from "@/components/ui/progress";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { OnboardingTour } from "@/features/onboarding/onboarding-tour";
 import { apiRequest, ApiError } from "@/lib/api";
 import { AuthMePayload } from "@/lib/auth-client";
 import { evaluatePasswordStrength, getInitials } from "@/lib/auth-ui";
@@ -264,6 +265,7 @@ export default function SettingsPage() {
   const [savingTags, setSavingTags] = useState(false);
   const [savingNotificationRules, setSavingNotificationRules] = useState(false);
   const [savingIntegrations, setSavingIntegrations] = useState(false);
+  const [tourModalOpen, setTourModalOpen] = useState(false);
 
   const passwordStrength = useMemo(
     () =>
@@ -1205,6 +1207,7 @@ export default function SettingsPage() {
             <TabsTrigger value="tags">Tags</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
+            <TabsTrigger value="tour">Tour</TabsTrigger>
           </TabsList>
 
           <TabsContent value="company" className="flex flex-col gap-6">
@@ -2053,8 +2056,58 @@ export default function SettingsPage() {
               </Card>
             </div>
           </TabsContent>
+
+          <TabsContent value="tour" className="flex flex-col gap-6">
+            <Card className="border-border/60">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Compass />
+                  <CardTitle>Replay onboarding tour</CardTitle>
+                </div>
+                <CardDescription>Run the full CRM walkthrough again without resetting company data.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <p className="text-sm text-muted-foreground">
+                  Revisit setup guidance for company profile, branch management, team invitations, role assignment,
+                  pipelines, lead sources, integrations, and reporting modules.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" onClick={() => setTourModalOpen(true)}>
+                    Start full tour
+                  </Button>
+                  <Link href="/dashboard/settings?tab=company" className="inline-flex items-center rounded-xl border border-border/60 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40">
+                    Company profile and branches
+                  </Link>
+                  <Link href="/dashboard/team" className="inline-flex items-center rounded-xl border border-border/60 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40">
+                    Team invites and roles
+                  </Link>
+                  <Link href="/dashboard/settings?tab=pipelines" className="inline-flex items-center rounded-xl border border-border/60 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40">
+                    Pipelines and lead sources
+                  </Link>
+                  <Link href="/dashboard/settings?tab=notifications" className="inline-flex items-center rounded-xl border border-border/60 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40">
+                    Integrations readiness
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
+
+      <SettingsModal
+        open={tourModalOpen}
+        title="Onboarding tour"
+        description="Review the same guided CRM setup tour shown after first workspace creation."
+        onClose={() => setTourModalOpen(false)}
+      >
+        <OnboardingTour
+          onFinish={() => setTourModalOpen(false)}
+          onSkipTour={() => setTourModalOpen(false)}
+          role={activeMembership?.role === "owner" || activeMembership?.role === "admin" || activeMembership?.role === "member" ? activeMembership.role : "member"}
+          customRoleModules={activeMembership?.customRoleModules ?? []}
+          isPartnerAccess={Boolean(activeMembership?.isPartnerAccess)}
+        />
+      </SettingsModal>
     </>
   );
 }
