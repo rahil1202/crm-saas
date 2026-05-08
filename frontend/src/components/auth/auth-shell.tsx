@@ -48,7 +48,7 @@ export function AuthShell({ badge, title, description, children, footer }: AuthS
                     <div className="mb-5 flex items-center justify-between">
                       <div>
                         <div className="text-[0.72rem] font-semibold uppercase tracking-[0.22em] text-white/68">Workspace Preview</div>
-                        <div className="mt-2 text-2xl font-semibold text-white">Blue CRM Interface</div>
+                        <div className="mt-2 text-2xl font-semibold text-white">The One CRM</div>
                       </div>
                       <div className="flex gap-2">
                         <span className="size-3 rounded-full bg-white/55" />

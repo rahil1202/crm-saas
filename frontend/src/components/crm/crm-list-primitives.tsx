@@ -40,14 +40,14 @@ export function CrmListViewTabs({
 }) {
   return (
     <Tabs value={value} onValueChange={(next) => onValueChange(next as CrmListTabKey)}>
-      <TabsList variant="line" className="border-b border-border/60 p-0">
-        <TabsTrigger value="all" className="rounded-none px-4 py-3 text-sm">
+      <TabsList variant="line" className="overflow-hidden border-b border-border/60 p-0">
+        <TabsTrigger value="all" className="rounded-none px-4 py-2 text-sm">
           {labels.all}
         </TabsTrigger>
-        <TabsTrigger value="mine" className="rounded-none px-4 py-3 text-sm">
+        <TabsTrigger value="mine" className="rounded-none px-4 py-2 text-sm">
           {labels.mine}
         </TabsTrigger>
-        <TabsTrigger value="documents" className="rounded-none px-4 py-3 text-sm">
+        <TabsTrigger value="documents" className="rounded-none px-4 py-2 text-sm">
           {labels.documents}
         </TabsTrigger>
       </TabsList>
