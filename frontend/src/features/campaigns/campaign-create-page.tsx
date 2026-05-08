@@ -33,6 +33,13 @@ interface CustomerOption {
   id: string;
   fullName: string;
   email: string | null;
+  phone: string | null;
+}
+
+interface WhatsappTemplateOption {
+  id: string;
+  name: string;
+  status: "draft" | "approved" | "rejected" | "paused";
 }
 
 const statuses: CampaignStatus[] = ["draft", "scheduled", "active", "completed", "paused"];
@@ -64,6 +71,7 @@ export function CampaignCreatePage({ initialChannel }: { initialChannel: Channel
   const [templates, setTemplates] = useState<Template[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [whatsappTemplates, setWhatsappTemplates] = useState<WhatsappTemplateOption[]>([]);
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [status, setStatus] = useState<CampaignStatus>("draft");
@@ -84,11 +92,12 @@ export function CampaignCreatePage({ initialChannel }: { initialChannel: Channel
 
     const load = async () => {
       try {
-        const [hubPayload, settingsPayload, templatePayload, customerPayload] = await Promise.all([
+        const [hubPayload, settingsPayload, templatePayload, customerPayload, whatsappTemplatePayload] = await Promise.all([
           apiRequest<IntegrationHubResponse>("/settings/integration-hub"),
           apiRequest<IntegrationSettings>("/settings/integrations"),
           apiRequest<{ items: Template[] }>("/templates/list?limit=100"),
           apiRequest<{ items: CustomerOption[] }>("/customers?limit=100"),
+          apiRequest<{ items: WhatsappTemplateOption[] }>("/whatsapp-templates?status=approved"),
         ]);
 
         if (disposed) return;
@@ -97,6 +106,7 @@ export function CampaignCreatePage({ initialChannel }: { initialChannel: Channel
         setSettings(settingsPayload.integrations);
         setTemplates(templatePayload.items);
         setCustomers(customerPayload.items);
+        setWhatsappTemplates(whatsappTemplatePayload.items ?? []);
       } catch (caughtError) {
         if (!disposed) {
           setError(caughtError instanceof ApiError ? caughtError.message : "Unable to load campaign builder.");
@@ -118,9 +128,19 @@ export function CampaignCreatePage({ initialChannel }: { initialChannel: Channel
   const selectedChannelOption = channelOptions.find((channel) => channel.key === initialChannel) ?? channelOptions[0];
   const integrationReady = selectedChannelOption.integrationStatus !== "pending";
   const filteredTemplates = useMemo(() => {
+    if (initialChannel === "whatsapp") {
+      return whatsappTemplates.map((template) => ({
+        id: template.id,
+        name: template.name,
+        type: "whatsapp" as const,
+        subject: null,
+        content: "",
+        notes: null,
+      }));
+    }
     if (!selectedChannelOption.templateType) return [];
     return templates.filter((template) => template.type === selectedChannelOption.templateType);
-  }, [selectedChannelOption.templateType, templates]);
+  }, [initialChannel, selectedChannelOption.templateType, templates, whatsappTemplates]);
 
   useEffect(() => {
     if (filteredTemplates.length === 0) {
@@ -165,6 +185,8 @@ export function CampaignCreatePage({ initialChannel }: { initialChannel: Channel
           channel: initialChannel,
           status,
           customerIds: selectedCustomerIds,
+          templateId: selectedTemplateId || undefined,
+          channelMetadata: initialChannel === "whatsapp" && selectedTemplateId ? { whatsappTemplateId: selectedTemplateId } : undefined,
           audienceDescription: audienceDescription.trim() || listName.trim() || undefined,
           scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
           notes: buildCampaignNotes({
@@ -307,7 +329,7 @@ export function CampaignCreatePage({ initialChannel }: { initialChannel: Channel
                       <label key={customer.id} className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3">
                         <div className="min-w-0">
                           <div className="font-medium text-slate-900">{customer.fullName}</div>
-                          <div className="truncate text-sm text-muted-foreground">{customer.email ?? "No email"}</div>
+                          <div className="truncate text-sm text-muted-foreground">{initialChannel === "whatsapp" ? customer.phone ?? "No phone" : customer.email ?? "No email"}</div>
                         </div>
                         <Checkbox checked={selectedCustomerIds.includes(customer.id)} onCheckedChange={(checked) => toggleCustomer(customer.id, checked === true)} />
                       </label>

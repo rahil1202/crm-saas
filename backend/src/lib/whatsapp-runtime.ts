@@ -1025,7 +1025,11 @@ async function getApprovedWhatsappTemplate(input: { companyId: string; workspace
     .orderBy(desc(whatsappTemplates.updatedAt))
     .limit(1);
 
-  return template ?? null;
+  if (!template?.providerTemplateId) {
+    return null;
+  }
+
+  return template;
 }
 
 async function resolveMediaForQueue(input: {

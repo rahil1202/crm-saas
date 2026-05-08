@@ -17,9 +17,11 @@ import {
   getWhatsappWorkspaces,
   importWhatsappPricing,
   listWhatsappPricingRates,
-  sendWhatsappApiMessage,
-  syncWhatsappWorkspaceMeta,
-  syncWhatsappTemplate,
+   sendWhatsappApiMessage,
+   submitWhatsappTemplate,
+   syncWhatsappWorkspaceMeta,
+   syncWhatsappTemplate,
+   refreshWhatsappTemplate,
   testWhatsappWorkspaceReadiness,
   updateWhatsappTemplate,
   updateWhatsappWorkspace,
@@ -30,8 +32,9 @@ import {
   listWhatsappTemplatesSchema,
   listWhatsappWorkspacesSchema,
   createWhatsappMediaSchema,
-  sendWhatsappApiMessageSchema,
-  syncWhatsappTemplateSchema,
+   sendWhatsappApiMessageSchema,
+   submitWhatsappTemplateSchema,
+   syncWhatsappTemplateSchema,
   updateWhatsappTemplateSchema,
   updateWhatsappWorkspaceSchema,
   whatsappPricingEstimateSchema,
@@ -64,5 +67,7 @@ whatsappRoutes.post("/whatsapp/workspaces/:id/test-readiness", requireRole("admi
 whatsappRoutes.get("/whatsapp-templates", validateQuery(listWhatsappTemplatesSchema), getWhatsappTemplates);
 whatsappRoutes.post("/whatsapp-templates", requireRole("admin"), validateJson(whatsappTemplateSchema), createWhatsappTemplate);
 whatsappRoutes.patch("/whatsapp-templates/:templateId", requireRole("admin"), validateJson(updateWhatsappTemplateSchema), updateWhatsappTemplate);
-whatsappRoutes.post("/whatsapp-templates/:templateId/sync", requireRole("admin"), validateJson(syncWhatsappTemplateSchema), syncWhatsappTemplate);
+whatsappRoutes.post("/whatsapp-templates/sync", requireRole("admin"), validateJson(syncWhatsappTemplateSchema), syncWhatsappTemplate);
+whatsappRoutes.post("/whatsapp-templates/:templateId/submit", requireRole("admin"), validateJson(submitWhatsappTemplateSchema), submitWhatsappTemplate);
+whatsappRoutes.post("/whatsapp-templates/:templateId/refresh", requireRole("admin"), validateJson(submitWhatsappTemplateSchema), refreshWhatsappTemplate);
 whatsappRoutes.delete("/whatsapp-templates/:templateId", requireRole("admin"), deleteWhatsappTemplate);

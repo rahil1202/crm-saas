@@ -32,7 +32,7 @@ export function getCampaignOverview(c: Context<AppEnv>) {
 
 async function loadCampaignAudience(companyId: string, campaignIds: string[]) {
   if (campaignIds.length === 0) {
-    return new Map<string, Array<{ customerId: string; fullName: string; email: string | null }>>();
+    return new Map<string, Array<{ customerId: string; fullName: string; email: string | null; phone: string | null }>>();
   }
 
   const rows = await db
@@ -41,12 +41,13 @@ async function loadCampaignAudience(companyId: string, campaignIds: string[]) {
       customerId: customers.id,
       fullName: customers.fullName,
       email: customers.email,
+      phone: customers.phone,
     })
     .from(campaignCustomers)
     .innerJoin(customers, eq(customers.id, campaignCustomers.customerId))
     .where(and(eq(campaignCustomers.companyId, companyId), inArray(campaignCustomers.campaignId, campaignIds), isNull(customers.deletedAt)));
 
-  const audienceByCampaign = new Map<string, Array<{ customerId: string; fullName: string; email: string | null }>>();
+  const audienceByCampaign = new Map<string, Array<{ customerId: string; fullName: string; email: string | null; phone: string | null }>>();
 
   for (const row of rows) {
     const audience = audienceByCampaign.get(row.campaignId) ?? [];
@@ -54,6 +55,7 @@ async function loadCampaignAudience(companyId: string, campaignIds: string[]) {
       customerId: row.customerId,
       fullName: row.fullName,
       email: row.email,
+      phone: row.phone,
     });
     audienceByCampaign.set(row.campaignId, audience);
   }
@@ -151,6 +153,7 @@ export async function createCampaign(c: Context<AppEnv>) {
       status: body.status,
       audienceDescription: body.audienceDescription ?? null,
       templateId: body.templateId ?? null,
+      channelMetadata: body.channelMetadata ?? {},
       scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : null,
       launchedAt: body.launchedAt ? new Date(body.launchedAt) : null,
       completedAt: body.completedAt ? new Date(body.completedAt) : null,
@@ -203,6 +206,7 @@ export async function updateCampaign(c: Context<AppEnv>) {
       ...(body.status !== undefined ? { status: body.status } : {}),
       ...(body.audienceDescription !== undefined ? { audienceDescription: body.audienceDescription ?? null } : {}),
       ...(body.templateId !== undefined ? { templateId: body.templateId ?? null } : {}),
+      ...(body.channelMetadata !== undefined ? { channelMetadata: body.channelMetadata } : {}),
       ...(body.scheduledAt !== undefined ? { scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : null } : {}),
       ...(body.launchedAt !== undefined ? { launchedAt: body.launchedAt ? new Date(body.launchedAt) : null } : {}),
       ...(body.completedAt !== undefined ? { completedAt: body.completedAt ? new Date(body.completedAt) : null } : {}),

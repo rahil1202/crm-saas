@@ -31,6 +31,7 @@ import type {
   ListWhatsappWorkspacesQuery,
   SendWhatsappApiMessageInput,
   SyncWhatsappTemplateInput,
+  SubmitWhatsappTemplateInput,
   UpdateWhatsappTemplateInput,
   UpdateWhatsappWorkspaceInput,
   EmbeddedSignupExchangeInput,
@@ -53,6 +54,35 @@ function hashVerifyToken(value?: string | null) {
 
 function graphBaseUrl() {
   return `https://graph.facebook.com/${env.WHATSAPP_GRAPH_API_VERSION}`;
+}
+
+function mapMetaTemplateStatus(status?: unknown): "draft" | "approved" | "rejected" | "paused" {
+  const value = typeof status === "string" ? status.toUpperCase() : "";
+  if (value === "APPROVED") return "approved";
+  if (value === "REJECTED") return "rejected";
+  if (value === "PAUSED" || value === "DISABLED") return "paused";
+  return "draft";
+}
+
+function parseMetaTemplate(template: Record<string, unknown>) {
+  const components = Array.isArray(template.components) ? (template.components as Array<Record<string, unknown>>) : [];
+  const bodyComponent = components.find((component) => (component.type as string | undefined)?.toUpperCase() === "BODY");
+  const body = typeof bodyComponent?.text === "string" ? bodyComponent.text : "";
+  const variableMatches = body.match(/{{\d+}}/g) ?? [];
+  const variables = Array.from(new Set(variableMatches)).map((key) => ({ key }));
+  return {
+    name: typeof template.name === "string" ? template.name : "",
+    language: typeof template.language === "string" ? template.language : "en",
+    category: typeof template.category === "string" ? template.category.toLowerCase() : null,
+    status: mapMetaTemplateStatus(template.status),
+    body,
+    variables,
+    components,
+    providerTemplateId: typeof template.id === "string" ? template.id : null,
+    rejectionReason: typeof template.rejected_reason === "string" ? template.rejected_reason : null,
+    qualityScore: typeof template.quality_score === "string" ? template.quality_score : null,
+    metadata: template,
+  };
 }
 
 function getWorkspaceAccessToken(workspace: typeof whatsappWorkspaces.$inferSelect) {
@@ -474,7 +504,12 @@ export async function getWhatsappTemplates(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const query = c.get("validatedQuery") as ListWhatsappTemplatesQuery;
   const items = await listWhatsappTemplates(tenant.companyId, query.q);
-  return ok(c, { items });
+  const filtered = items.filter((item) => {
+    if (query.workspaceId && item.workspaceId !== query.workspaceId) return false;
+    if (query.status && item.status !== query.status) return false;
+    return true;
+  });
+  return ok(c, { items: filtered });
 }
 
 export async function createWhatsappTemplate(c: Context<AppEnv>) {
@@ -493,24 +528,187 @@ export async function createWhatsappTemplate(c: Context<AppEnv>) {
 
 export async function syncWhatsappTemplate(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
-  const params = whatsappTemplateParamSchema.parse(c.req.param());
   const body = c.get("validatedBody") as SyncWhatsappTemplateInput;
 
+  const workspaceId = body.workspaceId;
+  const workspaceWhere = [eq(whatsappWorkspaces.companyId, tenant.companyId), isNull(whatsappWorkspaces.deletedAt)];
+  if (workspaceId) {
+    workspaceWhere.push(eq(whatsappWorkspaces.id, workspaceId));
+  }
+
+  const [workspace] = await db.select().from(whatsappWorkspaces).where(and(...workspaceWhere)).limit(1);
+  if (!workspace) {
+    throw AppError.notFound("WhatsApp workspace not found");
+  }
+  if (!workspace.businessAccountId) {
+    throw AppError.conflict("Workspace business account ID is required for template sync");
+  }
+
+  const accessToken = getWorkspaceAccessToken(workspace);
+  if (!accessToken) {
+    throw AppError.conflict("Workspace access token is not configured");
+  }
+
+  const synced: Array<{ id: string; name: string; status: string }> = [];
+  let nextPath: string | null = `/${workspace.businessAccountId}/message_templates?fields=id,name,language,status,category,components,rejected_reason,quality_score&limit=100`;
+
+  while (nextPath) {
+    const payload = await graphGet(nextPath, accessToken) as { data?: Array<Record<string, unknown>>; paging?: { next?: string } };
+    const data = payload.data ?? [];
+    for (const item of data) {
+      const parsed = parseMetaTemplate(item);
+      if (!parsed.name) continue;
+      const upserted = await upsertWhatsappTemplate({
+        companyId: tenant.companyId,
+        createdBy: c.get("user").id,
+        workspaceId: workspace.id,
+        name: parsed.name,
+        category: parsed.category,
+        language: parsed.language,
+        status: parsed.status,
+        body: parsed.body || "Template body synced from Meta",
+        variables: parsed.variables,
+        components: parsed.components,
+        providerTemplateId: parsed.providerTemplateId,
+        rejectionReason: parsed.rejectionReason,
+        qualityScore: parsed.qualityScore,
+        lastSyncedAt: new Date(),
+        metadata: parsed.metadata,
+      });
+      synced.push({ id: upserted.id, name: upserted.name, status: upserted.status });
+    }
+
+    if (!payload.paging?.next) {
+      nextPath = null;
+    } else {
+      const nextUrl = new URL(payload.paging.next);
+      nextUrl.searchParams.delete("access_token");
+      nextPath = `${nextUrl.pathname}${nextUrl.search}`;
+    }
+  }
+
+  return ok(c, { syncedCount: synced.length, items: synced });
+}
+
+export async function submitWhatsappTemplate(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = whatsappTemplateParamSchema.parse(c.req.param());
+  const body = c.get("validatedBody") as SubmitWhatsappTemplateInput;
+
   const [template] = await db
-    .update(whatsappTemplates)
-    .set({
-      status: body.status,
-      providerTemplateId: body.providerTemplateId ?? null,
-      updatedAt: new Date(),
-    })
+    .select()
+    .from(whatsappTemplates)
     .where(and(eq(whatsappTemplates.companyId, tenant.companyId), eq(whatsappTemplates.id, params.templateId), isNull(whatsappTemplates.deletedAt)))
-    .returning();
+    .limit(1);
 
   if (!template) {
     throw AppError.notFound("WhatsApp template not found");
   }
 
-  return ok(c, template);
+  const [workspace] = await db
+    .select()
+    .from(whatsappWorkspaces)
+    .where(and(eq(whatsappWorkspaces.companyId, tenant.companyId), eq(whatsappWorkspaces.id, body.workspaceId ?? template.workspaceId ?? ""), isNull(whatsappWorkspaces.deletedAt)))
+    .limit(1);
+  if (!workspace?.businessAccountId) {
+    throw AppError.conflict("Workspace with business account ID is required for template submit");
+  }
+  const accessToken = getWorkspaceAccessToken(workspace);
+  if (!accessToken) {
+    throw AppError.conflict("Workspace access token is not configured");
+  }
+
+  const components = template.components?.length
+    ? template.components
+    : [{ type: "BODY", text: template.body }];
+
+  const response = await fetch(`${graphBaseUrl()}/${workspace.businessAccountId}/message_templates`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: template.name,
+      language: template.language,
+      category: (template.category ?? "UTILITY").toUpperCase(),
+      components,
+    }),
+  });
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok) {
+    throw AppError.conflict(`Meta template submit failed: ${response.status}`, payload);
+  }
+
+  const [updated] = await db
+    .update(whatsappTemplates)
+    .set({
+      workspaceId: workspace.id,
+      providerTemplateId: typeof payload.id === "string" ? payload.id : template.providerTemplateId,
+      status: "draft",
+      metadata: payload,
+      lastSyncedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(whatsappTemplates.id, template.id))
+    .returning();
+
+  return ok(c, updated);
+}
+
+export async function refreshWhatsappTemplate(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = whatsappTemplateParamSchema.parse(c.req.param());
+  const body = c.get("validatedBody") as SubmitWhatsappTemplateInput;
+
+  const [template] = await db
+    .select()
+    .from(whatsappTemplates)
+    .where(and(eq(whatsappTemplates.companyId, tenant.companyId), eq(whatsappTemplates.id, params.templateId), isNull(whatsappTemplates.deletedAt)))
+    .limit(1);
+
+  if (!template) {
+    throw AppError.notFound("WhatsApp template not found");
+  }
+
+  const [workspace] = await db
+    .select()
+    .from(whatsappWorkspaces)
+    .where(and(eq(whatsappWorkspaces.companyId, tenant.companyId), eq(whatsappWorkspaces.id, body.workspaceId ?? template.workspaceId ?? ""), isNull(whatsappWorkspaces.deletedAt)))
+    .limit(1);
+  if (!workspace?.businessAccountId) {
+    throw AppError.conflict("Workspace with business account ID is required for template refresh");
+  }
+  const accessToken = getWorkspaceAccessToken(workspace);
+  if (!accessToken) {
+    throw AppError.conflict("Workspace access token is not configured");
+  }
+
+  const payload = await graphGet(`/${workspace.businessAccountId}/message_templates?fields=id,name,language,status,category,components,rejected_reason,quality_score&name=${encodeURIComponent(template.name)}`, accessToken) as {
+    data?: Array<Record<string, unknown>>;
+  };
+  const metaTemplate = (payload.data ?? []).find((item) => (item.language as string | undefined) === template.language);
+  if (!metaTemplate) {
+    throw AppError.notFound("Template not found in Meta workspace");
+  }
+  const parsed = parseMetaTemplate(metaTemplate);
+
+  const [updated] = await db
+    .update(whatsappTemplates)
+    .set({
+      workspaceId: workspace.id,
+      category: parsed.category,
+      status: parsed.status,
+      body: parsed.body || template.body,
+      components: parsed.components,
+      providerTemplateId: parsed.providerTemplateId,
+      rejectionReason: parsed.rejectionReason,
+      qualityScore: parsed.qualityScore,
+      metadata: parsed.metadata,
+      lastSyncedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(whatsappTemplates.id, template.id))
+    .returning();
+
+  return ok(c, updated);
 }
 
 export async function updateWhatsappTemplate(c: Context<AppEnv>) {
@@ -528,6 +726,7 @@ export async function updateWhatsappTemplate(c: Context<AppEnv>) {
       ...(body.status !== undefined ? { status: body.status } : {}),
       ...(body.body !== undefined ? { body: body.body } : {}),
       ...(body.variables !== undefined ? { variables: body.variables } : {}),
+      ...(body.components !== undefined ? { components: body.components } : {}),
       ...(body.providerTemplateId !== undefined ? { providerTemplateId: body.providerTemplateId ?? null } : {}),
       updatedAt: new Date(),
     })

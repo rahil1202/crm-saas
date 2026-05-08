@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import {
   automations,
   campaignCustomers,
+  campaignDeliveries,
   campaigns,
   customers,
   emailAccounts,
@@ -13,10 +14,13 @@ import {
   emailTrackingEvents,
   leads,
   outreachContacts,
+  whatsappTemplates,
 } from "@/db/schema";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { renderTemplateContent } from "@/lib/template-renderer";
+import { queueWhatsappMessage } from "@/lib/whatsapp-runtime";
+import { normalizePhoneToE164 } from "@/lib/whatsapp-workspace";
 
 interface QueueEmailInput {
   companyId: string;
@@ -229,10 +233,108 @@ export async function queueCampaignDelivery(input: { companyId: string; campaign
       customerId: customers.id,
       fullName: customers.fullName,
       email: customers.email,
+      phone: customers.phone,
     })
     .from(campaignCustomers)
     .innerJoin(customers, eq(customers.id, campaignCustomers.customerId))
     .where(and(eq(campaignCustomers.companyId, input.companyId), eq(campaignCustomers.campaignId, input.campaignId), isNull(customers.deletedAt)));
+
+  if (campaign.channel === "whatsapp") {
+    const whatsappTemplateId = typeof campaign.channelMetadata?.whatsappTemplateId === "string" ? campaign.channelMetadata.whatsappTemplateId : null;
+    if (!whatsappTemplateId) {
+      throw AppError.conflict("Campaign channel metadata must include whatsappTemplateId");
+    }
+
+    const [whatsappTemplate] = await db
+      .select()
+      .from(whatsappTemplates)
+      .where(and(eq(whatsappTemplates.companyId, input.companyId), eq(whatsappTemplates.id, whatsappTemplateId), isNull(whatsappTemplates.deletedAt)))
+      .limit(1);
+    if (!whatsappTemplate) {
+      throw AppError.notFound("WhatsApp template not found for campaign");
+    }
+    if (whatsappTemplate.status !== "approved") {
+      throw AppError.conflict("WhatsApp campaign template is not approved by Meta");
+    }
+
+    const queueable = recipients
+      .map((recipient) => {
+        try {
+          return { ...recipient, phoneE164: recipient.phone ? normalizePhoneToE164(recipient.phone) : null };
+        } catch {
+          return { ...recipient, phoneE164: null };
+        }
+      })
+      .filter((recipient) => recipient.phoneE164);
+    if (queueable.length === 0) {
+      throw AppError.conflict("Campaign has no deliverable WhatsApp recipients with valid E.164 phone numbers");
+    }
+
+    let queuedCount = 0;
+    for (const recipient of queueable) {
+      const idempotencyKey = `campaign:${campaign.id}:customer:${recipient.customerId}:template:${whatsappTemplate.id}`;
+      const queued = await queueWhatsappMessage({
+        companyId: input.companyId,
+        createdBy: input.createdBy,
+        workspaceId: whatsappTemplate.workspaceId,
+        to: recipient.phoneE164 as string,
+        contactName: recipient.fullName,
+        crmRef: { customerId: recipient.customerId },
+        mode: "template",
+        template: {
+          name: whatsappTemplate.name,
+          language: whatsappTemplate.language,
+          components: whatsappTemplate.components,
+        },
+        idempotencyKey,
+      });
+
+      await db
+        .insert(campaignDeliveries)
+        .values({
+          companyId: input.companyId,
+          campaignId: campaign.id,
+          customerId: recipient.customerId,
+          outboxId: queued.outbox.id,
+          socialMessageId: queued.message?.id ?? null,
+          idempotencyKey,
+          providerMessageId: queued.outbox.providerMessageId,
+          status: queued.outbox.status,
+          metadata: { channel: "whatsapp", duplicate: queued.duplicate },
+        })
+        .onConflictDoUpdate({
+          target: [campaignDeliveries.campaignId, campaignDeliveries.customerId],
+          set: {
+            outboxId: queued.outbox.id,
+            socialMessageId: queued.message?.id ?? null,
+            providerMessageId: queued.outbox.providerMessageId,
+            status: queued.outbox.status,
+            metadata: { channel: "whatsapp", duplicate: queued.duplicate },
+            updatedAt: new Date(),
+          },
+        });
+
+      if (!queued.duplicate) {
+        queuedCount += 1;
+      }
+    }
+
+    await db
+      .update(campaigns)
+      .set({
+        status: campaign.status === "draft" ? "active" : campaign.status,
+        launchedAt: campaign.launchedAt ?? new Date(),
+        sentCount: queuedCount,
+        updatedAt: new Date(),
+      })
+      .where(eq(campaigns.id, campaign.id));
+
+    return {
+      campaignId: campaign.id,
+      queuedCount,
+      channel: "whatsapp",
+    };
+  }
 
   const queueable = recipients.filter((recipient) => recipient.email);
   if (queueable.length === 0) {

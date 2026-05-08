@@ -1195,6 +1195,36 @@ export const campaignCustomers = pgTable(
   }),
 );
 
+export const campaignDeliveries = pgTable(
+  "campaign_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => campaigns.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    outboxId: uuid("outbox_id").references(() => whatsappOutbox.id, { onDelete: "set null" }),
+    socialMessageId: uuid("social_message_id").references(() => socialMessages.id, { onDelete: "set null" }),
+    idempotencyKey: varchar("idempotency_key", { length: 220 }).notNull(),
+    providerMessageId: varchar("provider_message_id", { length: 180 }),
+    status: varchar("status", { length: 40 }).notNull().default("queued"),
+    error: text("error"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    campaignCustomerUnique: uniqueIndex("campaign_deliveries_campaign_customer_unique").on(table.campaignId, table.customerId),
+    idempotencyUnique: uniqueIndex("campaign_deliveries_company_idempotency_unique").on(table.companyId, table.idempotencyKey),
+    byCampaignIdx: index("campaign_deliveries_campaign_idx").on(table.campaignId, table.status, table.createdAt),
+  }),
+);
+
 export const templates = pgTable(
   "templates",
   {
@@ -2051,7 +2081,12 @@ export const whatsappTemplates = pgTable(
     status: whatsappTemplateStatusEnum("status").notNull().default("draft"),
     body: text("body").notNull(),
     variables: jsonb("variables").$type<Array<{ key: string; fallback?: string }>>().notNull().default([]),
+    components: jsonb("components").$type<Array<Record<string, unknown>>>().notNull().default([]),
     providerTemplateId: varchar("provider_template_id", { length: 180 }),
+    rejectionReason: text("rejection_reason"),
+    qualityScore: varchar("quality_score", { length: 80 }),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => profiles.id),

@@ -200,7 +200,12 @@ export async function upsertWhatsappTemplate(input: {
   status?: "draft" | "approved" | "rejected" | "paused";
   body: string;
   variables?: Array<{ key: string; fallback?: string }>;
+  components?: Array<Record<string, unknown>>;
   providerTemplateId?: string | null;
+  rejectionReason?: string | null;
+  qualityScore?: string | null;
+  lastSyncedAt?: Date | null;
+  metadata?: Record<string, unknown>;
 }) {
   const [template] = await db
     .insert(whatsappTemplates)
@@ -213,7 +218,12 @@ export async function upsertWhatsappTemplate(input: {
       status: input.status ?? "draft",
       body: input.body,
       variables: input.variables ?? [],
+      components: input.components ?? [],
       providerTemplateId: input.providerTemplateId ?? null,
+      rejectionReason: input.rejectionReason ?? null,
+      qualityScore: input.qualityScore ?? null,
+      lastSyncedAt: input.lastSyncedAt ?? null,
+      metadata: input.metadata ?? {},
       createdBy: input.createdBy,
     })
     .onConflictDoUpdate({
@@ -224,7 +234,12 @@ export async function upsertWhatsappTemplate(input: {
         status: input.status ?? "draft",
         body: input.body,
         variables: input.variables ?? [],
+        components: input.components ?? [],
         providerTemplateId: input.providerTemplateId ?? null,
+        rejectionReason: input.rejectionReason ?? null,
+        qualityScore: input.qualityScore ?? null,
+        lastSyncedAt: input.lastSyncedAt ?? null,
+        metadata: input.metadata ?? {},
         updatedAt: new Date(),
         deletedAt: null,
       },

@@ -25,6 +25,8 @@ export const whatsappWorkspaceIdParamSchema = z.object({ id: z.string().uuid() }
 
 export const listWhatsappTemplatesSchema = z.object({
   q: z.string().trim().optional(),
+  workspaceId: z.string().uuid().optional(),
+  status: z.enum(["draft", "approved", "rejected", "paused"]).optional(),
 });
 
 export const whatsappTemplateSchema = z.object({
@@ -32,16 +34,21 @@ export const whatsappTemplateSchema = z.object({
   name: z.string().trim().min(1).max(180),
   category: z.string().trim().max(80).optional(),
   language: z.string().trim().min(1).max(16).default("en"),
-  status: z.enum(["draft", "approved", "rejected", "paused"]).default("draft"),
+  status: z.enum(["draft", "rejected", "paused"]).default("draft"),
   body: z.string().trim().min(1).max(4000),
   variables: z.array(z.object({ key: z.string().trim().min(1).max(120), fallback: z.string().trim().max(240).optional() })).default([]),
+  components: z.array(z.record(z.string(), z.unknown())).default([]),
   providerTemplateId: z.string().trim().max(180).optional(),
 });
 export const updateWhatsappTemplateSchema = whatsappTemplateSchema.partial();
 
 export const syncWhatsappTemplateSchema = z.object({
-  status: z.enum(["draft", "approved", "rejected", "paused"]).default("approved"),
-  providerTemplateId: z.string().trim().max(180).optional(),
+  workspaceId: z.string().uuid().optional(),
+  fullSync: z.boolean().default(false),
+});
+
+export const submitWhatsappTemplateSchema = z.object({
+  workspaceId: z.string().uuid().optional(),
 });
 
 export const whatsappTemplateParamSchema = z.object({ templateId: z.string().uuid() });
@@ -151,6 +158,7 @@ export type ListWhatsappWorkspacesQuery = z.infer<typeof listWhatsappWorkspacesS
 export type CreateWhatsappTemplateInput = z.infer<typeof whatsappTemplateSchema>;
 export type UpdateWhatsappTemplateInput = z.infer<typeof updateWhatsappTemplateSchema>;
 export type SyncWhatsappTemplateInput = z.infer<typeof syncWhatsappTemplateSchema>;
+export type SubmitWhatsappTemplateInput = z.infer<typeof submitWhatsappTemplateSchema>;
 export type ListWhatsappTemplatesQuery = z.infer<typeof listWhatsappTemplatesSchema>;
 export type SendWhatsappApiMessageInput = z.infer<typeof sendWhatsappApiMessageSchema>;
 export type CreateWhatsappMediaInput = z.infer<typeof createWhatsappMediaSchema>;

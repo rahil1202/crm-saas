@@ -14,6 +14,7 @@ export const listCampaignsSchema = z.object({
 export const campaignSchema = z.object({
   name: z.string().trim().min(2).max(180),
   channel: z.string().trim().min(2).max(40).default("email"),
+  channelMetadata: z.record(z.string(), z.unknown()).default({}),
   status: campaignStatusSchema.default("draft"),
   customerIds: z.array(z.string().uuid()).max(200).default([]),
   audienceDescription: z.string().trim().max(240).optional(),
