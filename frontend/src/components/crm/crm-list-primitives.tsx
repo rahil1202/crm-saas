@@ -24,7 +24,7 @@ export function CrmListPageHeader({
       <div className="min-w-0">
         <h1 className="text-[1.7rem] font-semibold tracking-[-0.03em] text-slate-900">{title}</h1>
       </div>
-      {actions ? <div className="flex max-w-full min-w-0 flex-wrap gap-2 lg:justify-end [&>button]:min-w-[120px] [&>button]:justify-center">{actions}</div> : null}
+      {actions ? <div className="flex max-w-full min-w-0 flex-wrap gap-2 lg:justify-end [&>button]:min-w-30 [&>button]:justify-center">{actions}</div> : null}
     </div>
   );
 }
@@ -286,8 +286,8 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
 
   return (
     <div className="max-w-full min-w-0 overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)]">
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-separate border-spacing-0">
+      <div className="overflow-x-hidden">
+        <table className="min-w-full table-fixed border-separate border-spacing-0">
           <thead className="bg-slate-50/90">
             <tr className="text-left">
             {selectable ? (
@@ -357,7 +357,7 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
                     </td>
                   ) : null}
                   {visibleColumns.map((column) => (
-                    <td key={column.key} className={cn("border-b border-border/50 px-4 py-3.5 align-middle text-slate-700", column.cellClassName, column.widthClassName)}>
+                    <td key={column.key} className={cn("border-b border-border/50 px-4 py-3.5 align-middle text-slate-700 break-words", column.cellClassName, column.widthClassName)}>
                       {column.renderCell(row)}
                     </td>
                   ))}

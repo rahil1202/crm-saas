@@ -68,7 +68,7 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit max-w-full min-w-0 items-center justify-start overflow-x-auto rounded-2xl border border-border/70 bg-white/65 p-1 text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] group-data-horizontal/tabs:h-auto group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col group-data-vertical/tabs:overflow-x-visible data-[variant=line]:rounded-none data-[variant=line]:border-0 data-[variant=line]:bg-transparent data-[variant=line]:p-0 data-[variant=line]:shadow-none",
+  "group/tabs-list inline-flex w-fit max-w-full min-w-0 flex-wrap items-center justify-start overflow-x-hidden rounded-2xl border border-border/70 bg-white/65 p-1 text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] group-data-horizontal/tabs:h-auto group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col group-data-vertical/tabs:overflow-x-visible data-[variant=line]:rounded-none data-[variant=line]:border-0 data-[variant=line]:bg-transparent data-[variant=line]:p-0 data-[variant=line]:shadow-none",
   {
     variants: {
       variant: {

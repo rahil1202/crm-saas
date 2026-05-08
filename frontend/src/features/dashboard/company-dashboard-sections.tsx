@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { downloadCsvFile, downloadExcelLikeFile, toCsvCell } from "@/components/crm/csv-export";
 import { DashboardInsightsResponse } from "@/features/dashboard/types";
 import {
   ConversionGraph,
@@ -38,6 +39,26 @@ import {
 } from "@/features/dashboard/dashboard-ui";
 
 export function CompanyDashboardSections({ data }: { data: DashboardInsightsResponse }) {
+  const exportDashboard = (format: "csv" | "excel") => {
+    const rows: Array<Array<string | number>> = [
+      ["Section", "Metric", "Value"],
+      ["Overview", "Total leads", data.overview.totalLeads],
+      ["Overview", "Total customers", data.overview.totalCustomers],
+      ["Overview", "Open deals", data.overview.openDeals],
+      ["Overview", "Won deals", data.overview.wonDeals],
+      ["Overview", "Forecast value", data.overview.forecastValue],
+      ["Overview", "Won revenue", data.overview.wonRevenue],
+      ...data.pipeline.byStage.map((stage) => ["Pipeline stage", stage.key, stage.value]),
+    ];
+
+    if (format === "csv") {
+      const csv = rows.map((row) => row.map((cell) => toCsvCell(String(cell))).join(",")).join("\n");
+      downloadCsvFile(csv, "dashboard-summary.csv");
+      return;
+    }
+    downloadExcelLikeFile(rows, "dashboard-summary.xls");
+  };
+
   const quickActions = [
     { href: "/dashboard/leads", label: "Add lead", icon: UserPlus, tint: "text-sky-700", bg: "bg-sky-100" },
     { href: "/dashboard/tasks", label: "Add task", icon: CheckCircle2, tint: "text-emerald-700", bg: "bg-emerald-100" },
@@ -140,6 +161,10 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
               <MetricPill label="Won revenue" value={formatCurrency(data.overview.wonRevenue, true)} />
               <MetricPill label="Customers" value={formatCompactNumber(data.overview.totalCustomers)} />
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant="secondary" onClick={() => exportDashboard("csv")}>Export CSV</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => exportDashboard("excel")}>Export Excel</Button>
+            </div>
           </div>
         </div>
 
@@ -230,6 +255,11 @@ export function CompanyDashboardSections({ data }: { data: DashboardInsightsResp
                   <span className="font-semibold text-slate-950">{formatCurrency(stage.value, true)}</span>
                 </div>
               ))}
+              {data.pipeline.byStage.length > 1 ? (
+                <div className="rounded-xl border border-sky-100 bg-sky-50/55 px-3 py-2 text-xs text-sky-800">
+                  Conversion: {Math.round((data.pipeline.byStage[data.pipeline.byStage.length - 1]!.count / Math.max(data.pipeline.byStage[0]!.count, 1)) * 100)}% from first to last stage.
+                </div>
+              ) : null}
             </div>
           </div>
         </DashboardPanel>

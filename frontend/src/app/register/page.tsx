@@ -17,6 +17,7 @@ import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLab
 import { GoogleIcon } from "@/components/ui/google-icon";
 import { Input } from "@/components/ui/input";
 import { Progress, ProgressLabel } from "@/components/ui/progress";
+import { Separator } from "@/components/ui/separator";
 import { apiRequest } from "@/lib/api";
 import { evaluatePasswordStrength } from "@/lib/auth-ui";
 import { savePendingInviteReferralContext } from "@/lib/invite-referral";
@@ -64,6 +65,8 @@ function RegisterPageContent() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [acknowledged, setAcknowledged] = useState(false);
+  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+  const [policyConfirmed, setPolicyConfirmed] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [resendingVerification, setResendingVerification] = useState(false);
   const [successEmail, setSuccessEmail] = useState<string | null>(null);
@@ -172,7 +175,10 @@ function RegisterPageContent() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!acknowledged) {
+    if (!acknowledged || !policyConfirmed) {
+      if (!policyConfirmed) {
+        setPolicyModalOpen(true);
+      }
       return;
     }
 
@@ -304,6 +310,49 @@ function RegisterPageContent() {
         </div>
       ) : null}
 
+      {policyModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-sm">
+          <Card className="w-full max-w-2xl border-sky-200/80 bg-white">
+            <CardHeader>
+              <CardTitle>Terms and privacy policy</CardTitle>
+              <CardDescription>
+                Review and accept both documents to continue registration.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 text-sm text-slate-700">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="font-medium text-slate-900">Terms and condition</p>
+                <p className="mt-1 text-slate-600">You agree to lawful use, account security, and acceptable CRM usage policies.</p>
+                <Link href="/terms-and-condition" className="mt-2 inline-block font-medium text-foreground underline underline-offset-4">
+                  Open full terms
+                </Link>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="font-medium text-slate-900">Privacy policy</p>
+                <p className="mt-1 text-slate-600">You allow secure processing of CRM profile, lead, and communication data for workspace operation.</p>
+                <Link href="/privacy-policy" className="mt-2 inline-block font-medium text-foreground underline underline-offset-4">
+                  Open full privacy policy
+                </Link>
+              </div>
+              <Field orientation="horizontal">
+                <Checkbox checked={policyConfirmed} onCheckedChange={(checked) => setPolicyConfirmed(checked === true)} aria-label="Accept terms and privacy policy" />
+                <FieldContent>
+                  <FieldLabel>I accept the terms and condition and privacy policy.</FieldLabel>
+                </FieldContent>
+              </Field>
+            </CardContent>
+            <div className="flex justify-end gap-2 px-5 pb-5">
+              <Button type="button" variant="outline" onClick={() => setPolicyModalOpen(false)}>
+                Close
+              </Button>
+              <Button type="button" disabled={!policyConfirmed} onClick={() => setPolicyModalOpen(false)}>
+                Confirm and continue
+              </Button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
       {successEmail ? (
         <div className="flex flex-col gap-5">
           <Alert>
@@ -344,6 +393,14 @@ function RegisterPageContent() {
               <GoogleIcon className="size-4.5 shrink-0" />
               {googleLoading ? "Redirecting to Google..." : "Continue with Google"}
             </Button>
+            <p className="text-xs text-muted-foreground">
+              By continuing with Google you accept our <Link href="/terms-and-condition" className="underline underline-offset-4">terms and condition</Link> and <Link href="/privacy-policy" className="underline underline-offset-4">privacy policy</Link>.
+            </p>
+            <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              <Separator className="flex-1" />
+              <span>Email register</span>
+              <Separator className="flex-1" />
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-6">
@@ -462,10 +519,12 @@ function RegisterPageContent() {
                   <FieldError errors={fieldErrors.confirmPassword?.map((message) => ({ message }))} />
                 </Field>
                 <Field orientation="horizontal">
-                  <Checkbox checked={acknowledged} onCheckedChange={(checked) => setAcknowledged(checked === true)} aria-label="Acknowledge onboarding requirements" />
+                  <Checkbox checked={acknowledged} onCheckedChange={(checked) => setAcknowledged(checked === true)} aria-label="Accept terms and condition and privacy policy" />
                   <FieldContent>
-                    <FieldLabel>I understand this owner account creates the first CRM workspace.</FieldLabel>
-                    <FieldDescription>The next step after verification is workspace onboarding, not the dashboard.</FieldDescription>
+                    <FieldLabel>
+                      I accept the <button type="button" className="underline underline-offset-4" onClick={() => setPolicyModalOpen(true)}>terms and condition</button> and <button type="button" className="underline underline-offset-4" onClick={() => setPolicyModalOpen(true)}>privacy policy</button>.
+                    </FieldLabel>
+                    <FieldDescription>Registration is enabled only after document acceptance is confirmed.</FieldDescription>
                   </FieldContent>
                 </Field>
               </FieldGroup>
@@ -479,7 +538,7 @@ function RegisterPageContent() {
               </Progress>
             </div>
 
-            <Button type="submit" size="lg" disabled={submitting}>
+            <Button type="submit" size="lg" disabled={submitting || !acknowledged || !policyConfirmed}>
               <UserPlus data-icon="inline-start" />
               {submitting ? "Creating account..." : "Create account"}
             </Button>

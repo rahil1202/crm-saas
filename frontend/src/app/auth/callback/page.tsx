@@ -70,7 +70,10 @@ function AuthCallbackContent() {
           window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
         }
 
-        if (type === "recovery") {
+        const nextPath = searchParams.get("next") ?? searchParams.get("redirect_to") ?? "";
+        const isRecoveryFlow = type === "recovery" || nextPath.includes("/auth/reset-password") || window.location.pathname.includes("reset-password");
+
+        if (isRecoveryFlow) {
           router.replace("/auth/reset-password");
           return;
         }

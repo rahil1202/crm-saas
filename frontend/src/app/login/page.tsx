@@ -208,6 +208,9 @@ function LoginPageContent() {
               <GoogleIcon className="size-4.5 shrink-0" />
               {googleLoading ? "Redirecting to Google..." : "Continue with Google"}
             </Button>
+            <p className="text-xs text-muted-foreground">
+              By continuing with Google you accept our <Link href="/terms-and-condition" className="underline underline-offset-4">terms and condition</Link> and <Link href="/privacy-policy" className="underline underline-offset-4">privacy policy</Link>.
+            </p>
             <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               <Separator className="flex-1" />
               <span>Email login</span>

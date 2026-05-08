@@ -11,6 +11,7 @@ import { LoadingState } from "@/components/ui/page-patterns";
 import { ApiError, apiRequest } from "@/lib/api";
 import { DashboardMetricCard, formatCurrency } from "@/features/dashboard/dashboard-ui";
 import type { ReportSummaryResponse } from "@/features/dashboard/types";
+import { downloadCsvFile, downloadExcelLikeFile, toCsvCell } from "@/components/crm/csv-export";
 
 const ReportsVisuals = dynamic(
   () => import("@/features/dashboard/reports-visuals").then((mod) => mod.ReportsVisuals),
@@ -25,6 +26,35 @@ export default function ReportsPageClient() {
   const [report, setReport] = useState<ReportSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const handleExport = useCallback(
+    (format: "csv" | "excel") => {
+      if (!report) {
+        return;
+      }
+
+      const rows: Array<Array<string | number>> = [
+        ["Report", "Metric", "Value"],
+        ["Dashboard", "Leads in period", report.dashboard.leadsInPeriod],
+        ["Dashboard", "Open deals", report.dashboard.openDeals],
+        ["Dashboard", "Forecast value", report.dashboard.forecastValue],
+        ["Dashboard", "Won value", report.dashboard.wonValue],
+        ["General", "Total leads", report.generalReport.totals.leads],
+        ["General", "Customers", report.generalReport.totals.customers],
+        ["Deals", "Open value", report.dealReport.openValue],
+        ["Deals", "Won value", report.dealReport.wonValue],
+        ["Deals", "Lost value", report.dealReport.lostValue],
+      ];
+
+      if (format === "csv") {
+        const csv = rows.map((row) => row.map((cell) => toCsvCell(String(cell))).join(",")).join("\n");
+        downloadCsvFile(csv, "reports-summary.csv");
+        return;
+      }
+      downloadExcelLikeFile(rows, "reports-summary.xls");
+    },
+    [report],
+  );
 
   const loadReport = useCallback(async () => {
     setLoading(true);
@@ -101,6 +131,14 @@ export default function ReportsPageClient() {
               <div className="flex items-end">
                 <Button type="button" variant="outline" onClick={() => void loadReport()} disabled={loading}>
                   {loading ? "Loading..." : "Refresh stats"}
+                </Button>
+              </div>
+              <div className="flex items-end gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={() => handleExport("csv")} disabled={!report || loading}>
+                  Export CSV
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => handleExport("excel")} disabled={!report || loading}>
+                  Export Excel
                 </Button>
               </div>
             </div>
