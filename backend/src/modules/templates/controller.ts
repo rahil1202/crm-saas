@@ -44,6 +44,23 @@ export async function listTemplates(c: Context<AppEnv>) {
   });
 }
 
+export async function getTemplate(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const params = templateParamSchema.parse(c.req.param());
+
+  const [template] = await db
+    .select()
+    .from(templates)
+    .where(and(eq(templates.id, params.templateId), eq(templates.companyId, tenant.companyId)))
+    .limit(1);
+
+  if (!template) {
+    throw AppError.notFound("Template not found");
+  }
+
+  return ok(c, template);
+}
+
 export async function createTemplate(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const user = c.get("user");

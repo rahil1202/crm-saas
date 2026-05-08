@@ -80,6 +80,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { href: "/dashboard/company", label: "Company", icon: Building2, minRole: "member", partnerAccessOnly: true },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, minRole: "member" },
+  { href: "/dashboard/report", label: "Report", icon: ChartColumnBig, minRole: "admin", moduleKey: "reports" },
   { href: "/dashboard/outreach", label: "Outreach", icon: ScanSearch, minRole: "admin", moduleKey: "outreach" },
   { href: "/dashboard/leads", label: "Leads", icon: Target, minRole: "member", moduleKey: "leads" },
   { href: "/dashboard/deals", label: "Deals", icon: BriefcaseBusiness, minRole: "member", moduleKey: "deals" },
@@ -104,7 +105,7 @@ const navItems: NavItem[] = [
 ];
 
 const navGroups = [
-  { id: "home", label: "Home", hrefs: ["/dashboard/company", "/dashboard"] },
+  { id: "home", label: "Home", hrefs: ["/dashboard/company", "/dashboard", "/dashboard/report"] },
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/outreach", "/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
@@ -115,6 +116,7 @@ const navGroups = [
 const navGroupItemOverrides: Record<string, Record<string, { label?: string; icon?: NavItem["icon"] }>> = {
   home: {
     "/dashboard": { label: "Dashboard", icon: LayoutDashboard },
+    "/dashboard/report": { label: "Report", icon: ChartColumnBig },
   },
   // agent: {
   //   "/dashboard/automation": { label: "Workflow", icon: Sparkles },

@@ -1,5 +1,5 @@
-import { CampaignTemplatesPage } from "@/features/campaigns/campaigns-list-page";
+import { TemplatesManagementPage } from "@/features/templates/templates-management-page";
 
 export default function TemplatesPage() {
-  return <CampaignTemplatesPage />;
+  return <TemplatesManagementPage />;
 }

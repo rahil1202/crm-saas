@@ -189,6 +189,72 @@ export interface ReportSummaryResponse {
     forecastValue: number;
     wonValue: number;
   };
+  generalReport: {
+    totals: {
+      leads: number;
+      leadsInPeriod: number;
+      customers: number;
+      customersInPeriod: number;
+      deals: number;
+      openDeals: number;
+      wonDeals: number;
+      lostDeals: number;
+      hotLeads: number;
+      overdueTasks: number;
+    };
+    sourceMix: Array<{ key: string; count: number }>;
+    statusMix: Array<{ key: string; count: number }>;
+  };
+  funnelAnalytics: {
+    stages: Array<{
+      key: string;
+      label: string;
+      count: number;
+      rateFromPrevious: number;
+      rateFromLead: number;
+    }>;
+    bySource: Array<{
+      key: string;
+      leads: number;
+      customers: number;
+      deals: number;
+      wonDeals: number;
+      conversionRate: number;
+      winRate: number;
+    }>;
+  };
+  ownerAnalytics: Array<{
+    userId: string | null;
+    name: string;
+    leads: number;
+    hotLeads: number;
+    customers: number;
+    openDeals: number;
+    wonDeals: number;
+    lostDeals: number;
+    openValue: number;
+    wonRevenue: number;
+    overdueTasks: number;
+    leadToCustomerRate: number;
+    winRate: number;
+  }>;
+  conversionAnalytics: {
+    rates: {
+      leadToCustomer: number;
+      leadToDeal: number;
+      dealWin: number;
+      dealLoss: number;
+      hotLeadShare: number;
+      periodLeadToCustomer: number;
+    };
+    counts: {
+      leads: number;
+      convertedLeads: number;
+      dealsFromLeads: number;
+      wonDeals: number;
+      lostDeals: number;
+    };
+  };
   leadReport: {
     total: number;
     byStatus: Array<{ key: string; count: number }>;

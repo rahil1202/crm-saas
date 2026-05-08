@@ -8,6 +8,7 @@ import { verifyAccessToken } from "@/lib/auth";
 import { AppError } from "@/lib/errors";
 import { ensurePartnerMembershipAssignmentsForUser } from "@/lib/partner-role-access";
 import { requireActiveAuthSession } from "@/lib/security";
+import { assertTenantStore, recordTenantIsolationViolation } from "@/lib/tenant-isolation";
 import { hasMinimumRole } from "@/middleware/roles";
 import type { CompanyModuleKey, CompanyRole } from "@/types/app";
 
@@ -107,8 +108,20 @@ export const requireTenant: MiddlewareHandler = async (c, next) => {
     : memberships[0];
 
   if (!membership) {
+    await recordTenantIsolationViolation(c, {
+      resourceType: "company",
+      resourceId: requestedCompanyId,
+      requestedCompanyId,
+      reason: "company_membership_missing",
+      metadata: {
+        membershipCount: memberships.length,
+        membershipCompanyIds: memberships.map((item) => item.companyId),
+      },
+    });
     throw AppError.forbidden("Membership does not exist for requested company");
   }
+
+  await assertTenantStore(c, membership.companyId, requestedStoreId ?? membership.storeId);
 
   c.set("tenant", {
     companyId: membership.companyId,

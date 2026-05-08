@@ -770,6 +770,8 @@ export async function getReportSummary(c: Context<AppEnv>) {
         id: leads.id,
         status: leads.status,
         source: leads.source,
+        score: leads.score,
+        assignedToUserId: leads.assignedToUserId,
         partnerCompanyId: leads.partnerCompanyId,
         createdAt: leads.createdAt,
       })
@@ -780,8 +782,11 @@ export async function getReportSummary(c: Context<AppEnv>) {
         id: deals.id,
         status: deals.status,
         pipeline: deals.pipeline,
+        stage: deals.stage,
+        leadId: deals.leadId,
         customerId: deals.customerId,
         value: deals.value,
+        assignedToUserId: deals.assignedToUserId,
         partnerCompanyId: deals.partnerCompanyId,
         expectedCloseDate: deals.expectedCloseDate,
         createdAt: deals.createdAt,
@@ -792,6 +797,7 @@ export async function getReportSummary(c: Context<AppEnv>) {
       .select({
         id: tasks.id,
         status: tasks.status,
+        assignedToUserId: tasks.assignedToUserId,
         dueAt: tasks.dueAt,
       })
       .from(tasks)
@@ -845,6 +851,16 @@ export async function getReportSummary(c: Context<AppEnv>) {
           .from(campaignCustomers)
           .where(and(eq(campaignCustomers.companyId, tenant.companyId), inArray(campaignCustomers.campaignId, campaignIds)));
 
+  const customerRows = await db
+    .select({
+      id: customers.id,
+      leadId: customers.leadId,
+      assignedToUserId: customers.assignedToUserId,
+      createdAt: customers.createdAt,
+    })
+    .from(customers)
+    .where(and(eq(customers.companyId, tenant.companyId), isNull(customers.deletedAt)));
+
   const leadStatusCounts = new Map<string, number>();
   const leadSourceCounts = new Map<string, number>();
   const dealStatusCounts = new Map<string, number>();
@@ -858,6 +874,7 @@ export async function getReportSummary(c: Context<AppEnv>) {
 
   const recentLeads = leadRows.filter((lead) => new Date(lead.createdAt) >= periodStart);
   const recentDeals = dealRows.filter((deal) => new Date(deal.createdAt) >= periodStart);
+  const recentCustomers = customerRows.filter((customer) => new Date(customer.createdAt) >= periodStart);
   const openTasks = taskRows.filter((task) => task.status !== "done");
   const overdueTasks = openTasks.filter((task) => task.dueAt && new Date(task.dueAt) < now);
   const dueTodayTasks = openTasks.filter((task) => {
@@ -867,10 +884,62 @@ export async function getReportSummary(c: Context<AppEnv>) {
 
     return getDateKey(new Date(task.dueAt)) === getDateKey(now);
   });
+  const openDeals = dealRows.filter((deal) => deal.status === "open");
+  const wonDeals = dealRows.filter((deal) => deal.status === "won");
+  const lostDeals = dealRows.filter((deal) => deal.status === "lost");
+  const qualifiedLeads = leadRows.filter((lead) => lead.status === "qualified" || lead.status === "proposal" || lead.status === "won");
+  const hotLeads = leadRows.filter((lead) => lead.score >= 75);
+  const leadIdsWithDeal = new Set(dealRows.map((deal) => deal.leadId).filter(Boolean));
+  const convertedLeadIds = new Set(customerRows.map((customer) => customer.leadId).filter(Boolean));
 
   for (const lead of recentLeads) {
     increment(leadStatusCounts, lead.status);
     increment(leadSourceCounts, lead.source ?? "unknown");
+  }
+
+  const ownerStats = new Map<
+    string,
+    {
+      userId: string | null;
+      leads: number;
+      hotLeads: number;
+      customers: number;
+      openDeals: number;
+      wonDeals: number;
+      lostDeals: number;
+      openValue: number;
+      wonRevenue: number;
+      overdueTasks: number;
+    }
+  >();
+  const getOwnerStats = (userId: string | null) => {
+    const key = userId ?? "unassigned";
+    const existing = ownerStats.get(key);
+    if (existing) return existing;
+    const created = {
+      userId,
+      leads: 0,
+      hotLeads: 0,
+      customers: 0,
+      openDeals: 0,
+      wonDeals: 0,
+      lostDeals: 0,
+      openValue: 0,
+      wonRevenue: 0,
+      overdueTasks: 0,
+    };
+    ownerStats.set(key, created);
+    return created;
+  };
+
+  for (const lead of leadRows) {
+    const owner = getOwnerStats(lead.assignedToUserId ?? null);
+    owner.leads += 1;
+    if (lead.score >= 75) owner.hotLeads += 1;
+  }
+
+  for (const customer of customerRows) {
+    getOwnerStats(customer.assignedToUserId ?? null).customers += 1;
   }
 
   let openValue = 0;
@@ -883,12 +952,19 @@ export async function getReportSummary(c: Context<AppEnv>) {
 
     if (deal.status === "open") {
       openValue += deal.value;
+      const owner = getOwnerStats(deal.assignedToUserId ?? null);
+      owner.openDeals += 1;
+      owner.openValue += deal.value;
     }
     if (deal.status === "won") {
       wonValue += deal.value;
+      const owner = getOwnerStats(deal.assignedToUserId ?? null);
+      owner.wonDeals += 1;
+      owner.wonRevenue += deal.value;
     }
     if (deal.status === "lost") {
       lostValue += deal.value;
+      getOwnerStats(deal.assignedToUserId ?? null).lostDeals += 1;
     }
 
     if (deal.status !== "open" || !deal.expectedCloseDate) {
@@ -904,6 +980,26 @@ export async function getReportSummary(c: Context<AppEnv>) {
     bucket.totalValue += deal.value;
     bucket.dealCount += 1;
   }
+
+  for (const task of overdueTasks) {
+    getOwnerStats(task.assignedToUserId ?? null).overdueTasks += 1;
+  }
+
+  const ownerProfileIds = Array.from(ownerStats.values())
+    .map((item) => item.userId)
+    .filter((userId): userId is string => Boolean(userId));
+  const ownerProfiles =
+    ownerProfileIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: profiles.id,
+            fullName: profiles.fullName,
+            email: profiles.email,
+          })
+          .from(profiles)
+          .where(inArray(profiles.id, ownerProfileIds));
+  const ownerProfileMap = new Map(ownerProfiles.map((profile) => [profile.id, profile]));
 
   const partnerLeadCounts = new Map<string, number>();
   const partnerDealOpenCounts = new Map<string, number>();
@@ -992,6 +1088,108 @@ export async function getReportSummary(c: Context<AppEnv>) {
       activePartners: partnerRows.filter((partner) => partner.status === "active").length,
       forecastValue,
       wonValue,
+    },
+    generalReport: {
+      totals: {
+        leads: leadRows.length,
+        leadsInPeriod: recentLeads.length,
+        customers: customerRows.length,
+        customersInPeriod: recentCustomers.length,
+        deals: dealRows.length,
+        openDeals: openDeals.length,
+        wonDeals: wonDeals.length,
+        lostDeals: lostDeals.length,
+        hotLeads: hotLeads.length,
+        overdueTasks: overdueTasks.length,
+      },
+      sourceMix: toCountItems(leadSourceCounts),
+      statusMix: toCountItems(leadStatusCounts),
+    },
+    funnelAnalytics: {
+      stages: [
+        { key: "leads", label: "Leads", count: leadRows.length, rateFromPrevious: 100, rateFromLead: 100 },
+        {
+          key: "qualified",
+          label: "Qualified",
+          count: qualifiedLeads.length,
+          rateFromPrevious: getRate(qualifiedLeads.length, leadRows.length),
+          rateFromLead: getRate(qualifiedLeads.length, leadRows.length),
+        },
+        {
+          key: "customers",
+          label: "Customers",
+          count: customerRows.length,
+          rateFromPrevious: getRate(customerRows.length, qualifiedLeads.length),
+          rateFromLead: getRate(customerRows.length, leadRows.length),
+        },
+        {
+          key: "deals",
+          label: "Deals",
+          count: leadIdsWithDeal.size,
+          rateFromPrevious: getRate(leadIdsWithDeal.size, customerRows.length),
+          rateFromLead: getRate(leadIdsWithDeal.size, leadRows.length),
+        },
+        {
+          key: "won",
+          label: "Won",
+          count: wonDeals.length,
+          rateFromPrevious: getRate(wonDeals.length, dealRows.length),
+          rateFromLead: getRate(wonDeals.length, leadRows.length),
+        },
+      ],
+      bySource: toCountItems(leadSourceCounts).map((source) => {
+        const sourceLeads = leadRows.filter((lead) => (lead.source ?? "unknown") === source.key);
+        const sourceLeadIds = new Set(sourceLeads.map((lead) => lead.id));
+        const sourceDeals = dealRows.filter((deal) => deal.leadId && sourceLeadIds.has(deal.leadId));
+        const sourceCustomers = sourceLeads.filter((lead) => convertedLeadIds.has(lead.id)).length;
+        const sourceWins = sourceDeals.filter((deal) => deal.status === "won").length;
+        return {
+          key: source.key,
+          leads: sourceLeads.length,
+          customers: sourceCustomers,
+          deals: sourceDeals.length,
+          wonDeals: sourceWins,
+          conversionRate: getRate(sourceCustomers, sourceLeads.length),
+          winRate: getRate(sourceWins, sourceDeals.length),
+        };
+      }),
+    },
+    ownerAnalytics: Array.from(ownerStats.values())
+      .map((owner) => {
+        const profile = owner.userId ? ownerProfileMap.get(owner.userId) : null;
+        return {
+          userId: owner.userId,
+          name: profile?.fullName || profile?.email || "Unassigned",
+          leads: owner.leads,
+          hotLeads: owner.hotLeads,
+          customers: owner.customers,
+          openDeals: owner.openDeals,
+          wonDeals: owner.wonDeals,
+          lostDeals: owner.lostDeals,
+          openValue: owner.openValue,
+          wonRevenue: owner.wonRevenue,
+          overdueTasks: owner.overdueTasks,
+          leadToCustomerRate: getRate(owner.customers, owner.leads),
+          winRate: getRate(owner.wonDeals, owner.wonDeals + owner.lostDeals),
+        };
+      })
+      .sort((left, right) => right.wonRevenue - left.wonRevenue || right.hotLeads - left.hotLeads || right.leads - left.leads),
+    conversionAnalytics: {
+      rates: {
+        leadToCustomer: getRate(customerRows.length, leadRows.length),
+        leadToDeal: getRate(leadIdsWithDeal.size, leadRows.length),
+        dealWin: getRate(wonDeals.length, dealRows.length),
+        dealLoss: getRate(lostDeals.length, dealRows.length),
+        hotLeadShare: getRate(hotLeads.length, leadRows.length),
+        periodLeadToCustomer: getRate(recentCustomers.length, recentLeads.length),
+      },
+      counts: {
+        leads: leadRows.length,
+        convertedLeads: convertedLeadIds.size,
+        dealsFromLeads: leadIdsWithDeal.size,
+        wonDeals: wonDeals.length,
+        lostDeals: lostDeals.length,
+      },
     },
     leadReport: {
       total: recentLeads.length,

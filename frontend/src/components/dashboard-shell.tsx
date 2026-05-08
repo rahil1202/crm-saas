@@ -117,6 +117,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Stats & Reports",
     description: "Detailed CRM stats, lead and deal analysis, forecast charts, and campaign reporting for the active workspace.",
   },
+  "/dashboard/report": {
+    title: "Report Dashboard",
+    description: "General reporting, funnel analytics, owner performance, and conversion analytics for the active workspace.",
+  },
   "/dashboard/recent-activity": {
     title: "Recent Activity",
     description: "Expanded CRM activity feed across leads, deals, tasks, meetings, and documents.",

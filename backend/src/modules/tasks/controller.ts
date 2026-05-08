@@ -23,6 +23,7 @@ import { getCompanySettings } from "@/lib/company-settings";
 import { assertNonEmptyUpdate, paginationMeta } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { createNotification } from "@/lib/notifications";
+import { assertTenantCustomer, assertTenantDeal, assertTenantLead, assertTenantMember, assertTenantStore } from "@/lib/tenant-isolation";
 import { followUpParamSchema, taskParamSchema } from "@/modules/tasks/schema";
 import type {
   CreateFollowUpInput,
@@ -771,6 +772,12 @@ export async function createTask(c: Context<AppEnv>) {
   const user = c.get("user");
   const body = c.get("validatedBody") as CreateTaskInput;
   const defaultAssignee = tenant.role === "member" ? user.id : null;
+  const assignedToUserId = body.assignedToUserId ?? defaultAssignee;
+
+  await assertTenantStore(c, tenant.companyId, body.storeId ?? tenant.storeId);
+  await assertTenantMember(c, tenant.companyId, assignedToUserId);
+  await assertTenantCustomer(c, tenant.companyId, body.customerId);
+  await assertTenantDeal(c, tenant.companyId, body.dealId);
 
   const [created] = await db
     .insert(tasks)
@@ -779,7 +786,7 @@ export async function createTask(c: Context<AppEnv>) {
       storeId: body.storeId ?? tenant.storeId ?? null,
       customerId: body.customerId ?? null,
       dealId: body.dealId ?? null,
-      assignedToUserId: body.assignedToUserId ?? defaultAssignee,
+      assignedToUserId,
       title: body.title,
       description: body.description ?? null,
       taskType: body.taskType,
@@ -824,6 +831,12 @@ export async function createFollowUp(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const user = c.get("user");
   const body = c.get("validatedBody") as CreateFollowUpInput;
+
+  await assertTenantStore(c, tenant.companyId, body.storeId ?? tenant.storeId);
+  await assertTenantMember(c, tenant.companyId, body.assignedToUserId);
+  await assertTenantLead(c, tenant.companyId, body.leadId);
+  await assertTenantCustomer(c, tenant.companyId, body.customerId);
+  await assertTenantDeal(c, tenant.companyId, body.dealId);
 
   const [created] = await db
     .insert(followUps)
@@ -880,6 +893,18 @@ export async function updateTask(c: Context<AppEnv>) {
   }
   if (body.dueAt !== undefined || body.reminderMinutesBefore !== undefined) {
     reminderSentAt = null;
+  }
+  if (body.storeId !== undefined) {
+    await assertTenantStore(c, tenant.companyId, body.storeId);
+  }
+  if (body.assignedToUserId !== undefined) {
+    await assertTenantMember(c, tenant.companyId, body.assignedToUserId);
+  }
+  if (body.customerId !== undefined) {
+    await assertTenantCustomer(c, tenant.companyId, body.customerId);
+  }
+  if (body.dealId !== undefined) {
+    await assertTenantDeal(c, tenant.companyId, body.dealId);
   }
 
   const [updated] = await db
@@ -942,6 +967,21 @@ export async function updateFollowUp(c: Context<AppEnv>) {
     completedAt = new Date();
   } else if (body.status !== undefined) {
     completedAt = null;
+  }
+  if (body.storeId !== undefined) {
+    await assertTenantStore(c, tenant.companyId, body.storeId);
+  }
+  if (body.assignedToUserId !== undefined) {
+    await assertTenantMember(c, tenant.companyId, body.assignedToUserId);
+  }
+  if (body.leadId !== undefined) {
+    await assertTenantLead(c, tenant.companyId, body.leadId);
+  }
+  if (body.customerId !== undefined) {
+    await assertTenantCustomer(c, tenant.companyId, body.customerId);
+  }
+  if (body.dealId !== undefined) {
+    await assertTenantDeal(c, tenant.companyId, body.dealId);
   }
 
   const [updated] = await db

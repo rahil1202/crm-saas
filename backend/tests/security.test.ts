@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -87,5 +90,39 @@ describe("security AppError helpers", () => {
     const error = AppError.payloadTooLarge("Too big");
     expect(error.status).toBe(413);
     expect(error.code).toBe("PAYLOAD_TOO_LARGE");
+  });
+});
+
+describe("tenant isolation audit coverage", () => {
+  const source = (path: string) => readFileSync(resolve(import.meta.dir, "..", path), "utf8");
+
+  test("tenant middleware audits cross-company selection and validates store scope", () => {
+    const authMiddleware = source("src/middleware/auth.ts");
+
+    expect(authMiddleware).toContain("recordTenantIsolationViolation");
+    expect(authMiddleware).toContain("company_membership_missing");
+    expect(authMiddleware).toContain("assertTenantStore");
+  });
+
+  test("CRM write controllers validate tenant-owned request IDs before persistence", () => {
+    const expectedAssertions: Record<string, string[]> = {
+      "src/modules/leads/controller.ts": ["assertTenantStore", "assertTenantMember"],
+      "src/modules/customers/controller.ts": ["assertTenantStore", "assertTenantMember", "assertTenantLead"],
+      "src/modules/deals/controller.ts": ["assertTenantStore", "assertTenantMember", "assertTenantCustomer", "assertTenantLead"],
+      "src/modules/tasks/controller.ts": [
+        "assertTenantStore",
+        "assertTenantMember",
+        "assertTenantLead",
+        "assertTenantCustomer",
+        "assertTenantDeal",
+      ],
+    };
+
+    for (const [path, assertions] of Object.entries(expectedAssertions)) {
+      const controller = source(path);
+      for (const assertion of assertions) {
+        expect(controller, `${path} must call ${assertion}`).toContain(assertion);
+      }
+    }
   });
 });

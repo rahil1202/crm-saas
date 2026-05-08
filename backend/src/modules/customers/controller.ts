@@ -6,34 +6,13 @@ import * as XLSX from "xlsx";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { campaignCustomers, campaigns, companyMemberships, customers, deals, leads, profiles, tasks } from "@/db/schema";
+import { campaignCustomers, campaigns, customers, deals, leads, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { assertNonEmptyUpdate, normalizeDelimitedHeader, paginationMeta, parseDelimitedRows, parseDelimitedTags } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
+import { assertTenantLead, assertTenantMember, assertTenantStore } from "@/lib/tenant-isolation";
 import { customerParamSchema } from "@/modules/customers/schema";
 import type { CreateCustomerInput, ImportCustomerCsvInput, ListCustomersQuery, UpdateCustomerInput } from "@/modules/customers/schema";
-
-async function assertAssignableUser(companyId: string, assignedToUserId?: string | null) {
-  if (!assignedToUserId) {
-    return;
-  }
-
-  const [membership] = await db
-    .select({ membershipId: companyMemberships.id })
-    .from(companyMemberships)
-    .where(
-      and(
-        eq(companyMemberships.companyId, companyId),
-        eq(companyMemberships.userId, assignedToUserId),
-        eq(companyMemberships.status, "active"),
-      ),
-    )
-    .limit(1);
-
-  if (!membership) {
-    throw AppError.badRequest("Assigned user must belong to the current company");
-  }
-}
 
 
 function parsePdfTextToRows(text: string) {
@@ -419,7 +398,9 @@ export async function createCustomer(c: Context<AppEnv>) {
   const user = c.get("user");
   const body = c.get("validatedBody") as CreateCustomerInput;
 
-  await assertAssignableUser(tenant.companyId, body.assignedToUserId ?? user.id);
+  await assertTenantMember(c, tenant.companyId, body.assignedToUserId ?? user.id);
+  await assertTenantStore(c, tenant.companyId, body.storeId ?? tenant.storeId);
+  await assertTenantLead(c, tenant.companyId, body.leadId);
 
   const [created] = await db
     .insert(customers)
@@ -462,7 +443,13 @@ export async function updateCustomer(c: Context<AppEnv>) {
 
   assertNonEmptyUpdate(body as Record<string, unknown>);
 
-  await assertAssignableUser(tenant.companyId, body.assignedToUserId);
+  await assertTenantMember(c, tenant.companyId, body.assignedToUserId);
+  if (body.storeId !== undefined) {
+    await assertTenantStore(c, tenant.companyId, body.storeId);
+  }
+  if (body.leadId !== undefined) {
+    await assertTenantLead(c, tenant.companyId, body.leadId);
+  }
 
   const [updated] = await db
     .update(customers)

@@ -22,6 +22,7 @@ import { getInitials } from "@/lib/auth-ui";
 import { cn } from "@/lib/utils";
 
 type LeadStatus = "new" | "qualified" | "proposal" | "won" | "lost";
+type LeadPriority = "hot" | "warm" | "nurture" | "cold";
 
 type LeadHistoryResponse = {
   lead: {
@@ -33,6 +34,9 @@ type LeadHistoryResponse = {
     source: string | null;
     status: LeadStatus;
     score: number;
+    priorityBand?: LeadPriority;
+    priorityLabel?: string;
+    priorityReason?: string;
     notes: string | null;
     tags: string[];
     createdAt: string;
@@ -50,6 +54,37 @@ type LeadHistoryResponse = {
   campaigns: Array<{ id: string; name: string; channel: string; status: string; scheduledAt: string | null }>;
   creator: { id: string; fullName: string | null; email: string } | null;
   summary: { customers: number; deals: number; openDeals: number; timelineEvents: number };
+};
+
+type LeadScoreHistoryResponse = {
+  history: Array<{
+    id: string;
+    previousScore: number;
+    newScore: number;
+    delta: number;
+    reason: string | null;
+    detail: Record<string, unknown>;
+    createdAt: string;
+  }>;
+  events: Array<{
+    id: string;
+    eventType: string;
+    channel: string | null;
+    sourceId: string | null;
+    payload: Record<string, unknown>;
+    createdAt: string;
+  }>;
+};
+
+type LeadAssignmentAuditResponse = {
+  items: Array<{
+    id: string;
+    previousAssignedToUserId: string | null;
+    newAssignedToUserId: string | null;
+    reason: string | null;
+    payload: Record<string, unknown>;
+    createdAt: string;
+  }>;
 };
 
 type LeadFormState = {
@@ -84,6 +119,21 @@ function getStatusTone(status: LeadStatus) {
   if (status === "won") return "default";
   if (status === "lost") return "destructive";
   if (status === "qualified") return "secondary";
+  return "outline";
+}
+
+function getPriority(score: number, priorityBand?: LeadPriority, priorityLabel?: string) {
+  if (priorityBand && priorityLabel) return { key: priorityBand, label: priorityLabel };
+  if (score >= 75) return { key: "hot" as LeadPriority, label: "Hot" };
+  if (score >= 50) return { key: "warm" as LeadPriority, label: "Warm" };
+  if (score >= 25) return { key: "nurture" as LeadPriority, label: "Nurture" };
+  return { key: "cold" as LeadPriority, label: "Cold" };
+}
+
+function getPriorityTone(priority: LeadPriority) {
+  if (priority === "hot") return "destructive";
+  if (priority === "warm") return "default";
+  if (priority === "nurture") return "secondary";
   return "outline";
 }
 
@@ -160,6 +210,8 @@ export default function LeadProfilePage() {
   const leadId = params?.leadId;
 
   const [data, setData] = useState<LeadHistoryResponse | null>(null);
+  const [scoreData, setScoreData] = useState<LeadScoreHistoryResponse | null>(null);
+  const [assignmentData, setAssignmentData] = useState<LeadAssignmentAuditResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -175,8 +227,14 @@ export default function LeadProfilePage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiRequest<LeadHistoryResponse>(`/leads/${leadId}/history`, { skipCache: true });
+      const [response, scoreResponse, assignmentResponse] = await Promise.all([
+        apiRequest<LeadHistoryResponse>(`/leads/${leadId}/history`, { skipCache: true }),
+        apiRequest<LeadScoreHistoryResponse>(`/lead-score-history/${leadId}`, { skipCache: true }),
+        apiRequest<LeadAssignmentAuditResponse>(`/lead-assignment-audits/${leadId}`, { skipCache: true }),
+      ]);
       setData(response);
+      setScoreData(scoreResponse);
+      setAssignmentData(assignmentResponse);
       setForm(leadToForm(response.lead));
     } catch (caughtError) {
       setError(caughtError instanceof ApiError ? caughtError.message : "Unable to load lead profile.");
@@ -289,6 +347,8 @@ export default function LeadProfilePage() {
     );
   }
 
+  const currentPriority = getPriority(data.lead.score, data.lead.priorityBand, data.lead.priorityLabel);
+
   return (
     <>
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_320px]">
@@ -310,6 +370,7 @@ export default function LeadProfilePage() {
                 <div className="flex flex-wrap justify-center gap-2 pt-2">
                   <Badge variant={getStatusTone(data.lead.status)} className="capitalize">{data.lead.status}</Badge>
                   <Badge variant="outline">Score {data.lead.score}</Badge>
+                  <Badge variant={getPriorityTone(currentPriority.key)}>{currentPriority.label}</Badge>
                 </div>
               </div>
               <div className="grid gap-2 text-sm">
@@ -351,6 +412,7 @@ export default function LeadProfilePage() {
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="contacts">Contacts</TabsTrigger>
                 <TabsTrigger value="activity">Activity</TabsTrigger>
+                <TabsTrigger value="score">Score</TabsTrigger>
                 <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
               </TabsList>
 
@@ -377,6 +439,7 @@ export default function LeadProfilePage() {
                     <DetailItem label="Email" value={data.lead.email ? <a href={`mailto:${data.lead.email}`} className="text-sky-600 hover:text-sky-800">{data.lead.email}</a> : "Not Available"} subtle={!data.lead.email} />
                     <DetailItem label="Phone" value={fallback(data.lead.phone)} subtle={!data.lead.phone} />
                     <DetailItem label="Score" value={String(data.lead.score)} />
+                    <DetailItem label="Priority" value={currentPriority.label} />
                     <DetailItem label="Created On" value={formatDateTime(data.lead.createdAt)} />
                     <DetailItem label="Updated On" value={formatDateTime(data.lead.updatedAt)} />
                     <DetailItem label="Tags" value={data.lead.tags.length ? data.lead.tags.join(", ") : "No tags added"} subtle={!data.lead.tags.length} />
@@ -433,6 +496,55 @@ export default function LeadProfilePage() {
                 ) : (
                   <div className="text-slate-500">No tasks linked to this lead yet.</div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="score" className="grid gap-4">
+                <InfoGrid title="Score History">
+                  <div className="grid gap-3">
+                    {(scoreData?.history ?? []).length ? scoreData!.history.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-medium text-slate-900">
+                            {item.previousScore} to {item.newScore}
+                            <span className={cn("ml-2", item.delta >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                              {item.delta >= 0 ? "+" : ""}{item.delta}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500">{formatDateTime(item.createdAt)}</div>
+                        </div>
+                        <div className="mt-2 text-sm text-slate-600">{item.reason ?? "score recalculated"}</div>
+                      </div>
+                    )) : <div className="text-sm text-slate-500">No score changes recorded yet.</div>}
+                  </div>
+                </InfoGrid>
+
+                <InfoGrid title="Scoring Events">
+                  <div className="grid gap-3">
+                    {(scoreData?.events ?? []).slice(0, 10).map((event) => (
+                      <div key={event.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="font-medium text-slate-900">{event.eventType}</div>
+                          <Badge variant="outline">{event.channel ?? "crm"}</Badge>
+                        </div>
+                        <div className="mt-2 text-xs text-slate-500">{formatDateTime(event.createdAt)}</div>
+                      </div>
+                    ))}
+                    {(scoreData?.events ?? []).length === 0 ? <div className="text-sm text-slate-500">No scoring events recorded yet.</div> : null}
+                  </div>
+                </InfoGrid>
+
+                <InfoGrid title="Assignment Audit">
+                  <div className="grid gap-3">
+                    {(assignmentData?.items ?? []).slice(0, 8).map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="font-medium text-slate-900">{item.reason ?? "assignment"}</div>
+                        <div className="mt-1 text-sm text-slate-500">{formatDateTime(item.createdAt)}</div>
+                        <pre className="mt-2 overflow-auto whitespace-pre-wrap text-xs text-slate-500">{JSON.stringify(item.payload, null, 2)}</pre>
+                      </div>
+                    ))}
+                    {(assignmentData?.items ?? []).length === 0 ? <div className="text-sm text-slate-500">No assignment audits recorded yet.</div> : null}
+                  </div>
+                </InfoGrid>
               </TabsContent>
 
               <TabsContent value="campaigns" className="rounded-[1.6rem] border border-white/75 bg-white/90 px-5 py-8 text-sm shadow-[0_18px_48px_-36px_rgba(35,86,166,0.28)]">

@@ -40,6 +40,7 @@ import {
 import type { DocumentItem, DocumentListResponse } from "@/features/documents/types";
 
 type LeadStatus = "new" | "qualified" | "proposal" | "won" | "lost";
+type LeadPriority = "hot" | "warm" | "nurture" | "cold";
 type SortDirection = "asc" | "desc";
 type ModalMode = "create" | "edit" | "delete" | "permanentDelete" | "import" | "filter" | null;
 type LeadSortKey =
@@ -51,6 +52,7 @@ type LeadSortKey =
   | "source"
   | "status"
   | "score"
+  | "priority"
   | "createdAt"
   | "updatedAt";
 type LeadColumnKey = LeadSortKey | "actions";
@@ -68,6 +70,9 @@ interface Lead {
   assignedToUserId: string | null;
   status: LeadStatus;
   score: number;
+  priorityBand?: LeadPriority;
+  priorityLabel?: string;
+  priorityReason?: string;
   notes: string | null;
   tags: string[];
   createdAt: string;
@@ -114,6 +119,7 @@ type LeadFilters = {
   source: string;
   status: string;
   lifecycle: string;
+  priority: string;
   email: string;
   phone: string;
   documentFolder: string;
@@ -152,6 +158,7 @@ const emptyFilters: LeadFilters = {
   source: "",
   status: "",
   lifecycle: "active",
+  priority: "",
   email: "",
   phone: "",
   documentFolder: "",
@@ -166,6 +173,7 @@ const leadColumnLabels: Record<LeadSortKey, string> = {
   source: "Source",
   status: "Lead Status",
   score: "Score",
+  priority: "Priority",
   createdAt: "Created On",
   updatedAt: "Updated On",
 };
@@ -179,6 +187,7 @@ const defaultLeadColumnVisibility: LeadColumnVisibility = {
   source: true,
   status: true,
   score: true,
+  priority: true,
   createdAt: true,
   updatedAt: true,
   actions: true,
@@ -202,6 +211,7 @@ const leadColumnOrder: LeadColumnKey[] = [
   "source",
   "status",
   "score",
+  "priority",
   "createdAt",
   "updatedAt",
   "actions",
@@ -226,6 +236,23 @@ function getStatusTone(status: LeadStatus) {
   if (status === "won") return "default";
   if (status === "lost") return "destructive";
   if (status === "qualified") return "secondary";
+  return "outline";
+}
+
+function getPriority(lead: Pick<Lead, "score" | "priorityBand" | "priorityLabel">) {
+  if (lead.priorityBand && lead.priorityLabel) {
+    return { key: lead.priorityBand, label: lead.priorityLabel };
+  }
+  if (lead.score >= 75) return { key: "hot" as LeadPriority, label: "Hot" };
+  if (lead.score >= 50) return { key: "warm" as LeadPriority, label: "Warm" };
+  if (lead.score >= 25) return { key: "nurture" as LeadPriority, label: "Nurture" };
+  return { key: "cold" as LeadPriority, label: "Cold" };
+}
+
+function getPriorityTone(priority: LeadPriority) {
+  if (priority === "hot") return "destructive";
+  if (priority === "warm") return "default";
+  if (priority === "nurture") return "secondary";
   return "outline";
 }
 
@@ -259,6 +286,8 @@ function getLeadSortValue(lead: Lead, key: LeadSortKey) {
       return lead.status;
     case "score":
       return lead.score;
+    case "priority":
+      return ["cold", "nurture", "warm", "hot"].indexOf(getPriority(lead).key);
     case "createdAt":
       return new Date(lead.createdAt).getTime();
     case "updatedAt":
@@ -274,6 +303,7 @@ function getFilterChips(filters: LeadFilters) {
   if (filters.q.trim()) chips.push({ key: "q", label: "Search", value: filters.q.trim() });
   if (filters.source.trim()) chips.push({ key: "source", label: "Source", value: filters.source.trim() });
   if (filters.status.trim()) chips.push({ key: "status", label: "Lead Status", value: filters.status.trim() });
+  if (filters.priority.trim()) chips.push({ key: "priority", label: "Priority", value: filters.priority.trim() });
   if (filters.lifecycle.trim() && filters.lifecycle !== "active") chips.push({ key: "lifecycle", label: "Record State", value: filters.lifecycle.trim() });
   if (filters.email.trim()) chips.push({ key: "email", label: "Email", value: filters.email.trim() });
   if (filters.phone.trim()) chips.push({ key: "phone", label: "Phone", value: filters.phone.trim() });
@@ -288,6 +318,7 @@ function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): Lead
     source: params.get("source") ?? "",
     status: params.get("status") ?? "",
     lifecycle: params.get("lifecycle") ?? "active",
+    priority: params.get("priority") ?? "",
     email: params.get("email") ?? "",
     phone: params.get("phone") ?? "",
     documentFolder: params.get("documentFolder") ?? "",
@@ -299,19 +330,20 @@ function writeFiltersToSearchParams(params: URLSearchParams, filters: LeadFilter
   if (filters.source.trim()) params.set("source", filters.source.trim());
   if (filters.status.trim()) params.set("status", filters.status.trim());
   if (filters.lifecycle.trim() && filters.lifecycle !== "active") params.set("lifecycle", filters.lifecycle.trim());
+  if (filters.priority.trim()) params.set("priority", filters.priority.trim());
   if (filters.email.trim()) params.set("email", filters.email.trim());
   if (filters.phone.trim()) params.set("phone", filters.phone.trim());
   if (filters.documentFolder.trim()) params.set("documentFolder", filters.documentFolder.trim());
 }
 
 function normalizeSortKey(value: string | null): LeadSortKey {
-  const allowed: LeadSortKey[] = ["id", "title", "fullName", "email", "phone", "source", "status", "score", "createdAt", "updatedAt"];
+  const allowed: LeadSortKey[] = ["id", "title", "fullName", "email", "phone", "source", "status", "score", "priority", "createdAt", "updatedAt"];
   return allowed.includes(value as LeadSortKey) ? (value as LeadSortKey) : "updatedAt";
 }
 
 function buildLeadsCsv(items: Lead[]) {
   return [
-    ["id", "title", "full_name", "email", "phone", "source", "status", "score", "tags", "notes", "created_at", "updated_at"],
+    ["id", "title", "full_name", "email", "phone", "source", "status", "score", "priority", "tags", "notes", "created_at", "updated_at"],
     ...items.map((lead) => [
       lead.id,
       lead.title,
@@ -321,6 +353,7 @@ function buildLeadsCsv(items: Lead[]) {
       lead.source ?? "",
       lead.status,
       String(lead.score),
+      getPriority(lead).label,
       (lead.tags ?? []).join(", "),
       lead.notes ?? "",
       lead.createdAt,
@@ -462,6 +495,7 @@ export default function LeadsPage() {
     if (filters.status.trim()) params.set("status", filters.status.trim());
     if (filters.lifecycle.trim()) params.set("lifecycle", filters.lifecycle.trim());
     if (filters.source.trim()) params.set("source", filters.source.trim());
+    if (filters.priority.trim()) params.set("priority", filters.priority.trim());
     if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
     params.set("limit", String(limit));
     params.set("offset", String((page - 1) * limit));
@@ -793,7 +827,23 @@ export default function LeadsPage() {
         </Badge>
       ),
     },
-    { key: "score", label: leadColumnLabels.score, sortable: true, sortKey: "score", renderCell: (lead) => <span className="text-slate-600">{lead.score}</span> },
+    {
+      key: "score",
+      label: leadColumnLabels.score,
+      sortable: true,
+      sortKey: "score",
+      renderCell: (lead) => <span className="font-medium text-slate-700">{lead.score}</span>,
+    },
+    {
+      key: "priority",
+      label: leadColumnLabels.priority,
+      sortable: true,
+      sortKey: "priority",
+      renderCell: (lead) => {
+        const priority = getPriority(lead);
+        return <Badge variant={getPriorityTone(priority.key)}>{priority.label}</Badge>;
+      },
+    },
     { key: "createdAt", label: leadColumnLabels.createdAt, sortable: true, sortKey: "createdAt", renderCell: (lead) => <span className="text-slate-600">{formatDate(lead.createdAt)}</span> },
     { key: "updatedAt", label: leadColumnLabels.updatedAt, sortable: true, sortKey: "updatedAt", renderCell: (lead) => <span className="text-slate-600">{formatDateTime(lead.updatedAt)}</span> },
   ];
@@ -810,6 +860,7 @@ export default function LeadsPage() {
       if (filters.q.trim()) params.set("q", filters.q.trim());
       if (filters.status.trim()) params.set("status", filters.status.trim());
       if (filters.source.trim()) params.set("source", filters.source.trim());
+      if (filters.priority.trim()) params.set("priority", filters.priority.trim());
       if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
       const response = await apiRequest<ListLeadResponse>(`/leads?${params.toString()}`, { skipCache: true });
       let pageItems = response.items;
@@ -1243,6 +1294,16 @@ export default function LeadsPage() {
                       {status}
                     </option>
                   ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>Priority</FieldLabel>
+                <NativeSelect value={filterDraft.priority} onChange={(event) => setFilterDraft((current) => ({ ...current, priority: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                  <option value="">All priorities</option>
+                  <option value="hot">Hot</option>
+                  <option value="warm">Warm</option>
+                  <option value="nurture">Nurture</option>
+                  <option value="cold">Cold</option>
                 </NativeSelect>
               </Field>
               <Field>

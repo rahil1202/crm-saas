@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 
 import type { AppEnv } from "@/app/route";
-import { createTemplate, deleteTemplate, getTemplateOverview, listTemplates, permanentlyDeleteTemplate, restoreTemplate, updateTemplate } from "@/modules/templates/controller";
+import { createTemplate, deleteTemplate, getTemplate, getTemplateOverview, listTemplates, permanentlyDeleteTemplate, restoreTemplate, updateTemplate } from "@/modules/templates/controller";
 import { listTemplatesSchema, templateSchema, updateTemplateSchema } from "@/modules/templates/schema";
 import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
@@ -11,6 +11,7 @@ templateRoutes.use("*", requireAuth, requireTenant, requireModuleAccess("templat
 
 templateRoutes.get("/", getTemplateOverview);
 templateRoutes.get("/list", validateQuery(listTemplatesSchema), listTemplates);
+templateRoutes.get("/:templateId", getTemplate);
 templateRoutes.post("/", validateJson(templateSchema), createTemplate);
 templateRoutes.patch("/:templateId", validateJson(updateTemplateSchema), updateTemplate);
 templateRoutes.delete("/:templateId", deleteTemplate);

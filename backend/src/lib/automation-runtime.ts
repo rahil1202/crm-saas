@@ -909,6 +909,22 @@ async function dispatchWhatsappIngestedItems(items: WhatsappIngestedItem[]) {
         leadId: item.leadId,
       },
     });
+
+    if (item.leadId) {
+      const { recordLeadScoringEvent } = await import("@/lib/lead-intelligence");
+      await recordLeadScoringEvent({
+        companyId: item.companyId,
+        leadId: item.leadId,
+        eventType: "whatsapp.replied",
+        channel: "whatsapp",
+        sourceId: item.messageId,
+        payload: {
+          conversationId: item.conversationId,
+          messageId: item.messageId,
+          body: item.body,
+        },
+      });
+    }
   }
 }
 

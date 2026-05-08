@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 
@@ -6,12 +6,13 @@ import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
 import { campaignCustomers, campaigns, customers, dealActivities, deals, leadActivities, leads, partnerCompanies, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
-import { queueLeadScoreChangedTrigger, recordTriggerEvent } from "@/lib/automation-runtime";
+import { recordTriggerEvent } from "@/lib/automation-runtime";
 import { getCompanySettings } from "@/lib/company-settings";
 import { assertNonEmptyUpdate, normalizeDelimitedHeader, paginationMeta, parseDelimitedRows, parseDelimitedTags } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
-import { recordLeadScoringEvent, routeLead } from "@/lib/lead-intelligence";
+import { getLeadPriority, leadPriorityBands, recordLeadScoringEvent, routeLead } from "@/lib/lead-intelligence";
 import { createNotification } from "@/lib/notifications";
+import { assertTenantMember, assertTenantStore } from "@/lib/tenant-isolation";
 import {
   createLeadSchema,
   leadParamSchema,
@@ -67,6 +68,27 @@ async function assertValidPartnerCompany(companyId: string, partnerCompanyId?: s
   }
 }
 
+function getScoringChannel(source?: string | null) {
+  const normalized = source?.toLowerCase() ?? "";
+  if (["meta", "facebook", "facebook_lead_ads", "instagram", "instagram_lead_ads"].includes(normalized)) {
+    return "meta";
+  }
+  if (normalized.includes("whatsapp")) {
+    return "whatsapp";
+  }
+  if (normalized.includes("website") || normalized.includes("form")) {
+    return "website";
+  }
+  return "crm";
+}
+
+function withPriority<T extends typeof leads.$inferSelect>(lead: T) {
+  return {
+    ...lead,
+    ...getLeadPriority(lead.score),
+  };
+}
+
 
 function parseCsvLeadRow(row: Record<string, string>) {
   const title = row.title || row.lead_title || row.company || row.full_name || row.fullname || row.name || row.email;
@@ -109,6 +131,13 @@ export async function listLeads(c: Context<AppEnv>) {
     conditions.push(eq(leads.assignedToUserId, query.assignedToUserId));
   }
 
+  if (query.priority) {
+    const band = leadPriorityBands.find((item) => item.key === query.priority);
+    if (band) {
+      conditions.push(gte(leads.score, band.min), lte(leads.score, band.max));
+    }
+  }
+
   if (query.q) {
     conditions.push(ilike(leads.title, `%${query.q}%`));
   }
@@ -116,12 +145,12 @@ export async function listLeads(c: Context<AppEnv>) {
   const where = and(...conditions);
 
   const [items, totalRows] = await Promise.all([
-    db.select().from(leads).where(where).orderBy(desc(leads.createdAt)).limit(query.limit).offset(query.offset),
+    db.select().from(leads).where(where).orderBy(desc(leads.score), desc(leads.updatedAt), desc(leads.createdAt)).limit(query.limit).offset(query.offset),
     db.select({ count: count() }).from(leads).where(where),
   ]);
 
   return ok(c, {
-    items,
+    items: items.map(withPriority),
     ...paginationMeta(totalRows, query),
   });
 }
@@ -160,6 +189,8 @@ export async function createLead(c: Context<AppEnv>) {
 
   await assertValidLeadSource(tenant.companyId, body.source);
   await assertValidPartnerCompany(tenant.companyId, body.partnerCompanyId);
+  await assertTenantStore(c, tenant.companyId, body.storeId ?? tenant.storeId);
+  await assertTenantMember(c, tenant.companyId, body.assignedToUserId);
 
   const [created] = await db
     .insert(leads)
@@ -174,7 +205,7 @@ export async function createLead(c: Context<AppEnv>) {
       phone: body.phone ?? null,
       source: body.source ?? null,
       status: body.status,
-      score: body.score,
+      score: 0,
       notes: body.notes ?? null,
       tags: body.tags,
       createdBy: user.id,
@@ -208,13 +239,56 @@ export async function createLead(c: Context<AppEnv>) {
     companyId: tenant.companyId,
     leadId: created.id,
     eventType: "lead.created",
-    channel: "crm",
+    channel: getScoringChannel(created.source),
     payload: {
       source: created.source,
-      score: created.score,
+      score: 0,
+      origin: getScoringChannel(created.source),
     },
     createdBy: user.id,
   });
+
+  await recordTriggerEvent({
+    companyId: tenant.companyId,
+    triggerType: "lead.created",
+    eventKey: `lead.created:${created.id}`,
+    entityType: "lead",
+    entityId: created.id,
+    payload: {
+      leadId: created.id,
+      source: created.source,
+      channel: getScoringChannel(created.source),
+    },
+  });
+
+  if (getScoringChannel(created.source) === "meta") {
+    await recordTriggerEvent({
+      companyId: tenant.companyId,
+      triggerType: "meta.lead_created",
+      eventKey: `meta.lead_created:${created.id}`,
+      entityType: "lead",
+      entityId: created.id,
+      payload: {
+        leadId: created.id,
+        source: created.source,
+      },
+    });
+  }
+
+  if (body.score > 0) {
+    await recordLeadScoringEvent({
+      companyId: tenant.companyId,
+      leadId: created.id,
+      eventType: "lead.manual_adjustment",
+      channel: "crm",
+      payload: {
+        adjustment: body.score,
+        requestedScore: body.score,
+        reason: "initial_manual_score",
+      },
+      createdBy: user.id,
+    });
+  }
 
   await routeLead({
     companyId: tenant.companyId,
@@ -223,7 +297,8 @@ export async function createLead(c: Context<AppEnv>) {
     createdBy: user.id,
   });
 
-  return ok(c, created, 201);
+  const [fresh] = await db.select().from(leads).where(eq(leads.id, created.id)).limit(1);
+  return ok(c, fresh ? withPriority(fresh) : withPriority(created), 201);
 }
 
 export async function bulkUpdateLeads(c: Context<AppEnv>) {
@@ -326,12 +401,12 @@ export async function importLeadsFromCsv(c: Context<AppEnv>) {
           phone: leadInput.phone ?? null,
           source: leadInput.source ?? null,
           status: leadInput.status,
-          score: leadInput.score,
+          score: 0,
           notes: leadInput.notes ?? null,
           tags: leadInput.tags,
           createdBy: user.id,
         })
-        .returning({ id: leads.id, title: leads.title, status: leads.status });
+        .returning({ id: leads.id, title: leads.title, status: leads.status, source: leads.source });
 
       createdLeadIds.push(created.id);
 
@@ -346,6 +421,33 @@ export async function importLeadsFromCsv(c: Context<AppEnv>) {
           status: created.status,
         },
       });
+
+      await recordLeadScoringEvent({
+        companyId: tenant.companyId,
+        leadId: created.id,
+        eventType: "lead.created",
+        channel: getScoringChannel(created.source),
+        payload: {
+          source: created.source,
+          origin: "csv_import",
+        },
+        createdBy: user.id,
+      });
+
+      if (leadInput.score > 0) {
+        await recordLeadScoringEvent({
+          companyId: tenant.companyId,
+          leadId: created.id,
+          eventType: "lead.manual_adjustment",
+          channel: "crm",
+          payload: {
+            adjustment: leadInput.score,
+            requestedScore: leadInput.score,
+            reason: "csv_import_score",
+          },
+          createdBy: user.id,
+        });
+      }
     } catch (error) {
       const message =
         error instanceof AppError
@@ -376,7 +478,7 @@ export async function updateLead(c: Context<AppEnv>) {
   assertNonEmptyUpdate(body as Record<string, unknown>);
 
   const [before] = await db
-    .select({ status: leads.status, score: leads.score })
+    .select({ status: leads.status, score: leads.score, source: leads.source, tags: leads.tags })
     .from(leads)
     .where(and(eq(leads.id, params.leadId), eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt)))
     .limit(1);
@@ -391,6 +493,12 @@ export async function updateLead(c: Context<AppEnv>) {
   if (body.partnerCompanyId !== undefined) {
     await assertValidPartnerCompany(tenant.companyId, body.partnerCompanyId);
   }
+  if (body.storeId !== undefined) {
+    await assertTenantStore(c, tenant.companyId, body.storeId);
+  }
+  if (body.assignedToUserId !== undefined) {
+    await assertTenantMember(c, tenant.companyId, body.assignedToUserId);
+  }
 
   const [updated] = await db
     .update(leads)
@@ -402,7 +510,6 @@ export async function updateLead(c: Context<AppEnv>) {
       ...(body.source !== undefined ? { source: body.source ?? null } : {}),
       ...(body.partnerCompanyId !== undefined ? { partnerCompanyId: body.partnerCompanyId ?? null } : {}),
       ...(body.status !== undefined ? { status: body.status } : {}),
-      ...(body.score !== undefined ? { score: body.score } : {}),
       ...(body.notes !== undefined ? { notes: body.notes ?? null } : {}),
       ...(body.tags !== undefined ? { tags: body.tags } : {}),
       ...(body.assignedToUserId !== undefined ? { assignedToUserId: body.assignedToUserId ?? null } : {}),
@@ -430,11 +537,18 @@ export async function updateLead(c: Context<AppEnv>) {
   }
 
   if (body.score !== undefined && body.score !== before.score) {
-    await queueLeadScoreChangedTrigger({
+    await recordLeadScoringEvent({
       companyId: tenant.companyId,
       leadId: updated.id,
-      previousScore: before.score ?? 0,
-      score: updated.score,
+      eventType: "lead.manual_adjustment",
+      channel: "crm",
+      payload: {
+        adjustment: body.score - (before.score ?? 0),
+        requestedScore: body.score,
+        previousScore: before.score ?? 0,
+        reason: "manual_score_update",
+      },
+      createdBy: user.id,
     });
     await routeLead({
       companyId: tenant.companyId,
@@ -466,6 +580,8 @@ export async function updateLead(c: Context<AppEnv>) {
         fromStatus: before.status,
         toStatus: body.status,
         score: updated.score,
+        source: updated.source,
+        tags: updated.tags,
       },
       createdBy: user.id,
     });
@@ -481,12 +597,15 @@ export async function updateLead(c: Context<AppEnv>) {
         score: updated.score,
         notesUpdated: body.notes !== undefined,
         tagsUpdated: body.tags !== undefined,
+        tags: body.tags ?? before.tags,
+        source: updated.source ?? before.source,
       },
       createdBy: user.id,
     });
   }
 
-  return ok(c, updated);
+  const [fresh] = await db.select().from(leads).where(and(eq(leads.id, updated.id), eq(leads.companyId, tenant.companyId))).limit(1);
+  return ok(c, fresh ? withPriority(fresh) : withPriority(updated));
 }
 
 export async function getLeadHistory(c: Context<AppEnv>) {
@@ -564,7 +683,7 @@ export async function getLeadHistory(c: Context<AppEnv>) {
       : [];
 
   return ok(c, {
-    lead,
+    lead: withPriority(lead),
     timeline,
     deals: relatedDeals,
     customers: relatedCustomers,

@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardPanel, DualTrendBars, ForecastArea, ProgressList, formatCurrency } from "@/features/dashboard/dashboard-ui";
 import { ReportSummaryResponse } from "@/features/dashboard/types";
@@ -22,8 +22,12 @@ function EmailTrendChart({
 
 export function ReportsVisuals({ report }: { report: ReportSummaryResponse | null }) {
   return (
-    <Tabs defaultValue="leads" queryKey="tab" className="grid gap-4">
+    <Tabs defaultValue="general" queryKey="tab" className="grid gap-4">
       <TabsList className="w-fit flex-wrap">
+        <TabsTrigger value="general">General</TabsTrigger>
+        <TabsTrigger value="funnel">Funnel</TabsTrigger>
+        <TabsTrigger value="owners">Owner</TabsTrigger>
+        <TabsTrigger value="conversion">Conversion</TabsTrigger>
         <TabsTrigger value="leads">Leads</TabsTrigger>
         <TabsTrigger value="deals">Deals</TabsTrigger>
         <TabsTrigger value="forecast">Forecast</TabsTrigger>
@@ -31,6 +35,125 @@ export function ReportsVisuals({ report }: { report: ReportSummaryResponse | nul
         <TabsTrigger value="partners">Partners</TabsTrigger>
         <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
       </TabsList>
+
+      <TabsContent value="general" className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <DashboardPanel title="General report" description="Workspace totals across leads, customers, deals, tasks, and hot pipeline.">
+          <div className="grid gap-3 md:grid-cols-2">
+            {[
+              ["Total leads", report?.generalReport.totals.leads ?? 0],
+              ["Leads in period", report?.generalReport.totals.leadsInPeriod ?? 0],
+              ["Customers", report?.generalReport.totals.customers ?? 0],
+              ["Open deals", report?.generalReport.totals.openDeals ?? 0],
+              ["Won deals", report?.generalReport.totals.wonDeals ?? 0],
+              ["Hot leads", report?.generalReport.totals.hotLeads ?? 0],
+            ].map(([label, value]) => (
+              <Card key={label} size="sm">
+                <CardHeader>
+                  <CardDescription>{label}</CardDescription>
+                  <CardTitle>{value}</CardTitle>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        </DashboardPanel>
+        <DashboardPanel title="General mix" description="Lead source and status distribution for the selected reporting window.">
+          <div className="grid gap-6">
+            <ProgressList items={report?.generalReport.sourceMix ?? []} emptyLabel="No source data available." />
+            <ProgressList items={report?.generalReport.statusMix ?? []} emptyLabel="No status data available." />
+          </div>
+        </DashboardPanel>
+      </TabsContent>
+
+      <TabsContent value="funnel" className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <DashboardPanel title="Funnel analytics" description="Lead progression from capture through won deals.">
+          <div className="grid gap-3">
+            {(report?.funnelAnalytics.stages ?? []).map((stage, index) => (
+              <div key={stage.key} className="rounded-2xl border border-sky-100 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-slate-950">{stage.label}</div>
+                    <div className="text-sm text-slate-500">
+                      {index === 0 ? "Starting volume" : `${stage.rateFromPrevious}% from previous stage`}
+                    </div>
+                  </div>
+                  <div className="text-2xl font-semibold text-slate-950">{stage.count}</div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-sky-500" style={{ width: `${Math.min(100, stage.rateFromLead)}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </DashboardPanel>
+        <DashboardPanel title="Source funnel" description="Conversion and win rates by source.">
+          <div className="grid gap-3">
+            {(report?.funnelAnalytics.bySource ?? []).map((source) => (
+              <div key={source.key} className="grid gap-3 rounded-2xl border border-sky-100 bg-white p-4 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+                <div>
+                  <div className="font-medium text-slate-950">{source.key}</div>
+                  <div className="text-sm text-slate-500">{source.leads} leads • {source.customers} customers • {source.deals} deals</div>
+                </div>
+                <Badge variant="secondary">{source.conversionRate}% converted</Badge>
+                <Badge variant="outline">{source.winRate}% won</Badge>
+              </div>
+            ))}
+            {(report?.funnelAnalytics.bySource.length ?? 0) === 0 ? <div className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">No source funnel data yet.</div> : null}
+          </div>
+        </DashboardPanel>
+      </TabsContent>
+
+      <TabsContent value="owners" className="grid gap-4">
+        <DashboardPanel title="Owner analytics" description="Lead ownership, conversion, deal value, and workload risk by owner.">
+          <div className="grid gap-3">
+            {(report?.ownerAnalytics ?? []).map((owner) => (
+              <div key={owner.userId ?? "unassigned"} className="grid gap-3 rounded-2xl border border-sky-100 bg-white p-4 xl:grid-cols-[minmax(0,1.2fr)_repeat(5,auto)] xl:items-center">
+                <div>
+                  <div className="font-medium text-slate-950">{owner.name}</div>
+                  <div className="text-sm text-slate-500">{owner.leads} leads • {owner.hotLeads} hot • {owner.overdueTasks} overdue tasks</div>
+                </div>
+                <Badge variant="outline">{owner.leadToCustomerRate}% L/C</Badge>
+                <Badge variant="outline">{owner.winRate}% win</Badge>
+                <div className="text-sm text-slate-600">{owner.openDeals} open deals</div>
+                <div className="text-sm font-medium">{formatCurrency(owner.openValue, true)} open</div>
+                <div className="text-sm font-medium">{formatCurrency(owner.wonRevenue, true)} won</div>
+              </div>
+            ))}
+            {(report?.ownerAnalytics.length ?? 0) === 0 ? <div className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">No owner analytics available yet.</div> : null}
+          </div>
+        </DashboardPanel>
+      </TabsContent>
+
+      <TabsContent value="conversion" className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <DashboardPanel title="Conversion analytics" description="Core conversion rates across lead, deal, and priority outcomes.">
+          <div className="grid gap-3 md:grid-cols-2">
+            {[
+              ["Lead to customer", `${report?.conversionAnalytics.rates.leadToCustomer ?? 0}%`],
+              ["Lead to deal", `${report?.conversionAnalytics.rates.leadToDeal ?? 0}%`],
+              ["Deal win", `${report?.conversionAnalytics.rates.dealWin ?? 0}%`],
+              ["Deal loss", `${report?.conversionAnalytics.rates.dealLoss ?? 0}%`],
+              ["Hot lead share", `${report?.conversionAnalytics.rates.hotLeadShare ?? 0}%`],
+              ["Period L/C", `${report?.conversionAnalytics.rates.periodLeadToCustomer ?? 0}%`],
+            ].map(([label, value]) => (
+              <Card key={label} size="sm">
+                <CardHeader>
+                  <CardDescription>{label}</CardDescription>
+                  <CardTitle>{value}</CardTitle>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        </DashboardPanel>
+        <DashboardPanel title="Conversion counts" description="Raw counts behind the conversion rates.">
+          <div className="grid gap-3">
+            {Object.entries(report?.conversionAnalytics.counts ?? {}).map(([key, value]) => (
+              <div key={key} className="flex items-center justify-between rounded-xl border px-4 py-3">
+                <span className="text-sm capitalize text-muted-foreground">{key.replace(/([A-Z])/g, " $1").trim()}</span>
+                <span className="font-medium">{value}</span>
+              </div>
+            ))}
+          </div>
+        </DashboardPanel>
+      </TabsContent>
 
       <TabsContent value="leads" className="grid gap-4 xl:grid-cols-2">
         <DashboardPanel

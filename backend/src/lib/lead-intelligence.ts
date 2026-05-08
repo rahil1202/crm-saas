@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -26,6 +26,10 @@ function asStringArray(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
 }
 
+function asBoolean(value: unknown, fallback = false) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 function getByPath(source: Record<string, unknown>, path: string) {
   const segments = path.split(".").filter(Boolean);
   let cursor: unknown = source;
@@ -38,7 +42,76 @@ function getByPath(source: Record<string, unknown>, path: string) {
   return cursor;
 }
 
-function matchRuleConditions(conditions: Record<string, unknown>, context: Record<string, unknown>) {
+export type LeadPriorityBand = "hot" | "warm" | "nurture" | "cold";
+
+export const leadPriorityBands: Array<{ key: LeadPriorityBand; label: string; min: number; max: number }> = [
+  { key: "hot", label: "Hot", min: 75, max: 100 },
+  { key: "warm", label: "Warm", min: 50, max: 74 },
+  { key: "nurture", label: "Nurture", min: 25, max: 49 },
+  { key: "cold", label: "Cold", min: 0, max: 24 },
+];
+
+export const defaultLeadScoringRules = [
+  { name: "Meta lead created", eventType: "lead.created", channel: "meta", conditions: {}, weight: 25, priority: 10 },
+  { name: "WhatsApp inbound reply", eventType: "whatsapp.replied", channel: "whatsapp", conditions: {}, weight: 25, priority: 20 },
+  { name: "Email reply", eventType: "email.replied", channel: "email", conditions: {}, weight: 20, priority: 30 },
+  { name: "Website form submitted", eventType: "form.submitted", channel: "website", conditions: {}, weight: 18, priority: 40 },
+  { name: "Qualified status", eventType: "lead.status_changed", channel: "crm", conditions: { toStatus: "qualified" }, weight: 15, priority: 50 },
+  { name: "Booked meeting", eventType: "meeting.booked", channel: "crm", conditions: {}, weight: 15, priority: 60 },
+  { name: "High-intent tag added", eventType: "lead.activity_updated", channel: "crm", conditions: { requiredTags: ["priority"] }, weight: 12, priority: 70 },
+  { name: "Email clicked", eventType: "email.clicked", channel: "email", conditions: {}, weight: 8, priority: 80 },
+  { name: "Email opened", eventType: "email.opened", channel: "email", conditions: {}, weight: 4, priority: 90 },
+  { name: "Lead lost", eventType: "lead.status_changed", channel: "crm", conditions: { toStatus: "lost" }, weight: -35, priority: 100 },
+] as const;
+
+export function getLeadPriority(score: number | null | undefined) {
+  const boundedScore = Math.max(0, Math.min(100, asNumber(score, 0)));
+  const band = leadPriorityBands.find((item) => boundedScore >= item.min && boundedScore <= item.max) ?? leadPriorityBands[3]!;
+  return {
+    priorityBand: band.key,
+    priorityLabel: band.label,
+    priorityReason: `${band.label} lead based on score ${boundedScore}`,
+  };
+}
+
+function normalizeComparable(value: unknown) {
+  return typeof value === "string" ? value.toLowerCase() : value;
+}
+
+function matchesOperator(actual: unknown, operator: string, expected: unknown) {
+  const normalizedActual = normalizeComparable(actual);
+  const normalizedExpected = normalizeComparable(expected);
+  switch (operator) {
+    case "equals":
+    case "eq":
+      return normalizedActual === normalizedExpected;
+    case "not_equals":
+    case "neq":
+      return normalizedActual !== normalizedExpected;
+    case "contains":
+      return Array.isArray(actual)
+        ? actual.map((item) => String(item).toLowerCase()).includes(String(expected).toLowerCase())
+        : String(actual ?? "").toLowerCase().includes(String(expected).toLowerCase());
+    case "in":
+      return Array.isArray(expected) && expected.map((item) => String(item).toLowerCase()).includes(String(actual ?? "").toLowerCase());
+    case "gte":
+      return asNumber(actual, Number.NEGATIVE_INFINITY) >= asNumber(expected, Number.POSITIVE_INFINITY);
+    case "gt":
+      return asNumber(actual, Number.NEGATIVE_INFINITY) > asNumber(expected, Number.POSITIVE_INFINITY);
+    case "lte":
+      return asNumber(actual, Number.POSITIVE_INFINITY) <= asNumber(expected, Number.NEGATIVE_INFINITY);
+    case "lt":
+      return asNumber(actual, Number.POSITIVE_INFINITY) < asNumber(expected, Number.NEGATIVE_INFINITY);
+    case "exists":
+      return actual !== undefined && actual !== null && String(actual).length > 0;
+    case "not_exists":
+      return actual === undefined || actual === null || String(actual).length === 0;
+    default:
+      return false;
+  }
+}
+
+export function matchRuleConditions(conditions: Record<string, unknown>, context: Record<string, unknown>) {
   const source = asString(conditions.source);
   if (source && source !== asString(context.source)) {
     return false;
@@ -46,6 +119,31 @@ function matchRuleConditions(conditions: Record<string, unknown>, context: Recor
 
   const channel = asString(conditions.channel);
   if (channel && channel !== asString(context.channel)) {
+    return false;
+  }
+
+  const status = asString(conditions.status);
+  if (status && status !== asString(context.status)) {
+    return false;
+  }
+
+  const fromStatus = asString(conditions.fromStatus);
+  if (fromStatus && fromStatus !== asString(context.fromStatus)) {
+    return false;
+  }
+
+  const toStatus = asString(conditions.toStatus);
+  if (toStatus && toStatus !== asString(context.toStatus)) {
+    return false;
+  }
+
+  const assignedToUserId = asString(conditions.assignedToUserId);
+  if (assignedToUserId && assignedToUserId !== asString(context.assignedToUserId)) {
+    return false;
+  }
+
+  const origin = asString(conditions.origin);
+  if (origin && origin !== asString(context.origin)) {
     return false;
   }
 
@@ -65,7 +163,45 @@ function matchRuleConditions(conditions: Record<string, unknown>, context: Recor
     }
   }
 
+  const priorityBands = asStringArray(conditions.priorityBands);
+  if (priorityBands.length > 0 && !priorityBands.includes(getLeadPriority(score).priorityBand)) {
+    return false;
+  }
+
+  const fields = Array.isArray(conditions.fields) ? conditions.fields : [];
+  for (const fieldCondition of fields) {
+    if (!fieldCondition || typeof fieldCondition !== "object") {
+      continue;
+    }
+    const condition = fieldCondition as Record<string, unknown>;
+    const field = asString(condition.field);
+    if (!field) {
+      continue;
+    }
+    const operator = asString(condition.operator) ?? "equals";
+    if (!matchesOperator(getByPath(context, field), operator, condition.value)) {
+      return false;
+    }
+  }
+
   return true;
+}
+
+function withLeadPriority<T extends typeof leads.$inferSelect>(lead: T) {
+  return {
+    ...lead,
+    ...getLeadPriority(lead.score),
+  };
+}
+
+function summarizeRule(rule: typeof leadScoringRules.$inferSelect | (typeof defaultLeadScoringRules)[number]) {
+  return {
+    ruleId: "id" in rule ? rule.id : null,
+    name: rule.name,
+    eventType: rule.eventType,
+    channel: rule.channel,
+    weight: rule.weight,
+  };
 }
 
 export async function listLeadScoringRules(companyId: string) {
@@ -103,6 +239,82 @@ export async function upsertLeadScoringRule(input: {
     .returning();
 
   return rule;
+}
+
+export async function updateLeadScoringRule(input: {
+  companyId: string;
+  ruleId: string;
+  name?: string;
+  eventType?: string;
+  channel?: string | null;
+  conditions?: Record<string, unknown>;
+  weight?: number;
+  isActive?: boolean;
+  priority?: number;
+}) {
+  const [rule] = await db
+    .update(leadScoringRules)
+    .set({
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.eventType !== undefined ? { eventType: input.eventType } : {}),
+      ...(input.channel !== undefined ? { channel: input.channel } : {}),
+      ...(input.conditions !== undefined ? { conditions: input.conditions } : {}),
+      ...(input.weight !== undefined ? { weight: input.weight } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(leadScoringRules.id, input.ruleId), eq(leadScoringRules.companyId, input.companyId), isNull(leadScoringRules.deletedAt)))
+    .returning();
+
+  if (!rule) {
+    throw AppError.notFound("Lead scoring rule not found");
+  }
+
+  return rule;
+}
+
+export async function deleteLeadScoringRule(companyId: string, ruleId: string) {
+  const [rule] = await db
+    .update(leadScoringRules)
+    .set({ deletedAt: new Date(), updatedAt: new Date(), isActive: false })
+    .where(and(eq(leadScoringRules.id, ruleId), eq(leadScoringRules.companyId, companyId), isNull(leadScoringRules.deletedAt)))
+    .returning({ id: leadScoringRules.id });
+
+  if (!rule) {
+    throw AppError.notFound("Lead scoring rule not found");
+  }
+
+  return { deleted: true, id: rule.id };
+}
+
+export async function installDefaultLeadScoringRules(input: { companyId: string; createdBy: string }) {
+  const existing = await listLeadScoringRules(input.companyId);
+  const existingKeys = new Set(existing.map((rule) => `${rule.eventType}:${rule.channel ?? ""}:${rule.name}`));
+  const inserted = [];
+
+  for (const rule of defaultLeadScoringRules) {
+    const key = `${rule.eventType}:${rule.channel ?? ""}:${rule.name}`;
+    if (existingKeys.has(key)) {
+      continue;
+    }
+
+    inserted.push(
+      upsertLeadScoringRule({
+        companyId: input.companyId,
+        createdBy: input.createdBy,
+        name: rule.name,
+        eventType: rule.eventType,
+        channel: rule.channel,
+        conditions: rule.conditions,
+        weight: rule.weight,
+        priority: rule.priority,
+        isActive: true,
+      }),
+    );
+  }
+
+  return Promise.all(inserted);
 }
 
 export async function recordLeadScoringEvent(input: {
@@ -166,27 +378,53 @@ export async function recalculateLeadScore(input: {
       .limit(200),
   ]);
 
+  const effectiveRules = rules.length > 0 ? rules : [...defaultLeadScoringRules];
   let computed = 0;
+  const matchedRules: Array<ReturnType<typeof summarizeRule>> = [];
   for (const event of events) {
-    for (const rule of rules) {
+    if (event.eventType === "lead.manual_adjustment") {
+      computed += asNumber((event.payload ?? {}).adjustment, 0);
+      matchedRules.push({
+        ruleId: null,
+        name: "Manual adjustment",
+        eventType: event.eventType,
+        channel: event.channel,
+        weight: asNumber((event.payload ?? {}).adjustment, 0),
+      });
+      continue;
+    }
+
+    for (const rule of effectiveRules) {
       if (rule.eventType !== event.eventType) {
         continue;
       }
       if (rule.channel && rule.channel !== event.channel) {
         continue;
       }
-      if (!matchRuleConditions((rule.conditions ?? {}) as Record<string, unknown>, { ...(event.payload ?? {}), channel: event.channel, score: lead.score })) {
+      if (!matchRuleConditions((rule.conditions ?? {}) as Record<string, unknown>, {
+        ...(event.payload ?? {}),
+        channel: event.channel,
+        score: lead.score,
+        leadScore: lead.score,
+        source: lead.source,
+        status: lead.status,
+        tags: lead.tags,
+        assignedToUserId: lead.assignedToUserId,
+      })) {
         continue;
       }
       computed += rule.weight;
+      matchedRules.push(summarizeRule(rule));
     }
   }
 
   const boundedScore = Math.max(0, Math.min(100, computed));
   const previousScore = lead.score ?? 0;
+  const previousPriority = getLeadPriority(previousScore);
+  const nextPriority = getLeadPriority(boundedScore);
 
   if (boundedScore === previousScore) {
-    return { leadId: lead.id, previousScore, score: boundedScore, changed: false };
+    return { leadId: lead.id, previousScore, score: boundedScore, changed: false, ...nextPriority };
   }
 
   await db
@@ -206,7 +444,10 @@ export async function recalculateLeadScore(input: {
     reason: input.reason,
     detail: {
       eventsEvaluated: events.length,
-      rulesEvaluated: rules.length,
+      rulesEvaluated: effectiveRules.length,
+      matchedRules: matchedRules.slice(0, 25),
+      previousPriority,
+      priority: nextPriority,
     },
     createdBy: input.createdBy ?? null,
   });
@@ -226,25 +467,47 @@ export async function recalculateLeadScore(input: {
       title: "Hot lead detected",
       message: `${lead.title} score reached ${boundedScore}`,
       entityId: lead.id,
-      payload: { score: boundedScore, previousScore },
+    payload: { score: boundedScore, previousScore },
+  });
+}
+
+  if (previousPriority.priorityBand !== nextPriority.priorityBand) {
+    await recordTriggerEvent({
+      companyId: input.companyId,
+      triggerType: "lead.priority_changed",
+      eventKey: `lead.priority_changed:${lead.id}:${nextPriority.priorityBand}:${Date.now()}`,
+      entityType: "lead",
+      entityId: lead.id,
+      payload: {
+        leadId: lead.id,
+        previousScore,
+        score: boundedScore,
+        previousPriorityBand: previousPriority.priorityBand,
+        previousPriorityLabel: previousPriority.priorityLabel,
+        priorityBand: nextPriority.priorityBand,
+        priorityLabel: nextPriority.priorityLabel,
+      },
     });
   }
 
-  await recordTriggerEvent({
-    companyId: input.companyId,
-    triggerType: "lead.score_changed",
-    eventKey: `lead.score_changed:${lead.id}:${boundedScore}:${Date.now()}`,
-    entityType: "lead",
-    entityId: lead.id,
-    payload: {
-      leadId: lead.id,
-      previousScore,
-      score: boundedScore,
-      hotLead,
-    },
-  });
+  if (previousPriority.priorityBand !== "hot" && nextPriority.priorityBand === "hot") {
+    await recordTriggerEvent({
+      companyId: input.companyId,
+      triggerType: "lead.became_hot",
+      eventKey: `lead.became_hot:${lead.id}:${boundedScore}:${Date.now()}`,
+      entityType: "lead",
+      entityId: lead.id,
+      payload: {
+        leadId: lead.id,
+        previousScore,
+        score: boundedScore,
+        priorityBand: nextPriority.priorityBand,
+        priorityLabel: nextPriority.priorityLabel,
+      },
+    });
+  }
 
-  return { leadId: lead.id, previousScore, score: boundedScore, changed: true };
+  return { leadId: lead.id, previousScore, score: boundedScore, changed: true, ...nextPriority };
 }
 
 export async function listLeadScoreHistory(companyId: string, leadId: string) {
@@ -256,11 +519,25 @@ export async function listLeadScoreHistory(companyId: string, leadId: string) {
     .limit(100);
 }
 
+export async function listLeadScoreEvents(companyId: string, leadId: string) {
+  return db
+    .select()
+    .from(leadScoreEvents)
+    .where(and(eq(leadScoreEvents.companyId, companyId), eq(leadScoreEvents.leadId, leadId)))
+    .orderBy(desc(leadScoreEvents.createdAt))
+    .limit(100);
+}
+
 function routingRuleMatches(rule: (typeof leadRoutingRules.$inferSelect), lead: typeof leads.$inferSelect) {
   const predicates = (rule.predicates ?? {}) as Record<string, unknown>;
   const minScore = asNumber(predicates.minScore, Number.NEGATIVE_INFINITY);
   const maxScore = asNumber(predicates.maxScore, Number.POSITIVE_INFINITY);
   if ((lead.score ?? 0) < minScore || (lead.score ?? 0) > maxScore) {
+    return false;
+  }
+
+  const priorityBands = asStringArray(predicates.priorityBands);
+  if (priorityBands.length > 0 && !priorityBands.includes(getLeadPriority(lead.score).priorityBand)) {
     return false;
   }
 
@@ -386,6 +663,93 @@ export async function createLeadRoutingRule(input: {
   return rule;
 }
 
+export async function updateLeadRoutingRule(input: {
+  companyId: string;
+  ruleId: string;
+  name?: string;
+  priority?: number;
+  isActive?: boolean;
+  strategy?: string;
+  predicates?: Record<string, unknown>;
+  assignmentConfig?: Record<string, unknown>;
+}) {
+  const [rule] = await db
+    .update(leadRoutingRules)
+    .set({
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      ...(input.strategy !== undefined ? { strategy: input.strategy } : {}),
+      ...(input.predicates !== undefined ? { predicates: input.predicates } : {}),
+      ...(input.assignmentConfig !== undefined ? { assignmentConfig: input.assignmentConfig } : {}),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(leadRoutingRules.id, input.ruleId), eq(leadRoutingRules.companyId, input.companyId), isNull(leadRoutingRules.deletedAt)))
+    .returning();
+
+  if (!rule) {
+    throw AppError.notFound("Lead routing rule not found");
+  }
+
+  return rule;
+}
+
+export async function deleteLeadRoutingRule(companyId: string, ruleId: string) {
+  const [rule] = await db
+    .update(leadRoutingRules)
+    .set({ deletedAt: new Date(), updatedAt: new Date(), isActive: false })
+    .where(and(eq(leadRoutingRules.id, ruleId), eq(leadRoutingRules.companyId, companyId), isNull(leadRoutingRules.deletedAt)))
+    .returning({ id: leadRoutingRules.id });
+
+  if (!rule) {
+    throw AppError.notFound("Lead routing rule not found");
+  }
+
+  return { deleted: true, id: rule.id };
+}
+
+export async function getLeadPrioritizationSummary(companyId: string) {
+  const [leadRows, totalRows] = await Promise.all([
+    db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.companyId, companyId), isNull(leads.deletedAt)))
+      .orderBy(desc(leads.score), desc(leads.updatedAt))
+      .limit(20),
+    db.select({ count: count() }).from(leads).where(and(eq(leads.companyId, companyId), isNull(leads.deletedAt))),
+  ]);
+
+  const bandCounts = Object.fromEntries(leadPriorityBands.map((band) => [band.key, 0])) as Record<LeadPriorityBand, number>;
+  const scoreBuckets = await Promise.all(
+    leadPriorityBands.map(async (band) => {
+      const rows = await db
+        .select({ count: count() })
+        .from(leads)
+        .where(and(eq(leads.companyId, companyId), isNull(leads.deletedAt), gte(leads.score, band.min)));
+      return { band, count: Number(rows[0]?.count ?? 0) };
+    }),
+  );
+
+  for (const { band, count: aboveMinCount } of scoreBuckets) {
+    if (band.key === "hot") {
+      bandCounts[band.key] = aboveMinCount;
+      continue;
+    }
+    const nextHigher = leadPriorityBands[leadPriorityBands.findIndex((item) => item.key === band.key) - 1];
+    const higherCount = nextHigher ? scoreBuckets.find((item) => item.band.key === nextHigher.key)?.count ?? 0 : 0;
+    bandCounts[band.key] = Math.max(0, aboveMinCount - higherCount);
+  }
+
+  return {
+    total: Number(totalRows[0]?.count ?? 0),
+    bands: leadPriorityBands.map((band) => ({
+      ...band,
+      count: bandCounts[band.key],
+    })),
+    topLeads: leadRows.map(withLeadPriority),
+  };
+}
+
 export async function routeLead(input: {
   companyId: string;
   leadId: string;
@@ -497,6 +861,8 @@ export async function routeLead(input: {
     payload: {
       ruleName: selectedRule?.name ?? "fallback_round_robin",
       strategy: selectedRule?.strategy ?? "round_robin_fallback",
+      score: lead.score ?? 0,
+      priority: getLeadPriority(lead.score),
     },
     createdBy: input.createdBy ?? null,
   });

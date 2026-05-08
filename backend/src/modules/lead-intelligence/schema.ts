@@ -10,6 +10,10 @@ export const leadScoringRuleSchema = z.object({
   priority: z.number().int().min(1).max(1000).default(100),
 });
 
+export const updateLeadScoringRuleSchema = leadScoringRuleSchema.partial().refine((value) => Object.keys(value).length > 0, {
+  message: "At least one scoring rule field is required",
+});
+
 export const leadScoreEventSchema = z.object({
   leadId: z.string().uuid(),
   eventType: z.string().trim().min(1).max(80),
@@ -22,6 +26,14 @@ export const leadIdParamSchema = z.object({
   leadId: z.string().uuid(),
 });
 
+export const scoringRuleParamSchema = z.object({
+  ruleId: z.string().uuid(),
+});
+
+export const routingRuleParamSchema = z.object({
+  ruleId: z.string().uuid(),
+});
+
 export const leadRoutingRuleSchema = z.object({
   name: z.string().trim().min(1).max(180),
   priority: z.number().int().min(1).max(1000).default(100),
@@ -31,11 +43,17 @@ export const leadRoutingRuleSchema = z.object({
   assignmentConfig: z.record(z.string(), z.unknown()).default({}),
 });
 
+export const updateLeadRoutingRuleSchema = leadRoutingRuleSchema.partial().refine((value) => Object.keys(value).length > 0, {
+  message: "At least one routing rule field is required",
+});
+
 export const routeLeadSchema = z.object({
   reason: z.string().trim().min(1).max(180).default("manual_route"),
 });
 
 export type CreateLeadScoringRuleInput = z.infer<typeof leadScoringRuleSchema>;
+export type UpdateLeadScoringRuleInput = z.infer<typeof updateLeadScoringRuleSchema>;
 export type CreateLeadScoreEventInput = z.infer<typeof leadScoreEventSchema>;
 export type CreateLeadRoutingRuleInput = z.infer<typeof leadRoutingRuleSchema>;
+export type UpdateLeadRoutingRuleInput = z.infer<typeof updateLeadRoutingRuleSchema>;
 export type RouteLeadInput = z.infer<typeof routeLeadSchema>;

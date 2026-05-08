@@ -2,77 +2,123 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest } from "@/lib/api";
 
 type SupportedTemplateType = "email" | "whatsapp";
+type WhatsappStatus = "draft" | "approved" | "rejected" | "paused";
+
+interface WhatsappWorkspace {
+  id: string;
+  name: string;
+  phoneNumberId: string;
+}
+
+interface WhatsappTemplateVariable {
+  key: string;
+  fallback?: string;
+}
 
 const emailVariables = ["{{name}}", "{{sender_company}}", "{{receiver_company}}", "{{date}}", "{{email}}", "{{phone}}"];
+const whatsappStatuses: WhatsappStatus[] = ["draft", "approved", "rejected", "paused"];
+
+function renderWhatsappPreview(body: string, variables: WhatsappTemplateVariable[]) {
+  return variables.reduce((current, variable) => {
+    const key = variable.key.trim();
+    if (!key) return current;
+    return current.replaceAll(`{{${key}}}`, variable.fallback?.trim() || `{{${key}}}`);
+  }, body);
+}
+
+function apiErrorMessage(error: unknown, fallback: string) {
+  return error instanceof ApiError ? error.message : fallback;
+}
 
 export function TemplateCreatePage() {
   const router = useRouter();
-
-  const [step, setStep] = useState<"setup" | "editor">("setup");
-  const [name, setName] = useState("");
   const [type, setType] = useState<SupportedTemplateType>("email");
-
+  const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [content, setContent] = useState("");
-  const [footer, setFooter] = useState("");
-  const [setAsDefault, setSetAsDefault] = useState(false);
-  const [quickReplies, setQuickReplies] = useState<string[]>([]);
-  const [draftQuickReply, setDraftQuickReply] = useState("");
-
+  const [notes, setNotes] = useState("");
+  const [workspaces, setWorkspaces] = useState<WhatsappWorkspace[]>([]);
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [category, setCategory] = useState("marketing");
+  const [language, setLanguage] = useState("en");
+  const [status, setStatus] = useState<WhatsappStatus>("draft");
+  const [providerTemplateId, setProviderTemplateId] = useState("");
+  const [variables, setVariables] = useState<WhatsappTemplateVariable[]>([]);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const notes = useMemo(() => {
-    const parts: string[] = [];
-    if (setAsDefault) {
-      parts.push("default_template=true");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedType = params.get("type");
+    if (requestedType === "whatsapp" || requestedType === "email") {
+      setType(requestedType);
     }
-    if (type === "whatsapp") {
-      if (footer.trim()) {
-        parts.push(`footer=${footer.trim()}`);
-      }
-      if (quickReplies.length > 0) {
-        parts.push(`quick_replies=${quickReplies.join("|")}`);
-      }
-    }
-    return parts.length > 0 ? parts.join("\n") : undefined;
-  }, [footer, quickReplies, setAsDefault, type]);
+  }, []);
 
-  const canOpenEditor = name.trim().length >= 2;
+  useEffect(() => {
+    if (type !== "whatsapp") {
+      return;
+    }
+
+    let disposed = false;
+    const loadWorkspaces = async () => {
+      try {
+        const response = await apiRequest<{ items: WhatsappWorkspace[] }>("/whatsapp-workspaces", { skipCache: true });
+        if (!disposed) {
+          setWorkspaces(response.items);
+          setWorkspaceId((current) => current || response.items[0]?.id || "");
+        }
+      } catch (caughtError) {
+        if (!disposed) {
+          setError(apiErrorMessage(caughtError, "Unable to load WhatsApp workspaces"));
+        }
+      }
+    };
+
+    void loadWorkspaces();
+    return () => {
+      disposed = true;
+    };
+  }, [type]);
+
   const canCreate = name.trim().length >= 2 && content.trim().length > 0;
 
-  const addQuickReply = () => {
-    const value = draftQuickReply.trim();
-    if (!value) {
-      return;
-    }
-    if (quickReplies.length >= 5) {
-      toast.error("Maximum 5 quick reply buttons are supported.");
-      return;
-    }
-    setQuickReplies((current) => [...current, value]);
-    setDraftQuickReply("");
+  const emailPreview = useMemo(
+    () => ({
+      subject: subject.trim() || "No subject",
+      content: content.trim() || "No body content.",
+    }),
+    [content, subject],
+  );
+
+  const whatsappPreview = useMemo(
+    () => renderWhatsappPreview(content.trim() || "No body content.", variables),
+    [content, variables],
+  );
+
+  const addVariable = () => {
+    setVariables((current) => [...current, { key: "", fallback: "" }]);
   };
 
-  const removeQuickReply = (index: number) => {
-    setQuickReplies((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  const updateVariable = (index: number, patch: Partial<WhatsappTemplateVariable>) => {
+    setVariables((current) => current.map((variable, currentIndex) => (currentIndex === index ? { ...variable, ...patch } : variable)));
   };
 
-  const insertVariable = (token: string) => {
-    setContent((current) => `${current}${current ? " " : ""}${token}`);
+  const removeVariable = (index: number) => {
+    setVariables((current) => current.filter((_, currentIndex) => currentIndex !== index));
   };
 
   const handleCreate = async (event: FormEvent) => {
@@ -84,20 +130,39 @@ export function TemplateCreatePage() {
     setWorking(true);
     setError(null);
     try {
-      await apiRequest("/templates", {
-        method: "POST",
-        body: JSON.stringify({
-          name: name.trim(),
-          type,
-          subject: subject.trim() || undefined,
-          content: content.trim(),
-          notes,
-        }),
-      });
+      if (type === "email") {
+        await apiRequest("/templates", {
+          method: "POST",
+          body: JSON.stringify({
+            name: name.trim(),
+            type: "email",
+            subject: subject.trim() || undefined,
+            content: content.trim(),
+            notes: notes.trim() || undefined,
+          }),
+        });
+      } else {
+        await apiRequest("/whatsapp-templates", {
+          method: "POST",
+          body: JSON.stringify({
+            workspaceId: workspaceId || undefined,
+            name: name.trim(),
+            category: category.trim() || undefined,
+            language: language.trim() || "en",
+            status,
+            body: content.trim(),
+            variables: variables.filter((variable) => variable.key.trim()).map((variable) => ({
+              key: variable.key.trim(),
+              ...(variable.fallback?.trim() ? { fallback: variable.fallback.trim() } : {}),
+            })),
+            providerTemplateId: providerTemplateId.trim() || undefined,
+          }),
+        });
+      }
       toast.success("Template created");
       router.push("/dashboard/templates");
     } catch (requestError) {
-      const message = requestError instanceof ApiError ? requestError.message : "Unable to create template";
+      const message = apiErrorMessage(requestError, "Unable to create template");
       setError(message);
       toast.error(message);
     } finally {
@@ -106,7 +171,24 @@ export function TemplateCreatePage() {
   };
 
   return (
-    <div className="grid gap-5">
+    <form className="grid gap-5" onSubmit={handleCreate}>
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-[1.25rem] border border-border/60 bg-white px-5 py-4 shadow-[0_18px_38px_-30px_rgba(15,23,42,0.18)]">
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard/templates">
+            <Button type="button" variant="outline" size="sm">
+              <ArrowLeft className="size-4" /> Back
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-[1.7rem] font-semibold tracking-[-0.03em] text-slate-900">Create Template</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Create an email template or a local WhatsApp Cloud API template record.</p>
+          </div>
+        </div>
+        <Button type="submit" size="sm" disabled={working || !canCreate}>
+          {working ? "Creating..." : "Create Template"}
+        </Button>
+      </div>
+
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Template create failed</AlertTitle>
@@ -114,176 +196,118 @@ export function TemplateCreatePage() {
         </Alert>
       ) : null}
 
-      {step === "setup" ? (
-        <section className="rounded-[1.6rem] border border-border/70 bg-white p-5 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
-          <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-4">
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Create New Template</h2>
-            <div className="flex items-center gap-2">
-              <Link href="/dashboard/templates">
-                <Button type="button" variant="ghost" size="sm">
-                  Cancel
+      <section className="grid gap-5 rounded-[1.6rem] border border-border/70 bg-white p-5 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field>
+            <FieldLabel>Template Type</FieldLabel>
+            <NativeSelect value={type} onChange={(event) => setType(event.target.value as SupportedTemplateType)}>
+              <option value="email">Email</option>
+              <option value="whatsapp">WhatsApp</option>
+            </NativeSelect>
+          </Field>
+          <Field>
+            <FieldLabel>Template Name</FieldLabel>
+            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={type === "email" ? "Welcome email" : "order_update"} required />
+          </Field>
+        </div>
+
+        {type === "email" ? (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {emailVariables.map((token) => (
+                <Button key={token} type="button" variant="outline" size="sm" onClick={() => setContent((current) => `${current}${current ? " " : ""}${token}`)}>
+                  {token}
                 </Button>
-              </Link>
-              <Button type="button" size="sm" disabled={!canOpenEditor} onClick={() => setStep("editor")}>
-                Next
-              </Button>
+              ))}
             </div>
-          </div>
-
-          <div className="mt-5 grid gap-5">
             <Field>
-              <FieldLabel>Template Name</FieldLabel>
-              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter template name" className="h-12" />
+              <FieldLabel>Subject</FieldLabel>
+              <Input value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Welcome to our service" />
             </Field>
-
             <Field>
-              <FieldLabel>Template Type</FieldLabel>
-              <select
-                value={type}
-                onChange={(event) => setType(event.target.value as SupportedTemplateType)}
-                className="h-12 w-full rounded-xl border border-border bg-background px-3 text-sm"
-              >
-                <option value="email">Email</option>
-                <option value="whatsapp">WhatsApp</option>
-              </select>
+              <FieldLabel>Email Body</FieldLabel>
+              <Textarea value={content} onChange={(event) => setContent(event.target.value)} className="min-h-72" required />
             </Field>
-          </div>
-        </section>
-      ) : (
-        <form className="grid gap-5" onSubmit={handleCreate}>
-          <div className="flex items-center justify-between gap-4 rounded-[1.6rem] border border-border/70 bg-white px-4 py-3 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.3)]">
-            <div className="flex items-center gap-3">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setStep("setup")}>
-                <ArrowLeft className="size-4" />
-                Back
-              </Button>
-              <div className="text-xl font-semibold text-slate-900">{type === "email" ? "Email Template" : "WhatsApp Template"}</div>
+            <Field>
+              <FieldLabel>Notes</FieldLabel>
+              <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="min-h-24" />
+            </Field>
+          </>
+        ) : (
+          <>
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field>
+                <FieldLabel>Workspace</FieldLabel>
+                <NativeSelect value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)}>
+                  <option value="">No workspace</option>
+                  {workspaces.map((workspace) => (
+                    <option key={workspace.id} value={workspace.id}>
+                      {workspace.name} ({workspace.phoneNumberId})
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>Category</FieldLabel>
+                <Input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="marketing" />
+              </Field>
+              <Field>
+                <FieldLabel>Language</FieldLabel>
+                <Input value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="en" />
+              </Field>
+              <Field>
+                <FieldLabel>Status</FieldLabel>
+                <NativeSelect value={status} onChange={(event) => setStatus(event.target.value as WhatsappStatus)}>
+                  {whatsappStatuses.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field className="md:col-span-2">
+                <FieldLabel>Provider Template ID</FieldLabel>
+                <Input value={providerTemplateId} onChange={(event) => setProviderTemplateId(event.target.value)} />
+              </Field>
             </div>
-            <Button type="submit" size="sm" disabled={working || !canCreate}>
-              {working ? "Creating..." : "Create Template"}
-            </Button>
-          </div>
-
-          <section className="rounded-[1.6rem] border border-border/70 bg-white p-5 shadow-[0_24px_60px_-40px_rgba(15,23,42,0.35)]">
-            {type === "email" ? (
-              <div className="grid gap-5">
-                <div className="grid gap-3">
-                  <div className="text-base font-semibold text-slate-900">Available Variables</div>
-                  <div className="flex flex-wrap gap-2">
-                    {emailVariables.map((token) => (
-                      <Button key={token} type="button" variant="outline" size="sm" onClick={() => insertVariable(token)}>
-                        {token}
-                      </Button>
-                    ))}
-                  </div>
-                  <div className="text-sm text-muted-foreground">Click a variable to append it to the email body.</div>
+            <Field>
+              <FieldLabel>Body</FieldLabel>
+              <Textarea value={content} onChange={(event) => setContent(event.target.value)} className="min-h-48" required />
+              <FieldDescription>Use variables like {"{{name}}"} and add matching variable keys below.</FieldDescription>
+            </Field>
+            <div className="grid gap-3 rounded-2xl border border-border/60 bg-slate-50/70 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-slate-900">Variables</div>
+                <Button type="button" variant="outline" size="sm" onClick={addVariable}>
+                  <Plus className="size-4" /> Add Variable
+                </Button>
+              </div>
+              {variables.length === 0 ? <div className="text-sm text-muted-foreground">No variables configured.</div> : null}
+              {variables.map((variable, index) => (
+                <div key={index} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <Input value={variable.key} onChange={(event) => updateVariable(index, { key: event.target.value })} placeholder="name" />
+                  <Input value={variable.fallback ?? ""} onChange={(event) => updateVariable(index, { fallback: event.target.value })} placeholder="Fallback value" />
+                  <Button type="button" variant="ghost" className="text-rose-600 hover:text-rose-700" onClick={() => removeVariable(index)}>
+                    <X className="size-4" /> Remove
+                  </Button>
                 </div>
-
-                <Field>
-                  <FieldLabel>Subject</FieldLabel>
-                  <Input value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Eg: Welcome to our service" />
-                </Field>
-
-                <Field>
-                  <FieldLabel>Email Body</FieldLabel>
-                  <Textarea
-                    value={content}
-                    onChange={(event) => setContent(event.target.value)}
-                    placeholder="Eg: Hi John, we're excited to have you onboard..."
-                    className="min-h-72"
-                  />
-                </Field>
-              </div>
-            ) : (
-              <div className="grid gap-5">
-                <Field>
-                  <FieldLabel>Header (Optional)</FieldLabel>
-                  <Input value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Eg: Hello John" />
-                </Field>
-
-                <Field>
-                  <FieldLabel>Body (Required)</FieldLabel>
-                  <Textarea
-                    value={content}
-                    onChange={(event) => setContent(event.target.value)}
-                    placeholder="Eg: Hi John, thank you for reaching out..."
-                    className="min-h-40"
-                    required
-                  />
-                </Field>
-
-                <Field>
-                  <FieldLabel>Footer (Optional)</FieldLabel>
-                  <Input value={footer} onChange={(event) => setFooter(event.target.value)} placeholder="Eg: Best regards" />
-                </Field>
-
-                <div className="grid gap-2">
-                  <div className="text-base font-semibold text-slate-900">Buttons (Optional)</div>
-                  <div className="text-sm text-muted-foreground">Add quick reply buttons (maximum 5).</div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={draftQuickReply}
-                      onChange={(event) => setDraftQuickReply(event.target.value)}
-                      placeholder="Enter quick reply text"
-                      className="max-w-xs"
-                    />
-                    <Button type="button" variant="ghost" onClick={addQuickReply}>
-                      <Plus className="size-4" />
-                      Add Button
-                    </Button>
-                  </div>
-                  {quickReplies.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {quickReplies.map((item, index) => (
-                        <div key={`${item}-${index}`} className="inline-flex items-center gap-2 rounded-full border border-border bg-slate-50 px-3 py-1 text-sm">
-                          <span>{item}</span>
-                          <button type="button" onClick={() => removeQuickReply(index)} className="text-slate-500 hover:text-rose-600">
-                            <X className="size-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6 flex items-center gap-2">
-              <Checkbox checked={setAsDefault} onCheckedChange={(checked) => setSetAsDefault(checked === true)} id="template-default" />
-              <label htmlFor="template-default" className="text-base text-slate-900">
-                Set as Default Template
-              </label>
+              ))}
             </div>
+          </>
+        )}
 
-            <div className="mt-6 grid gap-2">
-              <div className="text-2xl font-semibold tracking-tight text-slate-900">Preview</div>
-              <div className="rounded-xl border border-border bg-slate-50 p-4">
-                {type === "email" ? (
-                  <div className="grid gap-2 text-sm">
-                    <div className="font-semibold text-slate-900">Subject: {subject.trim() || "No Subject Provided"}</div>
-                    <div className="text-slate-700 whitespace-pre-wrap">{content.trim() || "No content in the email body."}</div>
-                  </div>
-                ) : (
-                  <div className="grid gap-2 text-sm">
-                    {subject.trim() ? <div className="font-semibold text-slate-900">{subject.trim()}</div> : null}
-                    <div className="text-slate-700 whitespace-pre-wrap">{content.trim() || "No body content"}</div>
-                    {footer.trim() ? <div className="text-slate-500">{footer.trim()}</div> : null}
-                    {quickReplies.length > 0 ? (
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        {quickReplies.map((item, index) => (
-                          <span key={`${item}-${index}`} className="rounded-full border border-border bg-white px-3 py-1 text-xs font-medium">
-                            {item}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-        </form>
-      )}
-    </div>
+        <div className="grid gap-2 rounded-2xl border border-border/60 bg-slate-50/70 p-4 text-sm">
+          <div className="font-semibold text-slate-900">Preview</div>
+          {type === "email" ? (
+            <>
+              <div className="font-semibold text-slate-900">Subject: {emailPreview.subject}</div>
+              <div className="whitespace-pre-wrap text-slate-700">{emailPreview.content}</div>
+            </>
+          ) : (
+            <div className="whitespace-pre-wrap text-slate-700">{whatsappPreview}</div>
+          )}
+        </div>
+      </section>
+    </form>
   );
 }

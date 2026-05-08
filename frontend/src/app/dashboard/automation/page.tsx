@@ -43,6 +43,27 @@ interface AutomationListResponse {
   items: Automation[];
 }
 
+interface LeadScoringRule {
+  id: string;
+  name: string;
+  eventType: string;
+  channel: string | null;
+  conditions: Record<string, unknown>;
+  weight: number;
+  isActive: boolean;
+  priority: number;
+}
+
+interface LeadScoringRuleResponse {
+  items: LeadScoringRule[];
+}
+
+interface LeadPrioritizationSummary {
+  total: number;
+  bands: Array<{ key: string; label: string; min: number; max: number; count: number }>;
+  topLeads: Array<{ id: string; title: string; score: number; priorityLabel: string; source: string | null }>;
+}
+
 const statusTone: Record<AutomationStatus, "default" | "outline" | "secondary" | "destructive"> = {
   active: "default",
   paused: "outline",
@@ -68,6 +89,18 @@ export default function AutomationPage() {
   const [submitting, setSubmitting] = useState(false);
   const [workingAutomationId, setWorkingAutomationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scoringRules, setScoringRules] = useState<LeadScoringRule[]>([]);
+  const [prioritizationSummary, setPrioritizationSummary] = useState<LeadPrioritizationSummary | null>(null);
+  const [scoringName, setScoringName] = useState("");
+  const [scoringEventType, setScoringEventType] = useState("lead.created");
+  const [scoringChannel, setScoringChannel] = useState("crm");
+  const [scoringWeight, setScoringWeight] = useState("10");
+  const [scoringPriority, setScoringPriority] = useState("100");
+  const [scoringActive, setScoringActive] = useState(true);
+  const [scoringConditionsText, setScoringConditionsText] = useState("{}");
+  const [editingScoringRuleId, setEditingScoringRuleId] = useState<string | null>(null);
+  const [scoringSubmitting, setScoringSubmitting] = useState(false);
+  const [workingScoringRuleId, setWorkingScoringRuleId] = useState<string | null>(null);
 
   const loadAutomations = useCallback(async () => {
     setLoading(true);
@@ -91,11 +124,118 @@ export default function AutomationPage() {
     void loadAutomations();
   }, [loadAutomations]);
 
+  const loadScoring = useCallback(async () => {
+    try {
+      const [rules, summary] = await Promise.all([
+        apiRequest<LeadScoringRuleResponse>("/lead-scoring-rules", { skipCache: true }),
+        apiRequest<LeadPrioritizationSummary>("/lead-prioritization/summary", { skipCache: true }),
+      ]);
+      setScoringRules(rules.items);
+      setPrioritizationSummary(summary);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to load lead scoring");
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadScoring();
+  }, [loadScoring]);
+
   const parseJson = <T,>(value: string, label: string): T => {
     try {
       return JSON.parse(value) as T;
     } catch {
       throw new Error(`${label} must be valid JSON`);
+    }
+  };
+
+  const resetScoringForm = () => {
+    setEditingScoringRuleId(null);
+    setScoringName("");
+    setScoringEventType("lead.created");
+    setScoringChannel("crm");
+    setScoringWeight("10");
+    setScoringPriority("100");
+    setScoringActive(true);
+    setScoringConditionsText("{}");
+  };
+
+  const editScoringRule = (rule: LeadScoringRule) => {
+    setEditingScoringRuleId(rule.id);
+    setScoringName(rule.name);
+    setScoringEventType(rule.eventType);
+    setScoringChannel(rule.channel ?? "");
+    setScoringWeight(String(rule.weight));
+    setScoringPriority(String(rule.priority));
+    setScoringActive(rule.isActive);
+    setScoringConditionsText(JSON.stringify(rule.conditions ?? {}, null, 2));
+  };
+
+  const saveScoringRule = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setScoringSubmitting(true);
+    setError(null);
+
+    try {
+      const payload = {
+        name: scoringName,
+        eventType: scoringEventType,
+        channel: scoringChannel || undefined,
+        conditions: parseJson<Record<string, unknown>>(scoringConditionsText, "Scoring conditions"),
+        weight: Number(scoringWeight) || 0,
+        priority: Number(scoringPriority) || 100,
+        isActive: scoringActive,
+      };
+
+      await apiRequest(editingScoringRuleId ? `/lead-scoring-rules/${editingScoringRuleId}` : "/lead-scoring-rules", {
+        method: editingScoringRuleId ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
+      resetScoringForm();
+      await loadScoring();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : requestError instanceof Error ? requestError.message : "Unable to save lead scoring rule");
+    } finally {
+      setScoringSubmitting(false);
+    }
+  };
+
+  const toggleScoringRule = async (rule: LeadScoringRule) => {
+    setWorkingScoringRuleId(rule.id);
+    try {
+      await apiRequest(`/lead-scoring-rules/${rule.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: !rule.isActive }),
+      });
+      await loadScoring();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to update lead scoring rule");
+    } finally {
+      setWorkingScoringRuleId(null);
+    }
+  };
+
+  const deleteScoringRule = async (ruleId: string) => {
+    setWorkingScoringRuleId(ruleId);
+    try {
+      await apiRequest(`/lead-scoring-rules/${ruleId}`, { method: "DELETE" });
+      await loadScoring();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to delete lead scoring rule");
+    } finally {
+      setWorkingScoringRuleId(null);
+    }
+  };
+
+  const installDefaultScoringRules = async () => {
+    setScoringSubmitting(true);
+    try {
+      await apiRequest("/lead-scoring-rules/defaults", { method: "POST", body: JSON.stringify({}) });
+      await loadScoring();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Unable to install default scoring rules");
+    } finally {
+      setScoringSubmitting(false);
     }
   };
 
@@ -199,6 +339,120 @@ export default function AutomationPage() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
+
+        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <Card>
+            <CardHeader>
+              <CardTitle>Scoring & Prioritization</CardTitle>
+              <CardDescription>Manage rule weights that calculate lead score and Hot, Warm, Nurture, or Cold priority.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form className="grid gap-4" onSubmit={saveScoringRule}>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="scoring-name">Rule name</FieldLabel>
+                    <Input id="scoring-name" value={scoringName} onChange={(event) => setScoringName(event.target.value)} placeholder="WhatsApp reply" required />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="scoring-event">Event type</FieldLabel>
+                    <Input id="scoring-event" value={scoringEventType} onChange={(event) => setScoringEventType(event.target.value)} placeholder="whatsapp.replied" required />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="scoring-channel">Channel</FieldLabel>
+                    <Input id="scoring-channel" value={scoringChannel} onChange={(event) => setScoringChannel(event.target.value)} placeholder="crm, email, whatsapp, meta" />
+                  </Field>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field>
+                      <FieldLabel htmlFor="scoring-weight">Weight</FieldLabel>
+                      <Input id="scoring-weight" type="number" min={-100} max={100} value={scoringWeight} onChange={(event) => setScoringWeight(event.target.value)} />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="scoring-priority">Rule order</FieldLabel>
+                      <Input id="scoring-priority" type="number" min={1} max={1000} value={scoringPriority} onChange={(event) => setScoringPriority(event.target.value)} />
+                    </Field>
+                  </div>
+                </FieldGroup>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={scoringActive} onChange={(event) => setScoringActive(event.target.checked)} />
+                  Active rule
+                </label>
+                <Field>
+                  <FieldLabel htmlFor="scoring-conditions">Conditions JSON</FieldLabel>
+                  <Textarea id="scoring-conditions" value={scoringConditionsText} onChange={(event) => setScoringConditionsText(event.target.value)} className="min-h-28 font-mono text-xs" />
+                  <FieldDescription>Examples: {"{\"toStatus\":\"qualified\"}"} or {"{\"priorityBands\":[\"hot\"],\"requiredTags\":[\"priority\"]}"}.</FieldDescription>
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="submit" disabled={scoringSubmitting} className="w-fit">
+                    {scoringSubmitting ? "Saving..." : editingScoringRuleId ? "Update scoring rule" : "Create scoring rule"}
+                  </Button>
+                  {editingScoringRuleId ? <Button type="button" variant="outline" onClick={resetScoringForm}>Cancel edit</Button> : null}
+                  <Button type="button" variant="secondary" disabled={scoringSubmitting} onClick={() => void installDefaultScoringRules()}>
+                    Install defaults
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Priority Summary</CardTitle>
+              <CardDescription>Current pipeline distribution and highest-priority leads.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="grid gap-3 sm:grid-cols-4">
+                {(prioritizationSummary?.bands ?? []).map((band) => (
+                  <div key={band.key} className="rounded-xl border bg-muted/20 px-3 py-3">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{band.label}</div>
+                    <div className="mt-2 text-2xl font-semibold">{band.count}</div>
+                    <div className="text-xs text-muted-foreground">{band.min}-{band.max}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Top leads</div>
+                {(prioritizationSummary?.topLeads ?? []).slice(0, 5).map((lead) => (
+                  <div key={lead.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/10 px-3 py-2">
+                    <div>
+                      <div className="text-sm font-medium">{lead.title}</div>
+                      <div className="text-xs text-muted-foreground">{lead.source ?? "No source"}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={lead.priorityLabel === "Hot" ? "destructive" : "outline"}>{lead.priorityLabel}</Badge>
+                      <span className="text-sm text-muted-foreground">{lead.score}</span>
+                    </div>
+                  </div>
+                ))}
+                {(prioritizationSummary?.topLeads ?? []).length === 0 ? <div className="text-sm text-muted-foreground">No leads available for prioritization yet.</div> : null}
+              </div>
+
+              <div className="grid gap-3">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Scoring rules</div>
+                {scoringRules.map((rule) => (
+                  <div key={rule.id} className="grid gap-3 rounded-xl border bg-muted/10 px-3 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="font-medium">{rule.name}</div>
+                        <div className="text-xs text-muted-foreground">{rule.eventType} • {rule.channel ?? "any channel"} • weight {rule.weight}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={rule.isActive ? "default" : "outline"}>{rule.isActive ? "active" : "paused"}</Badge>
+                        <Button type="button" variant="outline" size="sm" disabled={workingScoringRuleId === rule.id} onClick={() => editScoringRule(rule)}>Edit</Button>
+                        <Button type="button" variant="secondary" size="sm" disabled={workingScoringRuleId === rule.id} onClick={() => void toggleScoringRule(rule)}>
+                          {rule.isActive ? "Pause" : "Activate"}
+                        </Button>
+                        <Button type="button" variant="destructive" size="sm" disabled={workingScoringRuleId === rule.id} onClick={() => void deleteScoringRule(rule.id)}>Delete</Button>
+                      </div>
+                    </div>
+                    <pre className="overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{JSON.stringify(rule.conditions, null, 2)}</pre>
+                  </div>
+                ))}
+                {scoringRules.length === 0 ? <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No scoring rules configured. Install defaults or create the first rule.</div> : null}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
           <Card>

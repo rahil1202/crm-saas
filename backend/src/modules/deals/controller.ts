@@ -9,6 +9,7 @@ import { getCompanySettings } from "@/lib/company-settings";
 import { assertNonEmptyUpdate, paginationMeta } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { createNotification } from "@/lib/notifications";
+import { assertTenantCustomer, assertTenantLead, assertTenantMember, assertTenantStore } from "@/lib/tenant-isolation";
 import { dealParamSchema } from "@/modules/deals/schema";
 import type {
   BulkUpdateDealsInput,
@@ -239,6 +240,10 @@ export async function createDeal(c: Context<AppEnv>) {
 
   await assertValidPipelineStage(tenant.companyId, body.pipeline, body.stage);
   await assertValidPartnerCompany(tenant.companyId, body.partnerCompanyId);
+  await assertTenantStore(c, tenant.companyId, body.storeId ?? tenant.storeId);
+  await assertTenantMember(c, tenant.companyId, body.assignedToUserId);
+  await assertTenantCustomer(c, tenant.companyId, body.customerId);
+  await assertTenantLead(c, tenant.companyId, body.leadId);
 
   const [created] = await db
     .insert(deals)
@@ -315,6 +320,18 @@ export async function updateDeal(c: Context<AppEnv>) {
   }
   if (body.partnerCompanyId !== undefined) {
     await assertValidPartnerCompany(tenant.companyId, body.partnerCompanyId);
+  }
+  if (body.storeId !== undefined) {
+    await assertTenantStore(c, tenant.companyId, body.storeId);
+  }
+  if (body.assignedToUserId !== undefined) {
+    await assertTenantMember(c, tenant.companyId, body.assignedToUserId);
+  }
+  if (body.customerId !== undefined) {
+    await assertTenantCustomer(c, tenant.companyId, body.customerId);
+  }
+  if (body.leadId !== undefined) {
+    await assertTenantLead(c, tenant.companyId, body.leadId);
   }
 
   const [updated] = await db
