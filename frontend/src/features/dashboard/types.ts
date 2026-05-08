@@ -116,6 +116,61 @@ export interface DashboardInsightsResponse {
     tone: "good" | "neutral" | "risk";
     amount?: number;
   }>;
+  signals: {
+    attention: {
+      overdueTasks: number;
+      dueTodayTasks: number;
+      pendingFollowUps: number;
+      cancelledOrNoShowMeetings: number;
+      lowDeliveryCampaigns: number;
+      unreadConversations: number;
+      unreadMessages: number;
+    };
+    pipelineRisk: {
+      openPipelineValue: number;
+      openDealsWithoutCloseDate: number;
+      staleOpenDeals: number;
+      highValueOpenDeals: number;
+      forecastConfidence: number;
+    };
+    forms: {
+      totalCount: number;
+      publishedCount: number;
+      submissions: number;
+      conversions: number;
+      lastSubmissionAt: string | null;
+    };
+    social: {
+      connectedAccounts: number;
+      openConversations: number;
+      assignedConversations: number;
+      unreadConversations: number;
+      unreadMessages: number;
+      lastMessageAt: string | null;
+    };
+    readiness: {
+      email: {
+        accountCount: number;
+        connectedAccounts: number;
+        defaultAccountCount: number;
+      };
+      whatsapp: {
+        workspaceCount: number;
+        activeWorkspaceCount: number;
+        verifiedWorkspaceCount: number;
+      };
+    };
+    workload: Array<{
+      userId: string | null;
+      name: string;
+      openTasks: number;
+      overdueTasks: number;
+      dueTodayTasks: number;
+      openDeals: number;
+      assignedLeads: number;
+      pressureScore: number;
+    }>;
+  };
 }
 
 export interface ReportSummaryResponse {

@@ -10,12 +10,19 @@ import {
   deals,
   documents,
   emailAnalyticsDaily,
+  emailAccounts,
   emailTrackingEvents,
   followUps,
+  formResponses,
+  forms,
   leads,
   meetings,
   partnerCompanies,
+  profiles,
+  socialAccounts,
+  socialConversations,
   tasks,
+  whatsappWorkspaces,
 } from "@/db/schema";
 import { ok } from "@/lib/api";
 import type { ReportDashboardQuery, ReportSummaryQuery } from "@/modules/reports/schema";
@@ -66,6 +73,15 @@ function getRate(value: number, total: number) {
   }
 
   return Number(((value / total) * 100).toFixed(1));
+}
+
+function dataPointAverage(values: number[]) {
+  const usableValues = values.filter((value) => Number.isFinite(value));
+  if (usableValues.length === 0) {
+    return 0;
+  }
+
+  return usableValues.reduce((total, value) => total + value, 0) / usableValues.length;
 }
 
 function getWeekStart(date: Date) {
@@ -127,12 +143,19 @@ export async function getDashboardInsights(c: Context<AppEnv>) {
     campaignRows,
     meetingRows,
     documentRows,
+    formRows,
+    formResponseRows,
+    socialAccountRows,
+    socialConversationRows,
+    emailAccountRows,
+    whatsappWorkspaceRows,
   ] = await Promise.all([
     db
       .select({
         id: leads.id,
         title: leads.title,
         fullName: leads.fullName,
+        assignedToUserId: leads.assignedToUserId,
         source: leads.source,
         status: leads.status,
         score: leads.score,
@@ -159,6 +182,7 @@ export async function getDashboardInsights(c: Context<AppEnv>) {
         pipeline: deals.pipeline,
         stage: deals.stage,
         value: deals.value,
+        assignedToUserId: deals.assignedToUserId,
         expectedCloseDate: deals.expectedCloseDate,
         createdAt: deals.createdAt,
         updatedAt: deals.updatedAt,
@@ -170,6 +194,7 @@ export async function getDashboardInsights(c: Context<AppEnv>) {
       .select({
         id: tasks.id,
         title: tasks.title,
+        assignedToUserId: tasks.assignedToUserId,
         status: tasks.status,
         priority: tasks.priority,
         dueAt: tasks.dueAt,
@@ -240,6 +265,59 @@ export async function getDashboardInsights(c: Context<AppEnv>) {
       .from(documents)
       .where(and(eq(documents.companyId, tenant.companyId), isNull(documents.deletedAt)))
       .orderBy(desc(documents.createdAt)),
+    db
+      .select({
+        id: forms.id,
+        status: forms.status,
+        publishedAt: forms.publishedAt,
+        updatedAt: forms.updatedAt,
+      })
+      .from(forms)
+      .where(and(eq(forms.companyId, tenant.companyId), isNull(forms.deletedAt))),
+    db
+      .select({
+        id: formResponses.id,
+        linkedLeadId: formResponses.linkedLeadId,
+        submittedAt: formResponses.submittedAt,
+      })
+      .from(formResponses)
+      .where(eq(formResponses.companyId, tenant.companyId))
+      .orderBy(desc(formResponses.submittedAt)),
+    db
+      .select({
+        id: socialAccounts.id,
+        platform: socialAccounts.platform,
+        status: socialAccounts.status,
+      })
+      .from(socialAccounts)
+      .where(and(eq(socialAccounts.companyId, tenant.companyId), isNull(socialAccounts.deletedAt))),
+    db
+      .select({
+        id: socialConversations.id,
+        status: socialConversations.status,
+        unreadCount: socialConversations.unreadCount,
+        lastMessageAt: socialConversations.lastMessageAt,
+      })
+      .from(socialConversations)
+      .where(and(eq(socialConversations.companyId, tenant.companyId), isNull(socialConversations.deletedAt)))
+      .orderBy(desc(socialConversations.lastMessageAt)),
+    db
+      .select({
+        id: emailAccounts.id,
+        status: emailAccounts.status,
+        isDefault: emailAccounts.isDefault,
+      })
+      .from(emailAccounts)
+      .where(and(eq(emailAccounts.companyId, tenant.companyId), isNull(emailAccounts.deletedAt))),
+    db
+      .select({
+        id: whatsappWorkspaces.id,
+        isActive: whatsappWorkspaces.isActive,
+        isVerified: whatsappWorkspaces.isVerified,
+        webhookKey: whatsappWorkspaces.webhookKey,
+      })
+      .from(whatsappWorkspaces)
+      .where(and(eq(whatsappWorkspaces.companyId, tenant.companyId), isNull(whatsappWorkspaces.deletedAt))),
   ]);
 
   const recentLeads = leadRows.filter((lead) => new Date(lead.createdAt) >= periodStart);
@@ -433,6 +511,98 @@ export async function getDashboardInsights(c: Context<AppEnv>) {
       expectedCloseDate: deal.expectedCloseDate,
     }));
 
+  const cancelledOrNoShowMeetings = meetingRows.filter((meeting) => meeting.status === "cancelled" || meeting.status === "no_show");
+  const lowDeliveryCampaigns = campaignRows.filter((campaign) => campaign.sentCount > 0 && getRate(campaign.deliveredCount, campaign.sentCount) < 80);
+  const openConversations = socialConversationRows.filter((conversation) => conversation.status === "open");
+  const assignedConversations = socialConversationRows.filter((conversation) => conversation.status === "assigned");
+  const unreadConversations = socialConversationRows.filter((conversation) => conversation.unreadCount > 0);
+  const unreadMessages = socialConversationRows.reduce((total, conversation) => total + conversation.unreadCount, 0);
+  const staleDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const openDealsWithoutCloseDate = openDeals.filter((deal) => !deal.expectedCloseDate);
+  const staleOpenDeals = openDeals.filter((deal) => new Date(deal.updatedAt) < staleDate);
+  const averageOpenDealValue = openDeals.length > 0 ? openDeals.reduce((total, deal) => total + deal.value, 0) / openDeals.length : 0;
+  const highValueOpenDeals = openDeals.filter((deal) => deal.value >= Math.max(averageOpenDealValue, 1));
+  const openPipelineValue = openDeals.reduce((total, deal) => total + deal.value, 0);
+  const forecastConfidence = Math.round(
+    Math.min(100, Math.max(0, dataPointAverage([getRate(forecastValue, openPipelineValue), getRate(wonDeals.length, dealRows.length), getRate(openDeals.length - openDealsWithoutCloseDate.length, openDeals.length)]))),
+  );
+  const publishedForms = formRows.filter((form) => form.status === "published");
+  const formConversions = formResponseRows.filter((response) => response.linkedLeadId).length;
+  const connectedEmailAccounts = emailAccountRows.filter((account) => account.status === "connected");
+  const activeWhatsappWorkspaces = whatsappWorkspaceRows.filter((workspace) => workspace.isActive);
+  const verifiedWhatsappWorkspaces = activeWhatsappWorkspaces.filter((workspace) => workspace.isVerified && workspace.webhookKey);
+  const connectedSocialAccounts = socialAccountRows.filter((account) => account.status === "connected");
+  const assigneeScores = new Map<
+    string,
+    {
+      userId: string | null;
+      openTasks: number;
+      overdueTasks: number;
+      dueTodayTasks: number;
+      openDeals: number;
+      assignedLeads: number;
+      pressureScore: number;
+    }
+  >();
+  const getAssigneeScore = (userId: string | null) => {
+    const key = userId ?? "unassigned";
+    const existing =
+      assigneeScores.get(key) ??
+      {
+        userId,
+        openTasks: 0,
+        overdueTasks: 0,
+        dueTodayTasks: 0,
+        openDeals: 0,
+        assignedLeads: 0,
+        pressureScore: 0,
+      };
+    assigneeScores.set(key, existing);
+    return existing;
+  };
+
+  for (const task of openTasks) {
+    const score = getAssigneeScore(task.assignedToUserId ?? null);
+    score.openTasks += 1;
+    score.pressureScore += 2;
+    if (task.dueAt && new Date(task.dueAt) < now) {
+      score.overdueTasks += 1;
+      score.pressureScore += 3;
+    }
+    if (task.dueAt && getDateKey(new Date(task.dueAt)) === getDateKey(now)) {
+      score.dueTodayTasks += 1;
+      score.pressureScore += 2;
+    }
+  }
+
+  for (const deal of openDeals) {
+    const score = getAssigneeScore(deal.assignedToUserId ?? null);
+    score.openDeals += 1;
+    score.pressureScore += 2;
+  }
+
+  for (const lead of leadRows.filter((lead) => lead.status === "new" || lead.status === "qualified")) {
+    const score = getAssigneeScore(lead.assignedToUserId ?? null);
+    score.assignedLeads += 1;
+    score.pressureScore += 1;
+  }
+
+  const workloadProfileIds = Array.from(assigneeScores.values())
+    .map((item) => item.userId)
+    .filter((userId): userId is string => Boolean(userId));
+  const workloadProfiles =
+    workloadProfileIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: profiles.id,
+            fullName: profiles.fullName,
+            email: profiles.email,
+          })
+          .from(profiles)
+          .where(inArray(profiles.id, workloadProfileIds));
+  const workloadProfileMap = new Map(workloadProfiles.map((profile) => [profile.id, profile]));
+
   return ok(c, {
     generatedAt: now.toISOString(),
     periodDays: query.periodDays,
@@ -524,6 +694,67 @@ export async function getDashboardInsights(c: Context<AppEnv>) {
     },
     topDeals,
     activityFeed: dashboardActivity,
+    signals: {
+      attention: {
+        overdueTasks: overdueTasks.length,
+        dueTodayTasks: dueTodayTasks.length,
+        pendingFollowUps: pendingFollowUps.length,
+        cancelledOrNoShowMeetings: cancelledOrNoShowMeetings.length,
+        lowDeliveryCampaigns: lowDeliveryCampaigns.length,
+        unreadConversations: unreadConversations.length,
+        unreadMessages,
+      },
+      pipelineRisk: {
+        openPipelineValue,
+        openDealsWithoutCloseDate: openDealsWithoutCloseDate.length,
+        staleOpenDeals: staleOpenDeals.length,
+        highValueOpenDeals: highValueOpenDeals.length,
+        forecastConfidence,
+      },
+      forms: {
+        totalCount: formRows.length,
+        publishedCount: publishedForms.length,
+        submissions: formResponseRows.length,
+        conversions: formConversions,
+        lastSubmissionAt: formResponseRows[0]?.submittedAt ?? null,
+      },
+      social: {
+        connectedAccounts: connectedSocialAccounts.length,
+        openConversations: openConversations.length,
+        assignedConversations: assignedConversations.length,
+        unreadConversations: unreadConversations.length,
+        unreadMessages,
+        lastMessageAt: socialConversationRows[0]?.lastMessageAt ?? null,
+      },
+      readiness: {
+        email: {
+          accountCount: emailAccountRows.length,
+          connectedAccounts: connectedEmailAccounts.length,
+          defaultAccountCount: connectedEmailAccounts.filter((account) => account.isDefault).length,
+        },
+        whatsapp: {
+          workspaceCount: whatsappWorkspaceRows.length,
+          activeWorkspaceCount: activeWhatsappWorkspaces.length,
+          verifiedWorkspaceCount: verifiedWhatsappWorkspaces.length,
+        },
+      },
+      workload: Array.from(assigneeScores.values())
+        .sort((left, right) => right.pressureScore - left.pressureScore || right.overdueTasks - left.overdueTasks)
+        .slice(0, 4)
+        .map((item) => {
+          const profile = item.userId ? workloadProfileMap.get(item.userId) : null;
+          return {
+            userId: item.userId,
+            name: profile?.fullName || profile?.email || "Unassigned",
+            openTasks: item.openTasks,
+            overdueTasks: item.overdueTasks,
+            dueTodayTasks: item.dueTodayTasks,
+            openDeals: item.openDeals,
+            assignedLeads: item.assignedLeads,
+            pressureScore: item.pressureScore,
+          };
+        }),
+    },
   });
 }
 
