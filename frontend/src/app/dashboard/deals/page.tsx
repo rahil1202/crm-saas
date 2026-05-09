@@ -1080,14 +1080,9 @@ export default function DealsPage() {
           description={modalMode === "edit" ? "Update any deal detail and save it back to the database." : "Create a new deal with the same structured layout as the reference UI."}
           onClose={closeModal}
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
-                Close
-              </Button>
-              <Button type="submit" form="deal-form" size="xs" disabled={submitting}>
-                {submitting ? "Saving..." : "Save"}
-              </Button>
-            </>
+            <Button type="submit" form="deal-form" size="xs" disabled={submitting}>
+              {submitting ? "Saving..." : "Save"}
+            </Button>
           }
         >
           <form id="deal-form" onSubmit={handleSubmit} className="grid gap-5">
@@ -1239,7 +1234,7 @@ export default function DealsPage() {
               <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedDeal.id}>
                 {deletingId === selectedDeal.id ? "Deleting..." : "Delete"}
               </Button>
-              <Button type="button" variant="destructive" onClick={closeModal}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={closeModal}>
                 Cancel
               </Button>
             </div>
@@ -1251,7 +1246,7 @@ export default function DealsPage() {
         <div className="grid gap-4">
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">Selected deals will be removed from the workspace.</div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="destructive" onClick={() => setBulkDeleteOpen(false)} disabled={deletingId === "bulk"}>Close</Button>
+            <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setBulkDeleteOpen(false)} disabled={deletingId === "bulk"}>Close</Button>
             <Button type="button" onClick={() => void handleBulkDelete()} disabled={deletingId === "bulk"}>
               {deletingId === "bulk" ? "Working..." : "Delete"}
             </Button>

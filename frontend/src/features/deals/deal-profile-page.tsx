@@ -569,7 +569,7 @@ export default function DealProfilePage() {
               </FieldGroup>
               <Field><FieldLabel>Notes</FieldLabel><Textarea value={form.notes} onChange={(event) => setForm((current) => current ? { ...current, notes: event.target.value } : current)} className="min-h-28 text-sm" /></Field>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="destructive" onClick={() => setEditOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => void handleSave()} disabled={submitting}>{submitting ? "Saving..." : "Save changes"}</Button>
             </div>
           </div>
@@ -581,7 +581,7 @@ export default function DealProfilePage() {
           <div className="grid gap-4">
             <Textarea value={note} onChange={(event) => setNote(event.target.value)} className="min-h-28 text-sm" placeholder="Add note" />
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="destructive" onClick={() => setNoteOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setNoteOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => void handleAddNote()} disabled={submitting}>{submitting ? "Saving..." : "Add note"}</Button>
             </div>
           </div>
@@ -614,7 +614,7 @@ export default function DealProfilePage() {
             </FieldGroup>
             <Field><FieldLabel>Description</FieldLabel><Textarea value={taskForm.description} onChange={(event) => setTaskForm((current) => ({ ...current, description: event.target.value }))} className="min-h-24 text-sm" /></Field>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="destructive" onClick={() => setTaskOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setTaskOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => void handleAddTask()} disabled={submitting}>{submitting ? "Saving..." : "Add task"}</Button>
             </div>
           </div>

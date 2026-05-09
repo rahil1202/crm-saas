@@ -556,8 +556,13 @@ export default function MeetingsListPage() {
         title={editingMeetingId ? "Edit meeting" : "Create meeting manually"}
         description="Create an instant meeting and notify attendees by email."
         onClose={() => { setManualModalOpen(false); setEditingMeetingId(null); }}
+        headerActions={
+          <Button type="submit" form="manual-meeting-form" size="xs" disabled={manualSaving}>
+            {manualSaving ? "Saving..." : editingMeetingId ? "Update meeting" : "Create meeting"}
+          </Button>
+        }
       >
-        <form className="grid gap-4" onSubmit={handleManualSubmit}>
+        <form id="manual-meeting-form" className="grid gap-4" onSubmit={handleManualSubmit}>
           <Field>
             <FieldLabel>Title</FieldLabel>
             <Input value={manualForm.title} onChange={(event) => setManualForm((current) => ({ ...current, title: event.target.value }))} required />
@@ -612,10 +617,6 @@ export default function MeetingsListPage() {
               />
             </Field>
           ) : null}
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setManualModalOpen(false)}>Cancel</Button>
-            <Button type="submit" disabled={manualSaving}>{manualSaving ? "Saving..." : editingMeetingId ? "Update meeting" : "Create meeting"}</Button>
-          </div>
         </form>
       </CrmModalShell>
 
@@ -625,6 +626,11 @@ export default function MeetingsListPage() {
         description="Schedule via link, manage booking links, and configure weekly availability with breaks."
         onClose={() => setTypeModalOpen(false)}
         maxWidthClassName="max-w-6xl"
+        headerActions={
+          <Button type="submit" form="meeting-type-form" size="xs" disabled={typeSaving}>
+            {typeSaving ? "Saving..." : "Save event type"}
+          </Button>
+        }
       >
         <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
           <div className="rounded-2xl border border-border/60 bg-slate-50/60 p-3">
@@ -666,7 +672,7 @@ export default function MeetingsListPage() {
             </div>
           </div>
 
-          <form className="grid gap-4" onSubmit={handleSaveMeetingType}>
+          <form id="meeting-type-form" className="grid gap-4" onSubmit={handleSaveMeetingType}>
             <div className="grid gap-3 md:grid-cols-2">
               <Field>
                 <FieldLabel>Title</FieldLabel>
@@ -812,10 +818,6 @@ export default function MeetingsListPage() {
                 <Checkbox checked={typeForm.isActive} onCheckedChange={(checked) => setTypeForm((current) => ({ ...current, isActive: checked === true }))} />
                 Active
               </label>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setTypeModalOpen(false)}>Close</Button>
-              <Button type="submit" disabled={typeSaving}>{typeSaving ? "Saving..." : "Save event type"}</Button>
             </div>
           </form>
         </div>

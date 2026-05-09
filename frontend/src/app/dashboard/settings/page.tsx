@@ -195,7 +195,7 @@ function SettingsModal({
               <h3 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h3>
               {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
             </div>
-            <Button type="button" variant="destructive" size="xs" onClick={onClose}>
+            <Button type="button" variant="outline" size="xs" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={onClose}>
               Close
             </Button>
           </div>

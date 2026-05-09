@@ -1525,14 +1525,9 @@ export default function CustomersPage() {
           onClose={closeModal}
           maxWidthClassName="max-w-6xl"
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
-                Close
-              </Button>
-              <Button type="submit" form="create-contact-form" size="xs" disabled={submittingCreate}>
-                {submittingCreate ? "Saving..." : "Save"}
-              </Button>
-            </>
+            <Button type="submit" form="create-contact-form" size="xs" disabled={submittingCreate}>
+              {submittingCreate ? "Saving..." : "Save"}
+            </Button>
           }
         >
           <form id="create-contact-form" onSubmit={handleCreate} className="grid gap-5">
@@ -1952,14 +1947,9 @@ export default function CustomersPage() {
           description="Update the selected contact."
           onClose={closeModal}
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
-                Close
-              </Button>
-              <Button type="submit" form="edit-contact-form" size="xs" disabled={submittingEdit}>
-                {submittingEdit ? "Saving..." : "Save"}
-              </Button>
-            </>
+            <Button type="submit" form="edit-contact-form" size="xs" disabled={submittingEdit}>
+              {submittingEdit ? "Saving..." : "Save"}
+            </Button>
           }
         >
           <form id="edit-contact-form" onSubmit={handleEdit} className="grid gap-5">
@@ -2077,7 +2067,7 @@ export default function CustomersPage() {
             </Field>
 
             <div className="flex gap-2">
-              <Button type="button" variant="destructive" onClick={closeModal}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={closeModal}>
                 Cancel
               </Button>
             </div>
@@ -2093,14 +2083,9 @@ export default function CustomersPage() {
           onClose={closeModal}
           maxWidthClassName="max-w-xl"
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
-                Close
-              </Button>
-              <Button type="submit" form="quick-update-form" size="xs" disabled={submittingQuickUpdate}>
-                {submittingQuickUpdate ? "Saving..." : "Save"}
-              </Button>
-            </>
+            <Button type="submit" form="quick-update-form" size="xs" disabled={submittingQuickUpdate}>
+              {submittingQuickUpdate ? "Saving..." : "Save"}
+            </Button>
           }
         >
           <form id="quick-update-form" onSubmit={handleQuickUpdate} className="grid gap-4">
@@ -2155,7 +2140,7 @@ export default function CustomersPage() {
               <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedCustomer.id}>
                 {deletingId === selectedCustomer.id ? "Moving..." : "Move to trash"}
               </Button>
-              <Button type="button" variant="destructive" onClick={closeModal}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={closeModal}>
                 Cancel
               </Button>
             </div>
@@ -2171,7 +2156,7 @@ export default function CustomersPage() {
               <Button type="button" variant="destructive" onClick={() => void handlePermanentDelete()} disabled={deletingId === selectedCustomer.id}>
                 {deletingId === selectedCustomer.id ? "Deleting..." : "Delete permanently"}
               </Button>
-              <Button type="button" variant="destructive" onClick={closeModal}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={closeModal}>
                 Cancel
               </Button>
             </div>
@@ -2189,7 +2174,7 @@ export default function CustomersPage() {
               <Button type="button" onClick={() => void handleExport()} disabled={exporting}>
                 {exporting ? "Exporting..." : "Export CSV"}
               </Button>
-              <Button type="button" variant="destructive" onClick={closeModal}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={closeModal}>
                 Cancel
               </Button>
             </div>

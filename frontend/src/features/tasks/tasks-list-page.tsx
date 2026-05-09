@@ -13,6 +13,7 @@ import {
   CrmDataTable,
   CrmFilterDrawer,
   CrmListPageHeader,
+  CrmListViewTabs,
   CrmListToolbar,
   CrmModalShell,
   CrmPaginationBar,
@@ -92,8 +93,12 @@ type TaskFilters = {
   priority: string;
   taskType: string;
   assignedToUserId: string;
+  associatedEntityType: string;
+  associatedEntityId: string;
   overdueOnly: string;
 };
+
+type TaskTabKey = "all" | "todo" | "in_progress" | "done" | "overdue";
 
 const rowsPerPageOptions = [10, 20, 50, 100] as const;
 const taskColumnStorageKey = "crm-saas-tasks-columns";
@@ -108,6 +113,8 @@ const emptyFilters: TaskFilters = {
   priority: "",
   taskType: "",
   assignedToUserId: "",
+  associatedEntityType: "",
+  associatedEntityId: "",
   overdueOnly: "",
 };
 
@@ -189,6 +196,24 @@ function formatDate(value: string | null) {
     return "No due date";
   }
   return new Date(value).toLocaleString();
+}
+
+function getAssociationPath(entityType: TaskAssociationEntityType, entityId: string) {
+  if (entityType === "contact") return `/dashboard/contacts/${entityId}`;
+  if (entityType === "lead") return `/dashboard/leads/${entityId}`;
+  if (entityType === "deal") return `/dashboard/deals/${entityId}`;
+  if (entityType === "template") return `/dashboard/templates/${entityId}`;
+  return `/dashboard/campaigns/${entityId}`;
+}
+
+function getTaskTabValue(filters: TaskFilters): TaskTabKey {
+  if (filters.overdueOnly === "true") {
+    return "overdue";
+  }
+  if (filters.status === "todo" || filters.status === "in_progress" || filters.status === "done") {
+    return filters.status;
+  }
+  return "all";
 }
 
 function getStatusTone(status: TaskStatus) {
@@ -901,8 +926,13 @@ export default function TasksListPage() {
         description="Capture due work with assignment, reminders, and recurrence."
         onClose={() => setFormOpen(false)}
         maxWidthClassName="max-w-5xl"
+        headerActions={
+          <Button type="submit" form="task-form" size="xs" disabled={saving}>
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        }
       >
-        <form className="grid gap-4" onSubmit={handleCreateOrUpdate}>
+        <form id="task-form" className="grid gap-4" onSubmit={handleCreateOrUpdate}>
           <div className="grid gap-4 lg:grid-cols-2">
             <Field>
               <FieldLabel>Task name</FieldLabel>
@@ -1013,14 +1043,6 @@ export default function TasksListPage() {
             />
           </Field>
 
-          <div className="flex items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>
-              Close
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save"}
-            </Button>
-          </div>
         </form>
       </CrmModalShell>
 

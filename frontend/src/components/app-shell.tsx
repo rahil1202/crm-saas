@@ -677,7 +677,7 @@ export function AppShell({
               </div>
               <button
                 type="button"
-                className="rounded-xl bg-destructive p-2 text-white transition-colors hover:bg-destructive/90"
+                className="rounded-xl border border-border/80 bg-white p-2 text-muted-foreground transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                 onClick={() => setConfirmLogoutOpen(false)}
                 aria-label="Close logout confirmation"
               >
@@ -688,7 +688,7 @@ export function AppShell({
             <div className="mt-5 flex items-center justify-between gap-3">
               <Badge variant="outline">{activeMembership?.companyName ?? "Current workspace"}</Badge>
               <div className="flex gap-3">
-                <Button type="button" variant="destructive" onClick={() => setConfirmLogoutOpen(false)}>
+                <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setConfirmLogoutOpen(false)}>
                   Cancel
                 </Button>
                 <Button type="button" variant="default" disabled={loggingOut} onClick={() => void handleLogout()}>

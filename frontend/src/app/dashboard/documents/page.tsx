@@ -686,8 +686,13 @@ export default function DocumentsPage() {
             setAddModalOpen(false);
           }
         }}
+        headerActions={
+          <Button type="submit" form="add-document-form" size="xs" disabled={submitting}>
+            {submitting ? "Uploading..." : "Upload files"}
+          </Button>
+        }
       >
-        <form className="grid gap-4" onSubmit={handleUpload}>
+        <form id="add-document-form" className="grid gap-4" onSubmit={handleUpload}>
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="upload-remark">Remark</FieldLabel>
@@ -778,14 +783,6 @@ export default function DocumentsPage() {
             </div>
           ) : null}
 
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="destructive" onClick={() => setAddModalOpen(false)} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={submitting}>
-              {submitting ? "Uploading..." : "Upload files"}
-            </Button>
-          </div>
         </form>
       </CrmModalShell>
 
@@ -798,8 +795,13 @@ export default function DocumentsPage() {
             setEditTarget(null);
           }
         }}
+        headerActions={
+          <Button type="submit" form="edit-document-form" size="xs" disabled={submitting}>
+            {submitting ? "Saving..." : "Save changes"}
+          </Button>
+        }
       >
-        <form className="grid gap-4" onSubmit={handleUpdateDocument}>
+        <form id="edit-document-form" className="grid gap-4" onSubmit={handleUpdateDocument}>
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="edit-remark">Remark</FieldLabel>
@@ -848,14 +850,6 @@ export default function DocumentsPage() {
             ) : null}
           </FieldGroup>
 
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="destructive" onClick={() => setEditTarget(null)} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={submitting}>
-              {submitting ? "Saving..." : "Save changes"}
-            </Button>
-          </div>
         </form>
       </CrmModalShell>
 

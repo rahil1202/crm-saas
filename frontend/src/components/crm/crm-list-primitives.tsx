@@ -233,8 +233,8 @@ export function CrmModalShell({
             </div>
             <div className="flex items-center gap-2">
               {headerActions}
-              <Button type="button" variant="destructive" size="xs" onClick={onClose}>
-                <X className="size-4" />
+              <Button type="button" variant="outline" size="xs" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={onClose}>
+                Close
               </Button>
             </div>
           </div>
@@ -271,7 +271,7 @@ export function CrmConfirmDialog({
       <div className="grid gap-4">
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{warning}</div>
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="destructive" onClick={onCancel}>
+          <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={onCancel}>
             {cancelLabel}
           </Button>
           <Button type="button" disabled={submitting} onClick={onConfirm}>
@@ -575,7 +575,7 @@ export function CrmColumnSettings<TColumnKey extends string>({
                 Reset
               </Button>
             ) : null}
-            <Button type="button" variant="destructive" size="xs" onClick={onClose}>
+            <Button type="button" variant="outline" size="xs" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={onClose}>
               <X className="size-4" />
             </Button>
           </div>
@@ -641,7 +641,7 @@ export function CrmFilterDrawer({
                 Apply
               </Button>
             )}
-            <Button type="button" variant="destructive" size="xs" onClick={onClose} aria-label="Close filters">
+            <Button type="button" variant="outline" size="xs" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={onClose} aria-label="Close filters">
               <X className="size-4" />
             </Button>
           </div>

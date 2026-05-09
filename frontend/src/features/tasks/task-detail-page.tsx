@@ -400,9 +400,14 @@ export default function TaskDetailPage() {
         description="Update task details, assignment, and reminders."
         onClose={() => setEditOpen(false)}
         maxWidthClassName="max-w-5xl"
+        headerActions={
+          <Button type="submit" form="task-detail-edit-form" size="xs" disabled={saving}>
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        }
       >
         {form ? (
-          <form className="grid gap-4" onSubmit={handleSave}>
+          <form id="task-detail-edit-form" className="grid gap-4" onSubmit={handleSave}>
             <div className="grid gap-4 lg:grid-cols-2">
               <Field>
                 <FieldLabel>Task name</FieldLabel>
@@ -496,14 +501,6 @@ export default function TaskDetailPage() {
               <FieldLabel>Notes</FieldLabel>
               <Textarea rows={7} value={form.description} onChange={(event) => setForm((current) => (current ? { ...current, description: event.target.value } : current))} />
             </Field>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
-                Close
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Saving..." : "Save"}
-              </Button>
-            </div>
           </form>
         ) : null}
       </CrmModalShell>

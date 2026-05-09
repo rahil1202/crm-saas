@@ -419,7 +419,12 @@ function Modal({
               <div className="text-base font-semibold text-slate-900">{title}</div>
               {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
             </div>
-            <div className="flex items-center gap-2">{headerActions}</div>
+            <div className="flex items-center gap-2">
+              {headerActions}
+              <Button type="button" variant="outline" size="xs" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={onClose}>
+                Close
+              </Button>
+            </div>
           </div>
           <div className="max-h-[calc(100vh-7.5rem)] overflow-y-auto px-5 py-4">{children}</div>
         </div>
@@ -1511,7 +1516,7 @@ export default function TeamPage() {
           <div className="grid gap-4">
             <p className="text-sm text-muted-foreground">Export includes the active team search and applied filters.</p>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="destructive" onClick={() => setExportModalOpen(false)}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setExportModalOpen(false)}>
                 Close
               </Button>
               <Button
@@ -1541,7 +1546,7 @@ export default function TeamPage() {
               <AlertDescription>Use Add New Team to send invites. CSV/XLS import for teams will be wired when backend import endpoints are added.</AlertDescription>
             </Alert>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="destructive" onClick={() => setImportModalOpen(false)}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setImportModalOpen(false)}>
                 Close
               </Button>
               <Button
@@ -1565,14 +1570,9 @@ export default function TeamPage() {
           onClose={() => setInviteOpen(false)}
           maxWidthClassName="max-w-xl"
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={() => setInviteOpen(false)}>
-                Close
-              </Button>
-              <Button type="submit" form="invite-team-form" size="xs" disabled={sendingInvite}>
-                {sendingInvite ? "Sending..." : "Send Invite"}
-              </Button>
-            </>
+            <Button type="submit" form="invite-team-form" size="xs" disabled={sendingInvite}>
+              {sendingInvite ? "Sending..." : "Send Invite"}
+            </Button>
           }
         >
           <form id="invite-team-form" onSubmit={handleInviteSubmit} className="grid gap-4">
@@ -1686,14 +1686,9 @@ export default function TeamPage() {
           }}
           maxWidthClassName="max-w-xl"
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={() => setInviteToDelete(null)} disabled={deletingInvite}>
-                Close
-              </Button>
-              <Button type="button" size="xs" onClick={() => void handleDeleteInvite()} disabled={deletingInvite}>
-                {deletingInvite ? "Deleting..." : "Delete Invite"}
-              </Button>
-            </>
+            <Button type="button" size="xs" onClick={() => void handleDeleteInvite()} disabled={deletingInvite}>
+              {deletingInvite ? "Deleting..." : "Delete Invite"}
+            </Button>
           }
         >
           <div className="grid gap-3">
@@ -1714,27 +1709,14 @@ export default function TeamPage() {
           }}
           maxWidthClassName="max-w-xl"
           headerActions={
-            <>
-              <Button
-                type="button"
-                variant="destructive"
-                size="xs"
-                onClick={() => {
-                  setMemberModalOpen(false);
-                  setEditingMember(null);
-                }}
-              >
-                Close
-              </Button>
-              <Button
-                type="button"
-                size="xs"
-                disabled={savingMember || editingMember.userId === me?.user.id}
-                onClick={() => void handleMemberUpdate()}
-              >
-                {savingMember ? "Saving..." : "Save"}
-              </Button>
-            </>
+            <Button
+              type="button"
+              size="xs"
+              disabled={savingMember || editingMember.userId === me?.user.id}
+              onClick={() => void handleMemberUpdate()}
+            >
+              {savingMember ? "Saving..." : "Save"}
+            </Button>
           }
         >
           <div className="grid gap-4">
@@ -1809,14 +1791,9 @@ export default function TeamPage() {
           onClose={() => setRoleEditorOpen(false)}
           maxWidthClassName="max-w-2xl"
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={() => setRoleEditorOpen(false)}>
-                Close
-              </Button>
-              <Button type="button" size="xs" onClick={() => void saveRole()}>
-                Save
-              </Button>
-            </>
+            <Button type="button" size="xs" onClick={() => void saveRole()}>
+              Save
+            </Button>
           }
         >
           <div className="grid gap-4">

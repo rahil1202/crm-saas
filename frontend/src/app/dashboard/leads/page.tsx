@@ -1154,14 +1154,9 @@ export default function LeadsPage() {
           description="Update the selected lead record."
           onClose={closeModal}
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
-                Close
-              </Button>
-              <Button type="submit" form="lead-form" size="xs" disabled={submitting}>
-                {submitting ? "Saving..." : "Save"}
-              </Button>
-            </>
+            <Button type="submit" form="lead-form" size="xs" disabled={submitting}>
+              {submitting ? "Saving..." : "Save"}
+            </Button>
           }
         >
           <form id="lead-form" onSubmit={handleSubmit} className="grid gap-5">
@@ -1245,14 +1240,9 @@ export default function LeadsPage() {
           description="Paste CSV rows to create leads in bulk."
           onClose={closeModal}
           headerActions={
-            <>
-              <Button type="button" variant="destructive" size="xs" onClick={closeModal}>
-                Close
-              </Button>
-              <Button type="submit" form="lead-import-form" size="xs" disabled={importing}>
-                {importing ? "Importing..." : "Import"}
-              </Button>
-            </>
+            <Button type="submit" form="lead-import-form" size="xs" disabled={importing}>
+              {importing ? "Importing..." : "Import"}
+            </Button>
           }
         >
           <form id="lead-import-form" onSubmit={handleImport} className="grid gap-4">
@@ -1277,7 +1267,7 @@ export default function LeadsPage() {
               <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deletingId === selectedLead.id}>
                 {deletingId === selectedLead.id ? "Moving..." : "Move to trash"}
               </Button>
-              <Button type="button" variant="destructive" onClick={closeModal}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={closeModal}>
                 Cancel
               </Button>
             </div>
@@ -1293,7 +1283,7 @@ export default function LeadsPage() {
               <Button type="button" variant="destructive" onClick={() => void handlePermanentDelete()} disabled={deletingId === selectedLead.id}>
                 {deletingId === selectedLead.id ? "Deleting..." : "Delete permanently"}
               </Button>
-              <Button type="button" variant="destructive" onClick={closeModal}>
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={closeModal}>
                 Cancel
               </Button>
             </div>
@@ -1313,7 +1303,7 @@ export default function LeadsPage() {
             {filters.lifecycle === "deleted" ? "This action cannot be undone." : "Selected leads will move to the deleted view and can be restored later."}
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="destructive" onClick={() => setBulkDeleteOpen(false)} disabled={deletingId === "bulk"}>Close</Button>
+            <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setBulkDeleteOpen(false)} disabled={deletingId === "bulk"}>Close</Button>
             <Button type="button" onClick={() => void handleBulkDelete()} disabled={deletingId === "bulk"}>
               {deletingId === "bulk" ? "Working..." : filters.lifecycle === "deleted" ? "Delete permanently" : "Move to trash"}
             </Button>

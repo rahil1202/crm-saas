@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowRight, CheckCircle2, MailCheck, UserPlus } from "lucide-react";
+import { AlertCircle, ArrowRight, CheckCircle2, MailCheck, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
@@ -275,8 +275,11 @@ function RegisterPageContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-sm">
           <Card className="w-full max-w-lg border-sky-200/80 bg-white">
             <CardHeader>
-              <div className="flex items-center gap-2">
+              <div className="flex items-start justify-between gap-4">
                 <Badge className="border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-50">Referral Invite</Badge>
+                <Button type="button" variant="outline" size="xs" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setExternalInviteModalOpen(false)}>
+                  <X className="size-4" />
+                </Button>
               </div>
               <CardTitle>You arrived from an invite link</CardTitle>
               <CardDescription>
@@ -314,10 +317,17 @@ function RegisterPageContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-sm">
           <Card className="w-full max-w-2xl border-sky-200/80 bg-white">
             <CardHeader>
-              <CardTitle>Terms and privacy policy</CardTitle>
-              <CardDescription>
-                Review and accept both documents to continue registration.
-              </CardDescription>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <CardTitle>Terms and privacy policy</CardTitle>
+                  <CardDescription>
+                    Review and accept both documents to continue registration.
+                  </CardDescription>
+                </div>
+                <Button type="button" variant="outline" size="xs" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setPolicyModalOpen(false)}>
+                  Close
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="grid gap-4 text-sm text-slate-700">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
