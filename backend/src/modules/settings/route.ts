@@ -4,6 +4,7 @@ import type { AppEnv } from "@/app/route";
 import {
   disconnectIntegrationOauth,
   getCompanyPreferences,
+  getCrmFormSuggestions,
   getCustomFields,
   getIntegrations,
   getIntegrationsHub,
@@ -70,6 +71,7 @@ settingRoutes.patch(
   updateCompanyPreferences,
 );
 settingRoutes.get("/custom-fields", requireAuth, requireTenant, requireModuleAccess("settings"), getCustomFields);
+settingRoutes.get("/crm-form-suggestions", requireAuth, requireTenant, getCrmFormSuggestions);
 settingRoutes.patch(
   "/custom-fields",
   requireAuth,

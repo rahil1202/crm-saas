@@ -49,6 +49,7 @@ function buildCustomerRow(row: Record<string, string>) {
 
   return {
     fullName,
+    associatedCompany: row.associated_company || row.company || null,
     email: row.email || null,
     phone: row.phone || row.mobile || null,
     tags: parseDelimitedTags(row.tags),
@@ -184,6 +185,7 @@ async function importCustomerRows(c: Context<AppEnv>, rows: string[][]) {
           storeId: tenant.storeId ?? null,
           assignedToUserId: user.id,
           fullName: customerInput.fullName,
+          associatedCompany: customerInput.associatedCompany,
           email: customerInput.email ?? null,
           phone: customerInput.phone ?? null,
           tags: customerInput.tags,
@@ -229,6 +231,7 @@ export async function listCustomers(c: Context<AppEnv>) {
     conditions.push(
       sql<boolean>`(
         coalesce(${customers.fullName}, '') ILIKE ${queryText}
+        OR coalesce(${customers.associatedCompany}, '') ILIKE ${queryText}
         OR coalesce(${customers.email}, '') ILIKE ${queryText}
         OR coalesce(${customers.phone}, '') ILIKE ${queryText}
         OR coalesce(${customers.notes}, '') ILIKE ${queryText}
@@ -410,6 +413,7 @@ export async function createCustomer(c: Context<AppEnv>) {
       leadId: body.leadId ?? null,
       assignedToUserId: body.assignedToUserId ?? user.id,
       fullName: body.fullName,
+      associatedCompany: body.associatedCompany ?? null,
       email: body.email ?? null,
       phone: body.phone ?? null,
       tags: body.tags,
@@ -455,6 +459,7 @@ export async function updateCustomer(c: Context<AppEnv>) {
     .update(customers)
     .set({
       ...(body.fullName !== undefined ? { fullName: body.fullName } : {}),
+      ...(body.associatedCompany !== undefined ? { associatedCompany: body.associatedCompany ?? null } : {}),
       ...(body.email !== undefined ? { email: body.email ?? null } : {}),
       ...(body.phone !== undefined ? { phone: body.phone ?? null } : {}),
       ...(body.tags !== undefined ? { tags: body.tags } : {}),

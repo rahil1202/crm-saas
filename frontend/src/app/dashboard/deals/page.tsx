@@ -17,6 +17,8 @@ import {
   CrmModalShell,
   CrmPaginationBar,
 } from "@/components/crm/crm-list-primitives";
+import { SuggestionInputField } from "@/components/crm/crm-form-fields";
+import { useCrmFormSuggestions } from "@/components/crm/use-crm-form-suggestions";
 import { downloadCsvFile, toCsvCell } from "@/components/crm/csv-export";
 import type { ColumnDefinition } from "@/components/crm/types";
 import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/use-crm-list-state";
@@ -60,6 +62,7 @@ type DocumentColumnVisibility = Record<RelatedDocumentColumnKey, boolean>;
 interface Deal {
   id: string;
   title: string;
+  associatedCompany: string | null;
   status: DealStatus;
   pipeline: string;
   stage: string;
@@ -123,6 +126,7 @@ interface LeadListResponse {
 
 type DealFormState = {
   title: string;
+  associatedCompany: string;
   pipeline: string;
   stage: string;
   status: DealStatus;
@@ -170,6 +174,7 @@ const emptyFilters: DealFilters = {
 
 const emptyDealForm: DealFormState = {
   title: "",
+  associatedCompany: "",
   pipeline: "",
   stage: "",
   status: "open",
@@ -285,6 +290,7 @@ function parseTags(value: string) {
 function dealToForm(deal: Deal): DealFormState {
   return {
     title: deal.title,
+    associatedCompany: deal.associatedCompany ?? "",
     pipeline: deal.pipeline,
     stage: deal.stage,
     status: deal.status,
@@ -393,6 +399,7 @@ export default function DealsPage() {
   const [bulkPipeline, setBulkPipeline] = useState("");
   const [bulkStage, setBulkStage] = useState("");
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const { productTags: crmProductTags, associatedCompanies } = useCrmFormSuggestions();
   const {
     tab,
     setTab,
@@ -643,6 +650,7 @@ export default function DealsPage() {
 
     const payload = {
       title: form.title.trim(),
+      associatedCompany: form.associatedCompany.trim() || undefined,
       pipeline: form.pipeline,
       stage: form.stage,
       status: form.status,
@@ -764,27 +772,29 @@ export default function DealsPage() {
       label: dealColumnLabels.title,
       sortable: true,
       sortKey: "title",
-      widthClassName: "min-w-[220px]",
+      widthClassName: "min-w-[170px]",
       renderCell: (deal) => (
-        <Link href={`/dashboard/deals/${deal.id}`} className="font-medium text-slate-900 hover:text-sky-700 hover:underline">
+        <Link href={`/dashboard/deals/${deal.id}`} className="block max-w-[190px] truncate font-medium text-slate-900 hover:text-sky-700 hover:underline">
           {deal.title}
         </Link>
       ),
     },
-    { key: "amount", label: dealColumnLabels.amount, sortable: true, sortKey: "amount", renderCell: (deal) => <span className="text-slate-600">{deal.value}</span> },
+    { key: "amount", label: dealColumnLabels.amount, sortable: true, sortKey: "amount", widthClassName: "min-w-[110px]", renderCell: (deal) => <span className="text-slate-600">{deal.value}</span> },
     {
       key: "priority",
       label: dealColumnLabels.priority,
       sortable: true,
       sortKey: "priority",
-      renderCell: (deal) => <span className="text-slate-600">{deal.priority || parseNoteField(deal.notes, "Priority") || "-"}</span>,
+      widthClassName: "min-w-[100px]",
+      renderCell: (deal) => <span className="block max-w-[110px] truncate text-slate-600">{deal.priority || parseNoteField(deal.notes, "Priority") || "-"}</span>,
     },
-    { key: "stage", label: dealColumnLabels.stage, sortable: true, sortKey: "stage", renderCell: (deal) => <span className="text-slate-600">{deal.stage}</span> },
+    { key: "stage", label: dealColumnLabels.stage, sortable: true, sortKey: "stage", widthClassName: "min-w-[120px]", renderCell: (deal) => <span className="block max-w-[130px] truncate text-slate-600">{deal.stage}</span> },
     {
       key: "closedDate",
       label: dealColumnLabels.closedDate,
       sortable: true,
       sortKey: "closedDate",
+      widthClassName: "min-w-[120px]",
       renderCell: (deal) => <span className="text-slate-600">{formatDate(deal.expectedCloseDate)}</span>,
     },
     {
@@ -792,23 +802,26 @@ export default function DealsPage() {
       label: dealColumnLabels.type,
       sortable: true,
       sortKey: "type",
-      renderCell: (deal) => <span className="text-slate-600">{deal.dealType || parseNoteField(deal.notes, "Deal Type") || "-"}</span>,
+      widthClassName: "min-w-[120px]",
+      renderCell: (deal) => <span className="block max-w-[130px] truncate text-slate-600">{deal.dealType || parseNoteField(deal.notes, "Deal Type") || "-"}</span>,
     },
     {
       key: "owner",
       label: dealColumnLabels.owner,
       sortable: true,
       sortKey: "owner",
-      renderCell: (deal) => <span className="text-slate-600">{deal.ownerLabel || parseNoteField(deal.notes, "Deal Owner") || "-"}</span>,
+      widthClassName: "min-w-[130px]",
+      renderCell: (deal) => <span className="block max-w-[140px] truncate text-slate-600">{deal.ownerLabel || parseNoteField(deal.notes, "Deal Owner") || "-"}</span>,
     },
     {
       key: "referralSource",
       label: dealColumnLabels.referralSource,
       sortable: true,
       sortKey: "referralSource",
-      renderCell: (deal) => <span className="text-slate-600">{deal.referralSource || parseNoteField(deal.notes, "Referral Source") || "-"}</span>,
+      widthClassName: "min-w-[120px]",
+      renderCell: (deal) => <span className="block max-w-[130px] truncate text-slate-600">{deal.referralSource || parseNoteField(deal.notes, "Referral Source") || "-"}</span>,
     },
-    { key: "pipeline", label: dealColumnLabels.pipeline, sortable: true, sortKey: "pipeline", renderCell: (deal) => <span className="text-slate-600">{deal.pipeline}</span> },
+    { key: "pipeline", label: dealColumnLabels.pipeline, sortable: true, sortKey: "pipeline", widthClassName: "min-w-[120px]", renderCell: (deal) => <span className="block max-w-[130px] truncate text-slate-600">{deal.pipeline}</span> },
     {
       key: "status",
       label: dealColumnLabels.status,
@@ -1108,6 +1121,7 @@ export default function DealsPage() {
                     ))}
                   </NativeSelect>
                 </Field>
+                <SuggestionInputField label="Associated Company" value={form.associatedCompany} suggestions={associatedCompanies} onChange={(value) => setForm((current) => ({ ...current, associatedCompany: value }))} placeholder="Start typing a company" />
               </div>
             </div>
 
@@ -1158,7 +1172,12 @@ export default function DealsPage() {
                 </Field>
                 <Field className="md:col-span-2">
                   <FieldLabel>Product Tags</FieldLabel>
-                  <Input value={form.productTags} onChange={(event) => setForm((current) => ({ ...current, productTags: event.target.value }))} className="h-10 text-sm" placeholder="Select or type to create tags..." />
+                  <Input value={form.productTags} list="deal-product-tags" onChange={(event) => setForm((current) => ({ ...current, productTags: event.target.value }))} className="h-10 text-sm" placeholder="Select or type to create tags..." />
+                  <datalist id="deal-product-tags">
+                    {crmProductTags.map((tag) => (
+                      <option key={tag} value={tag} />
+                    ))}
+                  </datalist>
                 </Field>
               </div>
             </div>

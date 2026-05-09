@@ -17,6 +17,8 @@ import {
   CrmModalShell,
   CrmPaginationBar,
 } from "@/components/crm/crm-list-primitives";
+import { SuggestionInputField } from "@/components/crm/crm-form-fields";
+import { useCrmFormSuggestions } from "@/components/crm/use-crm-form-suggestions";
 import { downloadCsvFile, toCsvCell } from "@/components/crm/csv-export";
 import type { ColumnDefinition } from "@/components/crm/types";
 import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/use-crm-list-state";
@@ -63,6 +65,7 @@ interface Lead {
   id: string;
   title: string;
   fullName: string | null;
+  associatedCompany: string | null;
   email: string | null;
   phone: string | null;
   source: string | null;
@@ -105,6 +108,7 @@ interface PartnerListResponse {
 type LeadFormState = {
   title: string;
   fullName: string;
+  associatedCompany: string;
   email: string;
   phone: string;
   source: string;
@@ -120,8 +124,14 @@ type LeadFilters = {
   status: string;
   lifecycle: string;
   priority: string;
+  productTags: string;
+  title: string;
+  description: string;
+  fullName: string;
   email: string;
   phone: string;
+  createdFrom: string;
+  createdTo: string;
   documentFolder: string;
 };
 
@@ -144,6 +154,7 @@ North zone referral,Vikram Singh,,+91 9876543210,referral,qualified,62,partner,R
 const emptyLeadForm: LeadFormState = {
   title: "",
   fullName: "",
+  associatedCompany: "",
   email: "",
   phone: "",
   source: "",
@@ -159,8 +170,14 @@ const emptyFilters: LeadFilters = {
   status: "",
   lifecycle: "active",
   priority: "",
+  productTags: "",
+  title: "",
+  description: "",
+  fullName: "",
   email: "",
   phone: "",
+  createdFrom: "",
+  createdTo: "",
   documentFolder: "",
 };
 
@@ -304,9 +321,15 @@ function getFilterChips(filters: LeadFilters) {
   if (filters.source.trim()) chips.push({ key: "source", label: "Source", value: filters.source.trim() });
   if (filters.status.trim()) chips.push({ key: "status", label: "Lead Status", value: filters.status.trim() });
   if (filters.priority.trim()) chips.push({ key: "priority", label: "Priority", value: filters.priority.trim() });
+  if (filters.productTags.trim()) chips.push({ key: "productTags", label: "Product Tags", value: filters.productTags.trim() });
+  if (filters.title.trim()) chips.push({ key: "title", label: "Job Title", value: filters.title.trim() });
+  if (filters.description.trim()) chips.push({ key: "description", label: "Description", value: filters.description.trim() });
+  if (filters.fullName.trim()) chips.push({ key: "fullName", label: "Full Name", value: filters.fullName.trim() });
   if (filters.lifecycle.trim() && filters.lifecycle !== "active") chips.push({ key: "lifecycle", label: "Record State", value: filters.lifecycle.trim() });
   if (filters.email.trim()) chips.push({ key: "email", label: "Email", value: filters.email.trim() });
   if (filters.phone.trim()) chips.push({ key: "phone", label: "Phone", value: filters.phone.trim() });
+  if (filters.createdFrom.trim()) chips.push({ key: "createdFrom", label: "Created From", value: filters.createdFrom.trim() });
+  if (filters.createdTo.trim()) chips.push({ key: "createdTo", label: "Created To", value: filters.createdTo.trim() });
   if (filters.documentFolder.trim()) chips.push({ key: "documentFolder", label: "Folder", value: filters.documentFolder.trim() });
 
   return chips;
@@ -319,8 +342,14 @@ function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): Lead
     status: params.get("status") ?? "",
     lifecycle: params.get("lifecycle") ?? "active",
     priority: params.get("priority") ?? "",
+    productTags: params.get("productTags") ?? "",
+    title: params.get("title") ?? "",
+    description: params.get("description") ?? "",
+    fullName: params.get("fullName") ?? "",
     email: params.get("email") ?? "",
     phone: params.get("phone") ?? "",
+    createdFrom: params.get("createdFrom") ?? "",
+    createdTo: params.get("createdTo") ?? "",
     documentFolder: params.get("documentFolder") ?? "",
   };
 }
@@ -331,8 +360,14 @@ function writeFiltersToSearchParams(params: URLSearchParams, filters: LeadFilter
   if (filters.status.trim()) params.set("status", filters.status.trim());
   if (filters.lifecycle.trim() && filters.lifecycle !== "active") params.set("lifecycle", filters.lifecycle.trim());
   if (filters.priority.trim()) params.set("priority", filters.priority.trim());
+  if (filters.productTags.trim()) params.set("productTags", filters.productTags.trim());
+  if (filters.title.trim()) params.set("title", filters.title.trim());
+  if (filters.description.trim()) params.set("description", filters.description.trim());
+  if (filters.fullName.trim()) params.set("fullName", filters.fullName.trim());
   if (filters.email.trim()) params.set("email", filters.email.trim());
   if (filters.phone.trim()) params.set("phone", filters.phone.trim());
+  if (filters.createdFrom.trim()) params.set("createdFrom", filters.createdFrom.trim());
+  if (filters.createdTo.trim()) params.set("createdTo", filters.createdTo.trim());
   if (filters.documentFolder.trim()) params.set("documentFolder", filters.documentFolder.trim());
 }
 
@@ -368,6 +403,7 @@ function buildLeadPayload(form: LeadFormState) {
   return {
     title: form.title.trim(),
     fullName: form.fullName.trim() || undefined,
+    associatedCompany: form.associatedCompany.trim() || undefined,
     email: form.email.trim() || undefined,
     phone: form.phone.trim() || undefined,
     source: form.source || undefined,
@@ -382,6 +418,7 @@ function leadToForm(lead: Lead): LeadFormState {
   return {
     title: lead.title,
     fullName: lead.fullName ?? "",
+    associatedCompany: lead.associatedCompany ?? "",
     email: lead.email ?? "",
     phone: lead.phone ?? "",
     source: lead.source ?? "",
@@ -428,6 +465,7 @@ export default function LeadsPage() {
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkSource, setBulkSource] = useState("");
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const { productTags: crmProductTags, associatedCompanies } = useCrmFormSuggestions();
   const {
     tab,
     setTab,
@@ -497,27 +535,23 @@ export default function LeadsPage() {
     if (filters.lifecycle.trim()) params.set("lifecycle", filters.lifecycle.trim());
     if (filters.source.trim()) params.set("source", filters.source.trim());
     if (filters.priority.trim()) params.set("priority", filters.priority.trim());
+    if (filters.productTags.trim()) params.set("productTags", filters.productTags.trim());
+    if (filters.title.trim()) params.set("title", filters.title.trim());
+    if (filters.description.trim()) params.set("description", filters.description.trim());
+    if (filters.fullName.trim()) params.set("fullName", filters.fullName.trim());
+    if (filters.email.trim()) params.set("email", filters.email.trim());
+    if (filters.phone.trim()) params.set("phone", filters.phone.trim());
+    if (filters.createdFrom.trim()) params.set("createdFrom", filters.createdFrom.trim());
+    if (filters.createdTo.trim()) params.set("createdTo", filters.createdTo.trim());
     if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
     params.set("limit", String(limit));
     params.set("offset", String((page - 1) * limit));
 
     try {
       const response = await apiRequest<ListLeadResponse>(`/leads?${params.toString()}`);
-      let items = response.items;
-
-      if (filters.email.trim()) {
-        const needle = filters.email.trim().toLowerCase();
-        items = items.filter((lead) => (lead.email ?? "").toLowerCase().includes(needle));
-      }
-
-      if (filters.phone.trim()) {
-        const needle = filters.phone.trim().toLowerCase();
-        items = items.filter((lead) => (lead.phone ?? "").toLowerCase().includes(needle));
-      }
-
-      setLeads(items);
+      setLeads(response.items);
       setTotal(response.total);
-      setSelectedLeadIds((current) => current.filter((id) => items.some((lead) => lead.id === id)));
+      setSelectedLeadIds((current) => current.filter((id) => response.items.some((lead) => lead.id === id)));
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load leads");
     } finally {
@@ -586,15 +620,6 @@ export default function LeadsPage() {
   const closeModal = () => {
     setModalMode(null);
     setSelectedLead(null);
-  };
-
-  const openCreateModal = () => {
-    setSelectedLead(null);
-    setForm({
-      ...emptyLeadForm,
-      source: leadSourceSettings?.leadSources[0]?.key ?? "",
-    });
-    setModalMode("create");
   };
 
   const openEditModal = (lead: Lead) => {
@@ -830,20 +855,20 @@ export default function LeadsPage() {
       label: leadColumnLabels.title,
       sortable: true,
       sortKey: "title",
-      widthClassName: "min-w-[180px]",
+      widthClassName: "min-w-[150px]",
       renderCell: (lead) => (
-        <div className="min-w-[180px]">
-          <Link href={`/dashboard/leads/${lead.id}`} className="font-medium text-slate-900 hover:text-sky-700 hover:underline">
+        <div className="min-w-[150px] max-w-[170px]">
+          <Link href={`/dashboard/leads/${lead.id}`} className="block truncate font-medium text-slate-900 hover:text-sky-700 hover:underline">
             {lead.title}
           </Link>
-          <div className="mt-1 text-xs text-muted-foreground">{(lead.tags ?? []).slice(0, 2).join(", ") || "No tags"}</div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">{(lead.tags ?? []).slice(0, 2).join(", ") || "No tags"}</div>
         </div>
       ),
     },
-    { key: "fullName", label: leadColumnLabels.fullName, sortable: true, sortKey: "fullName", renderCell: (lead) => <span className="text-slate-600">{lead.fullName ?? "-"}</span> },
-    { key: "email", label: leadColumnLabels.email, sortable: true, sortKey: "email", renderCell: (lead) => <span className="text-slate-600">{lead.email ?? "-"}</span> },
-    { key: "phone", label: leadColumnLabels.phone, sortable: true, sortKey: "phone", renderCell: (lead) => <span className="text-slate-600">{lead.phone ?? "-"}</span> },
-    { key: "source", label: leadColumnLabels.source, sortable: true, sortKey: "source", renderCell: (lead) => <span className="text-slate-600">{lead.source ?? "-"}</span> },
+    { key: "fullName", label: leadColumnLabels.fullName, sortable: true, sortKey: "fullName", widthClassName: "min-w-[130px]", renderCell: (lead) => <span className="block max-w-[130px] truncate text-slate-600">{lead.fullName ?? "-"}</span> },
+    { key: "email", label: leadColumnLabels.email, sortable: true, sortKey: "email", widthClassName: "min-w-[150px]", renderCell: (lead) => <span className="block max-w-[150px] truncate text-slate-600">{lead.email ?? "-"}</span> },
+    { key: "phone", label: leadColumnLabels.phone, sortable: true, sortKey: "phone", widthClassName: "min-w-[120px]", renderCell: (lead) => <span className="block max-w-[120px] truncate text-slate-600">{lead.phone ?? "-"}</span> },
+    { key: "source", label: leadColumnLabels.source, sortable: true, sortKey: "source", widthClassName: "min-w-[120px]", renderCell: (lead) => <span className="block max-w-[120px] truncate text-slate-600">{lead.source ?? "-"}</span> },
     {
       key: "status",
       label: leadColumnLabels.status,
@@ -889,18 +914,17 @@ export default function LeadsPage() {
       if (filters.status.trim()) params.set("status", filters.status.trim());
       if (filters.source.trim()) params.set("source", filters.source.trim());
       if (filters.priority.trim()) params.set("priority", filters.priority.trim());
+      if (filters.productTags.trim()) params.set("productTags", filters.productTags.trim());
+      if (filters.title.trim()) params.set("title", filters.title.trim());
+      if (filters.description.trim()) params.set("description", filters.description.trim());
+      if (filters.fullName.trim()) params.set("fullName", filters.fullName.trim());
+      if (filters.email.trim()) params.set("email", filters.email.trim());
+      if (filters.phone.trim()) params.set("phone", filters.phone.trim());
+      if (filters.createdFrom.trim()) params.set("createdFrom", filters.createdFrom.trim());
+      if (filters.createdTo.trim()) params.set("createdTo", filters.createdTo.trim());
       if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
       const response = await apiRequest<ListLeadResponse>(`/leads?${params.toString()}`, { skipCache: true });
-      let pageItems = response.items;
-      if (filters.email.trim()) {
-        const needle = filters.email.trim().toLowerCase();
-        pageItems = pageItems.filter((lead) => (lead.email ?? "").toLowerCase().includes(needle));
-      }
-      if (filters.phone.trim()) {
-        const needle = filters.phone.trim().toLowerCase();
-        pageItems = pageItems.filter((lead) => (lead.phone ?? "").toLowerCase().includes(needle));
-      }
-      items.push(...pageItems);
+      items.push(...response.items);
       nextOffset += response.items.length;
       if (response.items.length === 0 || nextOffset >= response.total) break;
     }
@@ -985,8 +1009,10 @@ export default function LeadsPage() {
             <Button type="button" variant="secondary" size="sm" onClick={() => setModalMode("import")}>
               <Import className="size-4" /> Import
             </Button>
-            <Button type="button" size="sm" onClick={openCreateModal}>
-              <Plus className="size-4" /> Create
+            <Button type="button" size="sm" asChild>
+              <Link href="/dashboard/leads/new">
+                <Plus className="size-4" /> Create
+              </Link>
             </Button>
           </>
         }
@@ -1121,11 +1147,11 @@ export default function LeadsPage() {
         />
       </section>
 
-      {(modalMode === "create" || modalMode === "edit") ? (
+      {modalMode === "edit" ? (
         <CrmModalShell
           open
-          title={modalMode === "edit" ? "Edit Lead" : "Create Lead"}
-          description={modalMode === "edit" ? "Update the selected lead record." : "Add a new lead into the pipeline."}
+          title="Edit Lead"
+          description="Update the selected lead record."
           onClose={closeModal}
           headerActions={
             <>
@@ -1153,6 +1179,7 @@ export default function LeadsPage() {
                   <FieldLabel>Lead Name</FieldLabel>
                   <Input value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} className="h-10 text-sm" placeholder="Full name" />
                 </Field>
+                <SuggestionInputField label="Associated Company" value={form.associatedCompany} suggestions={associatedCompanies} onChange={(value) => setForm((current) => ({ ...current, associatedCompany: value }))} placeholder="Start typing a company" />
                 <Field>
                   <FieldLabel>Email</FieldLabel>
                   <Input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} className="h-10 text-sm" placeholder="name@example.com" />
@@ -1194,7 +1221,12 @@ export default function LeadsPage() {
                 </Field>
                 <Field className="md:col-span-2">
                   <FieldLabel>Tags</FieldLabel>
-                  <Input value={form.tags} onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value }))} className="h-10 text-sm" placeholder="enterprise, inbound, high priority" />
+                  <Input value={form.tags} list="lead-product-tags" onChange={(event) => setForm((current) => ({ ...current, tags: event.target.value }))} className="h-10 text-sm" placeholder="enterprise, inbound, high priority" />
+                  <datalist id="lead-product-tags">
+                    {crmProductTags.map((tag) => (
+                      <option key={tag} value={tag} />
+                    ))}
+                  </datalist>
                 </Field>
                 <Field className="md:col-span-2">
                   <FieldLabel>Notes</FieldLabel>
@@ -1312,6 +1344,10 @@ export default function LeadsPage() {
             ) : (
               <>
                 <Field>
+                  <FieldLabel>Full Name</FieldLabel>
+                  <Input value={filterDraft.fullName} onChange={(event) => setFilterDraft((current) => ({ ...current, fullName: event.target.value }))} className="h-10 text-sm" placeholder="Filter by full name" />
+                </Field>
+                <Field>
                   <FieldLabel>Email</FieldLabel>
                   <Input value={filterDraft.email} onChange={(event) => setFilterDraft((current) => ({ ...current, email: event.target.value }))} className="h-10 text-sm" placeholder="Filter by email" />
                 </Field>
@@ -1326,6 +1362,18 @@ export default function LeadsPage() {
           {tab !== "documents" ? (
             <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
               <div className="text-sm font-semibold text-slate-900">Lead details</div>
+              <Field>
+                <FieldLabel>Job Title</FieldLabel>
+                <Input value={filterDraft.title} onChange={(event) => setFilterDraft((current) => ({ ...current, title: event.target.value }))} className="h-10 text-sm" placeholder="Head of Procurement" />
+              </Field>
+              <Field>
+                <FieldLabel>Description / Notes</FieldLabel>
+                <Input value={filterDraft.description} onChange={(event) => setFilterDraft((current) => ({ ...current, description: event.target.value }))} className="h-10 text-sm" placeholder="Filter notes content" />
+              </Field>
+              <Field>
+                <FieldLabel>Product Tags</FieldLabel>
+                <Input value={filterDraft.productTags} onChange={(event) => setFilterDraft((current) => ({ ...current, productTags: event.target.value }))} className="h-10 text-sm" placeholder="enterprise, inbound" />
+              </Field>
               <Field>
                 <FieldLabel>Source</FieldLabel>
                 <NativeSelect value={filterDraft.source} onChange={(event) => setFilterDraft((current) => ({ ...current, source: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
@@ -1364,6 +1412,14 @@ export default function LeadsPage() {
                   <option value="active">Active</option>
                   <option value="deleted">Deleted</option>
                 </NativeSelect>
+              </Field>
+              <Field>
+                <FieldLabel>Created From</FieldLabel>
+                <Input type="date" value={filterDraft.createdFrom} onChange={(event) => setFilterDraft((current) => ({ ...current, createdFrom: event.target.value }))} className="h-10 text-sm" />
+              </Field>
+              <Field>
+                <FieldLabel>Created To</FieldLabel>
+                <Input type="date" value={filterDraft.createdTo} onChange={(event) => setFilterDraft((current) => ({ ...current, createdTo: event.target.value }))} className="h-10 text-sm" />
               </Field>
             </div>
           ) : null}

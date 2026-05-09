@@ -1,11 +1,21 @@
 import { z } from "zod";
 
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
 export const listLeadsQuerySchema = z.object({
   q: z.string().trim().optional(),
   status: z.enum(["new", "qualified", "proposal", "won", "lost"]).optional(),
   source: z.string().trim().optional(),
   assignedToUserId: z.string().uuid().optional(),
   priority: z.enum(["hot", "warm", "nurture", "cold"]).optional(),
+  productTags: z.string().trim().optional(),
+  title: z.string().trim().optional(),
+  description: z.string().trim().optional(),
+  fullName: z.string().trim().optional(),
+  email: z.string().trim().optional(),
+  phone: z.string().trim().optional(),
+  createdFrom: isoDateSchema.optional(),
+  createdTo: isoDateSchema.optional(),
   lifecycle: z.enum(["active", "deleted"]).default("active"),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
@@ -18,6 +28,7 @@ export const boardLeadsQuerySchema = z.object({
 export const createLeadSchema = z.object({
   title: z.string().trim().min(1).max(180),
   fullName: z.string().trim().max(180).optional(),
+  associatedCompany: z.string().trim().max(180).optional(),
   email: z.string().email().optional(),
   phone: z.string().trim().max(40).optional(),
   source: z.string().trim().max(100).optional(),

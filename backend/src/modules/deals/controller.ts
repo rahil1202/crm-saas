@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
@@ -69,7 +69,7 @@ export async function listDeals(c: Context<AppEnv>) {
 
   const conditions = [eq(deals.companyId, tenant.companyId), isNull(deals.deletedAt)];
   if (query.q) {
-    conditions.push(ilike(deals.title, `%${query.q}%`));
+    conditions.push(or(ilike(deals.title, `%${query.q}%`), ilike(deals.associatedCompany, `%${query.q}%`))!);
   }
   if (query.status) {
     conditions.push(eq(deals.status, query.status));
@@ -255,6 +255,7 @@ export async function createDeal(c: Context<AppEnv>) {
       partnerCompanyId: body.partnerCompanyId ?? null,
       assignedToUserId: body.assignedToUserId ?? null,
       title: body.title,
+      associatedCompany: body.associatedCompany ?? null,
       pipeline: body.pipeline,
       stage: body.stage,
       status: body.status,
@@ -338,6 +339,7 @@ export async function updateDeal(c: Context<AppEnv>) {
     .update(deals)
     .set({
       ...(body.title !== undefined ? { title: body.title } : {}),
+      ...(body.associatedCompany !== undefined ? { associatedCompany: body.associatedCompany ?? null } : {}),
       ...(body.pipeline !== undefined ? { pipeline: body.pipeline } : {}),
       ...(body.stage !== undefined ? { stage: body.stage } : {}),
       ...(body.status !== undefined ? { status: body.status } : {}),

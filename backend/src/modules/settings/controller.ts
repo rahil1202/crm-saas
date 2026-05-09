@@ -3,7 +3,7 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { companySettings, emailAccounts, socialAccounts, whatsappWorkspaces } from "@/db/schema";
+import { companySettings, customers, deals, emailAccounts, leads, partnerCompanies, socialAccounts, whatsappWorkspaces } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings, mergeIntegrationSettings, normalizeIntegrationSettings } from "@/lib/company-settings";
 import { env } from "@/lib/config";
@@ -226,6 +226,53 @@ export async function getTags(c: Context<AppEnv>) {
 
   return ok(c, {
     tags: settings.tags,
+  });
+}
+
+export async function getCrmFormSuggestions(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const settings = await getCompanySettings(tenant.companyId);
+
+  const [customerRows, leadRows, dealRows, partnerRows] = await Promise.all([
+    db
+      .select({ tags: customers.tags, associatedCompany: customers.associatedCompany })
+      .from(customers)
+      .where(and(eq(customers.companyId, tenant.companyId), isNull(customers.deletedAt))),
+    db
+      .select({ tags: leads.tags, associatedCompany: leads.associatedCompany })
+      .from(leads)
+      .where(and(eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt))),
+    db
+      .select({ productTags: deals.productTags, associatedCompany: deals.associatedCompany })
+      .from(deals)
+      .where(and(eq(deals.companyId, tenant.companyId), isNull(deals.deletedAt))),
+    db
+      .select({ name: partnerCompanies.name })
+      .from(partnerCompanies)
+      .where(and(eq(partnerCompanies.companyId, tenant.companyId), isNull(partnerCompanies.deletedAt))),
+  ]);
+
+  const productTags = Array.from(
+    new Set([
+      ...settings.tags.map((item) => item.label),
+      ...customerRows.flatMap((item) => item.tags ?? []),
+      ...leadRows.flatMap((item) => item.tags ?? []),
+      ...dealRows.flatMap((item) => item.productTags ?? []),
+    ].map((item) => item.trim()).filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right));
+
+  const associatedCompanies = Array.from(
+    new Set([
+      ...customerRows.map((item) => item.associatedCompany ?? ""),
+      ...leadRows.map((item) => item.associatedCompany ?? ""),
+      ...dealRows.map((item) => item.associatedCompany ?? ""),
+      ...partnerRows.map((item) => item.name ?? ""),
+    ].map((item) => item.trim()).filter(Boolean)),
+  ).sort((left, right) => left.localeCompare(right));
+
+  return ok(c, {
+    productTags,
+    associatedCompanies,
   });
 }
 

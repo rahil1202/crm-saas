@@ -57,6 +57,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Contact",
     description: "Sort, search, and filter contact records with linked lead, deal, task, and campaign history.",
   },
+  "/dashboard/contacts/new": {
+    title: "New Contact",
+    description: "Create a new contact profile with structured details and tags.",
+  },
   "/dashboard/deals": {
     title: "Deals",
     description: "Tenant-scoped deals workspace with timeline tracking for lifecycle changes.",
@@ -104,6 +108,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
   "/dashboard/leads": {
     title: "Leads",
     description: "Import, triage, and convert tenant-scoped leads from one workspace.",
+  },
+  "/dashboard/leads/new": {
+    title: "New Lead",
+    description: "Create a new lead with enriched contact context and source metadata.",
   },
   "/dashboard/notifications": {
     title: "Notifications",
@@ -166,12 +174,12 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const meta =
-    (pathname.startsWith("/dashboard/contacts/") && pathname !== "/dashboard/contacts"
+    (pathname.startsWith("/dashboard/contacts/") && pathname !== "/dashboard/contacts" && pathname !== "/dashboard/contacts/new"
       ? {
           title: "Contact Profile",
           description: "Detailed contact record with activity, company context, notes, and deal visibility.",
         }
-      : pathname.startsWith("/dashboard/leads/") && pathname !== "/dashboard/leads"
+      : pathname.startsWith("/dashboard/leads/") && pathname !== "/dashboard/leads" && pathname !== "/dashboard/leads/new"
         ? {
             title: "Lead Profile",
             description: "Detailed lead record with timeline, linked records, and edit controls.",

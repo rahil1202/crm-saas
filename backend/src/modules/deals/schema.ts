@@ -19,6 +19,7 @@ export const dealForecastQuerySchema = z.object({
 
 export const createDealSchema = z.object({
   title: z.string().trim().min(1).max(180),
+  associatedCompany: z.string().trim().max(180).optional(),
   pipeline: z.string().trim().min(1).max(100).default("default"),
   stage: z.string().trim().min(1).max(100).default("new"),
   status: z.enum(["open", "won", "lost"]).default("open"),

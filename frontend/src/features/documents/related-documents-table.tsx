@@ -74,6 +74,7 @@ export function RelatedDocumentsTable({
       loading={loading}
       emptyLabel="No uploaded docs found."
       columnVisibility={columnVisibility}
+      density="comfortable"
       actionColumn={{
         header: "Actions",
         renderCell: (document) => (

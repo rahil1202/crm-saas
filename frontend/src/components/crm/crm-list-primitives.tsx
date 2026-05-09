@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type WheelEvent } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Filter, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
 
 import type { ColumnDefinition, ColumnVisibility, CrmListTabKey, CrmSortDirection } from "@/components/crm/types";
@@ -305,6 +305,7 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
   sortDir,
   onSort,
   actionColumn,
+  density = "compact",
 }: {
   columns: Array<ColumnDefinition<TRecord, TColumnKey, TSortKey>>;
   rows: TRecord[];
@@ -324,19 +325,82 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
     className?: string;
     renderCell: (record: TRecord) => ReactNode;
   };
+  density?: "comfortable" | "compact";
 }) {
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const visibleColumns = columns.filter((column) => columnVisibility[column.key]);
   const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedRowIds.includes(rowKey(row)));
   const colSpan = visibleColumns.length + (selectable ? 1 : 0) + (actionColumn ? 1 : 0);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const compact = density === "compact";
+  const cellPaddingClass = compact ? "px-2.5 py-2" : "px-4 py-3.5";
+  const headerTrackingClass = compact ? "tracking-[0.1em]" : "tracking-[0.18em]";
+  const bodyTextClass = compact ? "text-[0.78rem] leading-5" : "text-sm";
+  const emptyStateClass = compact ? "px-4 py-14" : "px-4 py-20";
+
+  const updateHorizontalAffordance = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      return;
+    }
+    const maxScrollLeft = container.scrollWidth - container.clientWidth;
+    setCanScrollLeft(container.scrollLeft > 1);
+    setCanScrollRight(maxScrollLeft - container.scrollLeft > 1);
+  }, []);
+
+  useEffect(() => {
+    updateHorizontalAffordance();
+    const handleResize = () => updateHorizontalAffordance();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [updateHorizontalAffordance, rows.length, visibleColumns.length, selectable, Boolean(actionColumn)]);
+
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const container = scrollContainerRef.current;
+    if (!container) {
+      return;
+    }
+
+    if (Math.abs(event.deltaX) > 0) {
+      return;
+    }
+
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+      return;
+    }
+
+    const maxScrollLeft = container.scrollWidth - container.clientWidth;
+    if (maxScrollLeft <= 0) {
+      return;
+    }
+
+    const nextScrollLeft = container.scrollLeft + event.deltaY;
+    const clampedNextScrollLeft = Math.min(maxScrollLeft, Math.max(0, nextScrollLeft));
+    if (Math.abs(clampedNextScrollLeft - container.scrollLeft) < 0.5) {
+      return;
+    }
+
+    container.scrollLeft = clampedNextScrollLeft;
+    event.preventDefault();
+  };
 
   return (
     <div className="max-w-full min-w-0 overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)]">
-      <div className="overflow-x-hidden">
+      <div
+        ref={scrollContainerRef}
+        onScroll={updateHorizontalAffordance}
+        onWheel={handleWheel}
+        className="relative overflow-x-auto overscroll-x-contain scroll-smooth"
+      >
+        {canScrollLeft ? <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-6 bg-gradient-to-r from-white to-transparent" /> : null}
+        {canScrollRight ? <div className="pointer-events-none absolute inset-y-0 right-0 z-30 w-6 bg-gradient-to-l from-white to-transparent" /> : null}
         <table className="min-w-full table-fixed border-separate border-spacing-0">
           <thead className="bg-slate-50/90">
             <tr className="text-left">
             {selectable ? (
-              <th className="w-12 border-b border-border/60 px-4 py-3.5">
+              <th className={cn("sticky left-0 z-20 w-12 border-b border-border/60 bg-slate-50/95", cellPaddingClass)}>
                 <Checkbox
                   checked={allVisibleSelected}
                   onCheckedChange={(checked) => onToggleAllVisible?.(checked === true)}
@@ -345,23 +409,23 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
               </th>
             ) : null}
             {visibleColumns.map((column) => (
-              <th key={column.key} className={cn("border-b border-border/60 px-4 py-3.5", column.headerClassName, column.widthClassName)}>
+              <th key={column.key} className={cn("border-b border-border/60", cellPaddingClass, column.headerClassName, column.widthClassName)}>
                 {column.sortable && column.sortKey && onSort ? (
                   <button
                     type="button"
                     onClick={() => onSort(column.sortKey!)}
-                    className="inline-flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500 transition hover:text-slate-900"
+                    className={cn("inline-flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase text-slate-500 transition hover:text-slate-900", headerTrackingClass)}
                   >
                     <span>{column.label}</span>
                     <SortIcon active={sortBy === column.sortKey} direction={sortDir ?? "asc"} />
                   </button>
                 ) : (
-                  <span className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500">{column.label}</span>
+                  <span className={cn("text-[0.68rem] font-semibold uppercase text-slate-500", headerTrackingClass)}>{column.label}</span>
                 )}
               </th>
             ))}
             {actionColumn ? (
-              <th className={cn("border-b border-border/60 px-4 py-3.5 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-slate-500", actionColumn.className)}>
+              <th className={cn("sticky right-0 z-20 min-w-[170px] border-b border-border/60 bg-slate-50/95 text-right text-[0.68rem] font-semibold uppercase text-slate-500", cellPaddingClass, headerTrackingClass, actionColumn.className)}>
                 {actionColumn.header}
               </th>
             ) : null}
@@ -370,13 +434,13 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
           <tbody className="bg-white">
             {loading ? (
               <tr>
-                <td colSpan={colSpan} className="px-4 py-20 text-center text-sm text-muted-foreground">
+                <td colSpan={colSpan} className={cn("text-center text-sm text-muted-foreground", emptyStateClass)}>
                   Loading...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={colSpan} className="px-4 py-20 text-center text-sm text-muted-foreground">
+                <td colSpan={colSpan} className={cn("text-center text-sm text-muted-foreground", emptyStateClass)}>
                   {emptyLabel}
                 </td>
               </tr>
@@ -388,12 +452,12 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
                   <tr
                     key={id}
                     className={cn(
-                      "text-sm transition-colors",
+                      "group transition-colors",
                       selected ? "bg-sky-50/70" : "bg-white hover:bg-slate-50/75",
                     )}
                   >
                   {selectable ? (
-                    <td className="border-b border-border/50 px-4 py-3.5 align-middle">
+                    <td className={cn("sticky left-0 z-10 border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)}>
                       <Checkbox
                         checked={selected}
                         onCheckedChange={(checked) => onToggleRow?.(id, checked === true)}
@@ -402,11 +466,11 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
                     </td>
                   ) : null}
                   {visibleColumns.map((column) => (
-                    <td key={column.key} className={cn("border-b border-border/50 px-4 py-3.5 align-middle text-slate-700 break-words", column.cellClassName, column.widthClassName)}>
+                    <td key={column.key} className={cn("border-b border-border/50 align-middle text-slate-700", bodyTextClass, cellPaddingClass, column.cellClassName, column.widthClassName)}>
                       {column.renderCell(row)}
                     </td>
                   ))}
-                  {actionColumn ? <td className="border-b border-border/50 px-4 py-3.5 align-middle">{actionColumn.renderCell(row)}</td> : null}
+                  {actionColumn ? <td className={cn("sticky right-0 z-10 min-w-[170px] border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)}>{actionColumn.renderCell(row)}</td> : null}
                 </tr>
                 );
               })

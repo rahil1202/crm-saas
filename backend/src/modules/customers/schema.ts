@@ -40,6 +40,7 @@ export const listCustomersSchema = z.object({
 
 export const createCustomerSchema = z.object({
   fullName: z.string().trim().min(1).max(180),
+  associatedCompany: z.string().trim().max(180).optional(),
   email: z.string().email().optional(),
   phone: z.string().trim().max(40).optional(),
   tags: z.array(z.string().trim().min(1).max(50)).default([]),

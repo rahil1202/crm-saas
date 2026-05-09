@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 
@@ -100,6 +100,7 @@ function parseCsvLeadRow(row: Record<string, string>) {
   return createLeadSchema.parse({
     title,
     fullName: row.full_name || row.fullname || row.name || row.contact_name || undefined,
+    associatedCompany: row.associated_company || row.company || undefined,
     email,
     phone: row.phone || row.mobile || undefined,
     source: row.source || row.lead_source || undefined,
@@ -138,8 +139,56 @@ export async function listLeads(c: Context<AppEnv>) {
     }
   }
 
+  if (query.productTags) {
+    conditions.push(ilike(sql<string>`coalesce(array_to_string(${leads.tags}, ', '), '')`, `%${query.productTags}%`));
+  }
+
+  if (query.description) {
+    conditions.push(ilike(leads.notes, `%${query.description}%`));
+  }
+
+  if (query.fullName) {
+    conditions.push(ilike(leads.fullName, `%${query.fullName}%`));
+  }
+
+  if (query.title) {
+    conditions.push(
+      or(
+        ilike(leads.title, `%${query.title}%`),
+        ilike(sql<string>`coalesce(${leads.notes}, '')`, `%Title: ${query.title}%`),
+      )!,
+    );
+  }
+
+  if (query.email) {
+    conditions.push(ilike(leads.email, `%${query.email}%`));
+  }
+
+  if (query.phone) {
+    conditions.push(ilike(leads.phone, `%${query.phone}%`));
+  }
+
+  if (query.createdFrom) {
+    conditions.push(gte(leads.createdAt, new Date(`${query.createdFrom}T00:00:00.000Z`)));
+  }
+
+  if (query.createdTo) {
+    conditions.push(lte(leads.createdAt, new Date(`${query.createdTo}T23:59:59.999Z`)));
+  }
+
   if (query.q) {
-    conditions.push(ilike(leads.title, `%${query.q}%`));
+    conditions.push(
+      or(
+        ilike(leads.title, `%${query.q}%`),
+        ilike(leads.fullName, `%${query.q}%`),
+        ilike(leads.email, `%${query.q}%`),
+        ilike(leads.phone, `%${query.q}%`),
+        ilike(leads.source, `%${query.q}%`),
+        ilike(leads.notes, `%${query.q}%`),
+        ilike(leads.associatedCompany, `%${query.q}%`),
+        ilike(sql<string>`coalesce(array_to_string(${leads.tags}, ', '), '')`, `%${query.q}%`),
+      )!,
+    );
   }
 
   const where = and(...conditions);
@@ -201,6 +250,7 @@ export async function createLead(c: Context<AppEnv>) {
       assignedToUserId: body.assignedToUserId ?? null,
       title: body.title,
       fullName: body.fullName ?? null,
+      associatedCompany: body.associatedCompany ?? null,
       email: body.email ?? null,
       phone: body.phone ?? null,
       source: body.source ?? null,
@@ -397,6 +447,7 @@ export async function importLeadsFromCsv(c: Context<AppEnv>) {
           assignedToUserId: null,
           title: leadInput.title,
           fullName: leadInput.fullName ?? null,
+          associatedCompany: leadInput.associatedCompany ?? null,
           email: leadInput.email ?? null,
           phone: leadInput.phone ?? null,
           source: leadInput.source ?? null,
@@ -505,6 +556,7 @@ export async function updateLead(c: Context<AppEnv>) {
     .set({
       ...(body.title !== undefined ? { title: body.title } : {}),
       ...(body.fullName !== undefined ? { fullName: body.fullName ?? null } : {}),
+      ...(body.associatedCompany !== undefined ? { associatedCompany: body.associatedCompany ?? null } : {}),
       ...(body.email !== undefined ? { email: body.email ?? null } : {}),
       ...(body.phone !== undefined ? { phone: body.phone ?? null } : {}),
       ...(body.source !== undefined ? { source: body.source ?? null } : {}),

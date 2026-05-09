@@ -18,6 +18,8 @@ import {
   CrmModalShell,
   CrmPaginationBar,
 } from "@/components/crm/crm-list-primitives";
+import { SuggestionInputField } from "@/components/crm/crm-form-fields";
+import { useCrmFormSuggestions } from "@/components/crm/use-crm-form-suggestions";
 import { downloadCsvFile, toCsvCell } from "@/components/crm/csv-export";
 import type { ColumnDefinition, CrmListTabKey } from "@/components/crm/types";
 import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/use-crm-list-state";
@@ -40,6 +42,7 @@ import type { DocumentItem, DocumentListResponse } from "@/features/documents/ty
 interface Customer {
   id: string;
   fullName: string;
+  associatedCompany: string | null;
   email: string | null;
   phone: string | null;
   assignedToUserId: string | null;
@@ -90,6 +93,7 @@ type CustomerFormState = {
 
 type CustomerEditFormState = {
   fullName: string;
+  associatedCompany: string;
   email: string;
   phone: string;
   tagsInput: string;
@@ -262,7 +266,7 @@ const customerTableColumns: Array<{
 }> = [
   {
     key: "name",
-    width: "min-w-[240px]",
+    width: "min-w-[150px]",
     render: (customer) => (
       <div className="flex items-center gap-2.5">
         <Avatar size="sm">
@@ -279,28 +283,28 @@ const customerTableColumns: Array<{
   },
   {
     key: "email",
-    width: "min-w-[220px]",
-    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{customer.email ?? "-"}</div>,
+    width: "min-w-[170px]",
+    render: (customer) => <div className="max-w-[170px] truncate text-[0.82rem] text-muted-foreground">{customer.email ?? "-"}</div>,
   },
   {
     key: "mobile",
-    width: "min-w-[160px]",
+    width: "min-w-[130px]",
     render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{customer.phone ?? "-"}</div>,
   },
   {
     key: "title",
-    width: "min-w-[180px]",
-    render: (customer) => <div className="text-[0.82rem] text-muted-foreground">{customer.details.title ?? "-"}</div>,
+    width: "min-w-[130px]",
+    render: (customer) => <div className="max-w-[130px] truncate text-[0.82rem] text-muted-foreground">{customer.details.title ?? "-"}</div>,
   },
   {
     key: "remarks",
-    width: "min-w-[260px]",
-    render: (customer) => <div className="max-w-[260px] truncate text-[0.82rem] text-muted-foreground">{customer.details.remarks ?? "-"}</div>,
+    width: "min-w-[160px]",
+    render: (customer) => <div className="max-w-[160px] truncate text-[0.82rem] text-muted-foreground">{customer.details.remarks ?? "-"}</div>,
   },
   {
     key: "callRemark",
-    width: "min-w-[200px]",
-    render: (customer) => <div className="max-w-[200px] truncate text-[0.82rem] text-muted-foreground">{customer.details.callRemark ?? "-"}</div>,
+    width: "min-w-[150px]",
+    render: (customer) => <div className="max-w-[150px] truncate text-[0.82rem] text-muted-foreground">{customer.details.callRemark ?? "-"}</div>,
   },
   {
     key: "callStatus",
@@ -309,7 +313,7 @@ const customerTableColumns: Array<{
   },
   {
     key: "productTags",
-    width: "min-w-[200px]",
+    width: "min-w-[150px]",
     render: (customer) => (
       <div className="flex flex-wrap gap-1">
         {(customer.tags ?? []).length > 0 ? (
@@ -341,18 +345,19 @@ const customerTableColumns: Array<{
   },
   {
     key: "createdAt",
-    width: "min-w-[150px]",
+    width: "min-w-[110px]",
     render: (customer) => <div className="text-[0.8rem] text-muted-foreground">{formatDate(customer.createdAt)}</div>,
   },
   {
     key: "updatedAt",
-    width: "min-w-[160px]",
+    width: "min-w-[130px]",
     render: (customer) => <div className="text-[0.8rem] text-muted-foreground">{formatDateTime(customer.updatedAt)}</div>,
   },
 ];
 
 const emptyEditForm: CustomerEditFormState = {
   fullName: "",
+  associatedCompany: "",
   email: "",
   phone: "",
   tagsInput: "",
@@ -430,6 +435,7 @@ function buildCustomersCsv(items: Customer[]) {
 function customerToForm(customer: Customer): CustomerFormState {
   return {
     fullName: customer.fullName,
+    associatedCompany: customer.associatedCompany ?? "",
     email: customer.email ?? "",
     phone: customer.phone ?? "",
     tagsInput: (customer.tags ?? []).join(", "),
@@ -698,6 +704,7 @@ export default function CustomersPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const { productTags: productTagSuggestions, associatedCompanies } = useCrmFormSuggestions();
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const {
     columnVisibility: documentColumnVisibility,
@@ -855,11 +862,6 @@ export default function CustomersPage() {
     setSelectedCustomer(null);
   };
 
-  const openCreate = () => {
-    setCreateForm(emptyCreateForm);
-    setModalMode("create");
-  };
-
   const openImport = () => {
     setImportMode("paste");
     setImportText(defaultImportText);
@@ -920,7 +922,7 @@ export default function CustomersPage() {
               className="group flex w-full items-start rounded-xl border border-transparent px-2 py-2 text-left transition-colors hover:border-sky-200 hover:bg-sky-50/70"
             >
               <div className="min-w-0">
-                <div className="max-w-[260px] truncate text-[0.82rem] text-muted-foreground">{customer.details.remarks ?? "-"}</div>
+                <div className="max-w-[160px] truncate text-[0.82rem] text-muted-foreground">{customer.details.remarks ?? "-"}</div>
                 <div className="mt-1 text-[0.68rem] font-medium uppercase tracking-[0.12em] text-sky-700/80 opacity-0 transition-opacity group-hover:opacity-100">
                   Edit remarks
                 </div>
@@ -1025,6 +1027,7 @@ export default function CustomersPage() {
         method: "PATCH",
         body: JSON.stringify({
           fullName: editForm.fullName,
+          associatedCompany: editForm.associatedCompany.trim() || null,
           email: editForm.email.trim() ? editForm.email.trim() : null,
           phone: editForm.phone.trim() ? editForm.phone.trim() : null,
           tags: parseTags(editForm.tagsInput),
@@ -1330,8 +1333,10 @@ export default function CustomersPage() {
             <Button type="button" variant="secondary" size="sm" onClick={openImport}>
               <Import className="size-4" /> Import
             </Button>
-            <Button type="button" size="sm" onClick={openCreate}>
-              <Plus className="size-4" /> Create
+            <Button type="button" size="sm" asChild>
+              <Link href="/dashboard/contacts/new">
+                <Plus className="size-4" /> Create
+              </Link>
             </Button>
           </>
         }
@@ -1392,6 +1397,7 @@ export default function CustomersPage() {
             loading={loading}
             emptyLabel="No documents found."
             columnVisibility={documentColumnVisibility}
+            density="comfortable"
             actionColumn={{
               header: "Actions",
               renderCell: (record) => (
@@ -1894,7 +1900,12 @@ export default function CustomersPage() {
                 </Field>
                 <Field>
                   <FieldLabel>Product Tags</FieldLabel>
-                  <Input value={filterDraft.productTags} onChange={(event) => setFilterDraft((current) => ({ ...current, productTags: event.target.value }))} placeholder="priority, enterprise" className="h-10 text-sm" />
+                  <Input value={filterDraft.productTags} list="contact-filter-product-tags" onChange={(event) => setFilterDraft((current) => ({ ...current, productTags: event.target.value }))} placeholder="priority, enterprise" className="h-10 text-sm" />
+                  <datalist id="contact-filter-product-tags">
+                    {productTagSuggestions.map((tag) => (
+                      <option key={tag} value={tag} />
+                    ))}
+                  </datalist>
                 </Field>
                 <Field>
                   <FieldLabel>Country</FieldLabel>
@@ -1966,6 +1977,7 @@ export default function CustomersPage() {
                     onChange={(event) => setEditForm((current) => ({ ...current, fullName: event.target.value }))}
                   />
                 </Field>
+                <SuggestionInputField label="Associated Company" value={editForm.associatedCompany} suggestions={associatedCompanies} onChange={(value) => setEditForm((current) => ({ ...current, associatedCompany: value }))} placeholder="Start typing a company" />
                 <Field>
                   <FieldLabel>Email</FieldLabel>
                   <Input
