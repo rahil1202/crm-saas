@@ -107,6 +107,14 @@ export const publicBookSchema = z.object({
   notes: z.string().trim().max(2000).optional(),
 });
 
+export const bookingTokenParamSchema = z.object({
+  token: z.string().trim().min(12).max(128),
+});
+
+export const publicRescheduleSchema = z.object({
+  slotStart: z.string().datetime(),
+});
+
 export type ListMeetingsQuery = z.infer<typeof listMeetingsSchema>;
 export type CreateMeetingInput = z.infer<typeof createMeetingSchema>;
 export type UpdateMeetingInput = z.infer<typeof updateMeetingSchema>;
@@ -116,3 +124,4 @@ export type ReplaceAvailabilityInput = z.infer<typeof replaceAvailabilitySchema>
 export type ListHostOptionsQuery = z.infer<typeof listHostOptionsSchema>;
 export type PublicSlotsQuery = z.infer<typeof publicSlotsQuerySchema>;
 export type PublicBookInput = z.infer<typeof publicBookSchema>;
+export type PublicRescheduleInput = z.infer<typeof publicRescheduleSchema>;

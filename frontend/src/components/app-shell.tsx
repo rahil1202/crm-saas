@@ -107,10 +107,10 @@ const navItems: NavItem[] = [
 const navGroups = [
   { id: "home", label: "Home", hrefs: ["/dashboard/company", "/dashboard", "/dashboard/report"] },
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
-  { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks"] },
-  { id: "marketing", label: "Marketing", hrefs: ["/dashboard/outreach", "/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/notifications", "/dashboard/social"] },
+  { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks", "/dashboard/forms", "/dashboard/notifications"] },
+  { id: "marketing", label: "Marketing", hrefs: ["/dashboard/outreach", "/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/social"] },
   { id: "users", label: "Users", hrefs: ["/dashboard/meetings", "/dashboard/team", "/dashboard/partners", "/dashboard/settings", "/dashboard/invite"] },
-  { id: "addons", label: "Add Ons", hrefs: ["/dashboard/forms", "/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
+  { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
 ];
 
 const navGroupItemOverrides: Record<string, Record<string, { label?: string; icon?: NavItem["icon"] }>> = {
@@ -122,12 +122,15 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
   //   "/dashboard/automation": { label: "Workflow", icon: Sparkles },
   //   "/dashboard/chatbot-flows": { label: "LinkedIn", icon: HeartHandshake },
   // },
+  crm: {
+    "/dashboard/forms": { label: "Forms", icon: TextCursorInput },
+    "/dashboard/notifications": { label: "Notifications", icon: Bell },
+  },
   marketing: {
     "/dashboard/outreach": { label: "Outreach", icon: ScanSearch },
     "/dashboard/campaigns": { label: "Campaigns", icon: Megaphone },
     "/dashboard/templates": { label: "Templates", icon: FileText },
     "/dashboard/documents": { label: "Files", icon: FileBox },
-    "/dashboard/notifications": { label: "Notifications", icon: Bell },
     "/dashboard/social": { label: "Social", icon: MessageSquareShare },
   },
   users: {
@@ -138,7 +141,6 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
     "/dashboard/invite": { label: "Invite", icon: HeartHandshake },
   },
   addons: {
-    "/dashboard/forms": { label: "Forms", icon: TextCursorInput },
     "/dashboard/integrations": { label: "Integrations", icon: Link2 },
     "/dashboard/reports": { label: "Stats", icon: ChartColumnBig },
     "/dashboard/super-admin": { label: "Super Admin", icon: Shield },

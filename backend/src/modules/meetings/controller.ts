@@ -8,13 +8,14 @@ import { ok } from "@/lib/api";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { queueManualMeetingInvites, queuePublicBookingEmails } from "@/modules/meetings/email";
-import { meetingIdParamSchema, meetingTypeIdParamSchema, publicMeetingParamsSchema } from "@/modules/meetings/schema";
+import { bookingTokenParamSchema, meetingIdParamSchema, meetingTypeIdParamSchema, publicMeetingParamsSchema } from "@/modules/meetings/schema";
 import type {
   CreateMeetingInput,
   CreateMeetingTypeInput,
   ListHostOptionsQuery,
   ListMeetingsQuery,
   PublicBookInput,
+  PublicRescheduleInput,
   PublicSlotsQuery,
   ReplaceAvailabilityInput,
   UpdateMeetingInput,
@@ -295,6 +296,7 @@ export async function listMeetings(c: Context<AppEnv>) {
         organizerEmail: meetings.organizerEmail,
         guestCount: meetings.guestCount,
         locationDetails: meetings.locationDetails,
+        bookingPublicToken: meetings.bookingPublicToken,
         createdAt: meetings.createdAt,
       })
       .from(meetings)
@@ -864,6 +866,7 @@ export async function getPublicMeeting(c: Context<AppEnv>) {
     host: {
       displayName: item.profileDisplayName,
       timezone: item.profileTimezone,
+      email: item.hostEmail,
       hostSlug: params.hostSlug,
     },
     meetingType: {
@@ -874,6 +877,7 @@ export async function getPublicMeeting(c: Context<AppEnv>) {
       durationMinutes: item.durationMinutes,
       locationType: item.locationType,
       locationDetails: item.locationDetails,
+      timezone: item.profileTimezone,
     },
   });
 }
@@ -1061,9 +1065,128 @@ export async function bookPublicMeeting(c: Context<AppEnv>) {
     booking: {
       id: meeting.id,
       token,
+      title: context.title,
+      guestName: body.guestName,
+      guestEmail: body.guestEmail.trim().toLowerCase(),
+      hostDisplayName: context.profileDisplayName,
       startsAt: meeting.startsAt,
       endsAt: meeting.endsAt,
       timezone: meeting.timezone,
+      locationType: context.locationType,
+      locationDetails: context.locationDetails,
     },
   }, 201);
+}
+
+export async function getPublicBookingByToken(c: Context<AppEnv>) {
+  const params = bookingTokenParamSchema.parse(c.req.param());
+  const [booking] = await db
+    .select({
+      id: meetings.id,
+      title: meetings.title,
+      startsAt: meetings.startsAt,
+      endsAt: meetings.endsAt,
+      timezone: meetings.timezone,
+      status: meetings.status,
+      locationType: meetingTypes.locationType,
+      locationDetails: meetings.locationDetails,
+      guestName: meetings.organizerName,
+      guestEmail: meetings.organizerEmail,
+      meetingTypeSlug: meetingTypes.slug,
+      hostDisplayName: meetingProfiles.displayName,
+      hostSlugPart: meetingProfiles.usernameSlug,
+      hostSuffix: meetingProfiles.publicSuffix,
+    })
+    .from(meetings)
+    .innerJoin(meetingTypes, eq(meetingTypes.id, meetings.meetingTypeId))
+    .innerJoin(meetingProfiles, eq(meetingProfiles.id, meetingTypes.meetingProfileId))
+    .where(and(eq(meetings.bookingPublicToken, params.token), isNull(meetings.deletedAt), eq(meetings.source, "public_link")))
+    .limit(1);
+
+  if (!booking) {
+    throw AppError.notFound("Booking not found");
+  }
+
+  return ok(c, {
+    booking: {
+      id: booking.id,
+      title: booking.title,
+      startsAt: booking.startsAt,
+      endsAt: booking.endsAt,
+      timezone: booking.timezone,
+      status: booking.status,
+      locationType: booking.locationType,
+      locationDetails: booking.locationDetails,
+      guestName: booking.guestName,
+      guestEmail: booking.guestEmail,
+      hostDisplayName: booking.hostDisplayName,
+      meetingTypeSlug: booking.meetingTypeSlug,
+      hostSlug: `${booking.hostSlugPart}-${booking.hostSuffix}`,
+      token: params.token,
+    },
+  });
+}
+
+export async function reschedulePublicBooking(c: Context<AppEnv>) {
+  const params = bookingTokenParamSchema.parse(c.req.param());
+  const body = c.get("validatedBody") as PublicRescheduleInput;
+
+  const [current] = await db
+    .select({
+      id: meetings.id,
+      companyId: meetings.companyId,
+      hostUserId: meetings.hostUserId,
+      meetingTypeId: meetings.meetingTypeId,
+      title: meetings.title,
+      durationMinutes: meetingTypes.durationMinutes,
+      profileBufferBeforeMinutes: meetingProfiles.bufferBeforeMinutes,
+      profileBufferAfterMinutes: meetingProfiles.bufferAfterMinutes,
+      timezone: meetings.timezone,
+      status: meetings.status,
+    })
+    .from(meetings)
+    .innerJoin(meetingTypes, eq(meetingTypes.id, meetings.meetingTypeId))
+    .innerJoin(meetingProfiles, eq(meetingProfiles.id, meetingTypes.meetingProfileId))
+    .where(and(eq(meetings.bookingPublicToken, params.token), isNull(meetings.deletedAt), eq(meetings.source, "public_link")))
+    .limit(1);
+
+  if (!current) {
+    throw AppError.notFound("Booking not found");
+  }
+  if (current.status !== "scheduled") {
+    throw AppError.badRequest("Only scheduled bookings can be rescheduled");
+  }
+
+  const startsAt = new Date(body.slotStart);
+  const endsAt = new Date(startsAt.getTime() + current.durationMinutes * 60_000);
+  if (startsAt <= new Date()) {
+    throw AppError.badRequest("Cannot reschedule to a past slot");
+  }
+
+  await ensureNoOverlap({
+    companyId: current.companyId,
+    hostUserId: current.hostUserId,
+    startsAt,
+    endsAt,
+    excludeMeetingId: current.id,
+    bufferBeforeMinutes: current.profileBufferBeforeMinutes,
+    bufferAfterMinutes: current.profileBufferAfterMinutes,
+  });
+
+  const [meeting] = await db
+    .update(meetings)
+    .set({ startsAt, endsAt, updatedAt: new Date() })
+    .where(eq(meetings.id, current.id))
+    .returning();
+
+  return ok(c, {
+    booking: {
+      id: meeting.id,
+      title: current.title,
+      startsAt: meeting.startsAt,
+      endsAt: meeting.endsAt,
+      timezone: current.timezone,
+      token: params.token,
+    },
+  });
 }

@@ -112,6 +112,9 @@ export default function FormDetailPage() {
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="flex flex-wrap gap-2">
+              <Link href={`/dashboard/forms/new?formId=${form.id}`} className={cn(buttonVariants({ variant: "outline" }))}>
+                Edit
+              </Link>
               <Button type="button" variant="outline" disabled={actionLoading} onClick={() => void handleArchiveToggle()}>
                 {form.status === "archived" ? "Unarchive" : "Archive"}
               </Button>

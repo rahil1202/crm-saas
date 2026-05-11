@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Copy, Download, PencilLine, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -32,6 +33,7 @@ type MeetingItem = {
   organizerEmail: string;
   guestCount: number;
   locationDetails: string | null;
+  bookingPublicToken: string | null;
   createdAt: string;
   durationMinutes: number;
   utcOffset: string;
@@ -115,6 +117,50 @@ const initialTypeForm = {
   color: "#1d4ed8",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 };
+
+function getZonedParts(date: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const read = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return {
+    date: `${read("year")}-${read("month")}-${read("day")}`,
+    time: `${read("hour")}:${read("minute")}`,
+  };
+}
+
+function zonedDateTimeToUtcIso(date: string, time: string, timezone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const target = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let utcMs = target;
+
+  for (let index = 0; index < 5; index += 1) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(utcMs));
+    const read = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? "0");
+    const interpreted = Date.UTC(read("year"), read("month") - 1, read("day"), read("hour"), read("minute"), read("second"));
+    const delta = target - interpreted;
+    utcMs += delta;
+    if (Math.abs(delta) < 1000) break;
+  }
+
+  return new Date(utcMs).toISOString();
+}
 
 function sourceLabel(value: MeetingItem["source"]) {
   if (value === "manual") return "Instant";
@@ -283,8 +329,8 @@ export default function MeetingsListPage() {
     setManualSaving(true);
 
     try {
-      const startsAt = new Date(`${manualForm.date}T${manualForm.startTime}:00`).toISOString();
-      const endsAt = new Date(`${manualForm.date}T${manualForm.endTime}:00`).toISOString();
+      const startsAt = zonedDateTimeToUtcIso(manualForm.date, manualForm.startTime, manualForm.timezone);
+      const endsAt = zonedDateTimeToUtcIso(manualForm.date, manualForm.endTime, manualForm.timezone);
       const attendees = manualForm.attendeeEmails
         .split(",")
         .map((email) => email.trim())
@@ -407,14 +453,12 @@ export default function MeetingsListPage() {
             </Button>
             <Button
               type="button"
-              onClick={() => {
-                setManualModalOpen(true);
-                setEditingMeetingId(null);
-                setManualForm({ ...initialManualForm, timezone: hostTimezone });
-              }}
+              asChild
             >
+              <Link href="/dashboard/meetings/new">
               <Plus className="size-4" />
               Add New
+              </Link>
             </Button>
           </>
         }
@@ -493,6 +537,13 @@ export default function MeetingsListPage() {
             header: "Actions",
             renderCell: (row) => (
               <div className="flex gap-2">
+                {row.source === "public_link" && row.bookingPublicToken ? (
+                  <Button type="button" size="sm" variant="outline" asChild>
+                    <Link href={`/meeting/bookings/${row.bookingPublicToken}`} target="_blank" rel="noreferrer">
+                      Reschedule
+                    </Link>
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   size="icon"
@@ -501,12 +552,14 @@ export default function MeetingsListPage() {
                     setEditingMeetingId(row.id);
                     const startsAt = new Date(row.startsAt);
                     const endsAt = new Date(row.endsAt);
+                    const startParts = getZonedParts(startsAt, row.timezone || hostTimezone);
+                    const endParts = getZonedParts(endsAt, row.timezone || hostTimezone);
                     setManualForm({
                       title: row.title,
                       description: row.description ?? "",
-                      date: startsAt.toISOString().slice(0, 10),
-                      startTime: startsAt.toISOString().slice(11, 16),
-                      endTime: endsAt.toISOString().slice(11, 16),
+                      date: startParts.date,
+                      startTime: startParts.time,
+                      endTime: endParts.time,
                       timezone: row.timezone,
                       organizerName: row.organizerName,
                       organizerEmail: row.organizerEmail,

@@ -14,6 +14,7 @@ type PublicMeetingResponse = {
   host: {
     displayName: string;
     timezone: string;
+    email?: string | null;
     hostSlug: string;
   };
   meetingType: {
@@ -22,6 +23,23 @@ type PublicMeetingResponse = {
     title: string;
     description: string | null;
     durationMinutes: number;
+    locationType: string;
+    locationDetails: string | null;
+    timezone: string;
+  };
+};
+
+type PublicBookingResponse = {
+  booking: {
+    id: string;
+    token: string;
+    title: string;
+    guestName: string;
+    guestEmail: string;
+    hostDisplayName: string;
+    startsAt: string;
+    endsAt: string;
+    timezone: string;
     locationType: string;
     locationDetails: string | null;
   };
@@ -71,6 +89,8 @@ export default function PublicMeetingBookingPage({
   const [bookingNotes, setBookingNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [bookingSummary, setBookingSummary] = useState<PublicBookingResponse["booking"] | null>(null);
+  const viewerTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
   useEffect(() => {
     void params.then((resolved) => {
@@ -121,7 +141,7 @@ export default function PublicMeetingBookingPage({
       setSelectedSlot(null);
       try {
         const response = await fetchPublicApi<SlotsResponse>(
-          `/public/meetings/${meetingTypeSlug}/${hostSlug}/slots?date=${encodeURIComponent(selectedDate)}&timezone=${encodeURIComponent(meetingData.host.timezone)}`,
+          `/public/meetings/${meetingTypeSlug}/${hostSlug}/slots?date=${encodeURIComponent(selectedDate)}&timezone=${encodeURIComponent(viewerTimezone)}`,
         );
         if (!ignore) {
           setSlots(response.slots);
@@ -141,7 +161,7 @@ export default function PublicMeetingBookingPage({
     return () => {
       ignore = true;
     };
-  }, [hostSlug, meetingData, meetingTypeSlug, selectedDate]);
+  }, [hostSlug, meetingData, meetingTypeSlug, selectedDate, viewerTimezone]);
 
   const selectedSlotLabel = useMemo(
     () => slots.find((slot) => slot.startsAt === selectedSlot)?.label ?? null,
@@ -159,7 +179,7 @@ export default function PublicMeetingBookingPage({
     setError(null);
     setSuccess(null);
     try {
-      await fetchPublicApi(`/public/meetings/${meetingTypeSlug}/${hostSlug}/book`, {
+      const response = await fetchPublicApi<PublicBookingResponse>(`/public/meetings/${meetingTypeSlug}/${hostSlug}/book`, {
         method: "POST",
         body: JSON.stringify({
           slotStart: selectedSlot,
@@ -168,9 +188,14 @@ export default function PublicMeetingBookingPage({
           notes: bookingNotes || undefined,
         }),
       });
+      setBookingSummary(response.booking);
       setSuccess("Your meeting has been booked. Confirmation emails are queued.");
       setBookingNotes("");
       setSelectedSlot(null);
+      const refreshed = await fetchPublicApi<SlotsResponse>(
+        `/public/meetings/${meetingTypeSlug}/${hostSlug}/slots?date=${encodeURIComponent(selectedDate)}&timezone=${encodeURIComponent(viewerTimezone)}`,
+      );
+      setSlots(refreshed.slots);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to complete booking.");
     } finally {
@@ -212,7 +237,18 @@ export default function PublicMeetingBookingPage({
           {success ? (
             <Alert className="mb-4 border-emerald-200 bg-emerald-50 text-emerald-900">
               <AlertTitle>Booked</AlertTitle>
-              <AlertDescription>{success}</AlertDescription>
+              <AlertDescription>
+                {success}
+                {bookingSummary ? (
+                  <div className="mt-2 text-sm">
+                    <div><strong>Time:</strong> {new Date(bookingSummary.startsAt).toLocaleString([], { timeZone: viewerTimezone })}</div>
+                    <div><strong>Host:</strong> {bookingSummary.hostDisplayName}</div>
+                    <div><strong>Guest:</strong> {bookingSummary.guestName} ({bookingSummary.guestEmail})</div>
+                    <div><strong>Location:</strong> {bookingSummary.locationDetails || bookingSummary.locationType}</div>
+                    <div><strong>Reschedule:</strong> /meeting/bookings/{bookingSummary.token}</div>
+                  </div>
+                ) : null}
+              </AlertDescription>
             </Alert>
           ) : null}
 
@@ -222,7 +258,7 @@ export default function PublicMeetingBookingPage({
                 <FieldLabel>Date</FieldLabel>
                 <Input type="date" min={today} value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
               </Field>
-              <div className="mt-2 text-xs text-muted-foreground">Timezone: {meetingData.host.timezone}</div>
+              <div className="mt-2 text-xs text-muted-foreground">Your timezone: {viewerTimezone}</div>
             </div>
 
             <div>

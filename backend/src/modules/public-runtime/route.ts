@@ -6,8 +6,8 @@ import { getPublicForm, submitPublicForm } from "@/modules/forms/controller";
 import { emailReplyWebhookSchema } from "@/modules/campaigns/schema";
 import { publicSubmitSchema } from "@/modules/forms/schema";
 import { ingestWhatsappProviderWebhook, verifyWhatsappWebhook } from "@/modules/social/controller";
-import { bookPublicMeeting, getPublicMeeting, getPublicMeetingSlots } from "@/modules/meetings/controller";
-import { publicBookSchema, publicSlotsQuerySchema } from "@/modules/meetings/schema";
+import { bookPublicMeeting, getPublicBookingByToken, getPublicMeeting, getPublicMeetingSlots, reschedulePublicBooking } from "@/modules/meetings/controller";
+import { publicBookSchema, publicRescheduleSchema, publicSlotsQuerySchema } from "@/modules/meetings/schema";
 import { validateJson, validateQuery } from "@/middleware/common";
 import { enforceBodyLimit, protectWebhook, rateLimit } from "@/middleware/security";
 import { bodyLimits, routePolicies } from "@/lib/security";
@@ -35,6 +35,8 @@ publicRuntimeRoutes.post(
   validateJson(publicBookSchema),
   bookPublicMeeting,
 );
+publicRuntimeRoutes.get("/meetings/bookings/:token", getPublicBookingByToken);
+publicRuntimeRoutes.post("/meetings/bookings/:token/reschedule", enforceBodyLimit(bodyLimits.authSensitive), rateLimit(routePolicies.publicFormSubmit), validateJson(publicRescheduleSchema), reschedulePublicBooking);
 publicRuntimeRoutes.get("/whatsapp/webhook", verifyWhatsappWebhook);
 publicRuntimeRoutes.get("/whatsapp/webhook/:webhookKey", verifyWhatsappWebhook);
 publicRuntimeRoutes.post("/whatsapp/webhook", protectWebhook({

@@ -161,6 +161,10 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "Meetings",
     description: "Schedule instant meetings, manage booking links, and track public bookings in one workspace.",
   },
+  "/dashboard/meetings/new": {
+    title: "New Meeting",
+    description: "Create a new manual meeting with timezone-aware scheduling and invite details.",
+  },
   "/dashboard/templates": {
     title: "Templates",
     description: "Review and manage reusable campaign templates for the active company.",
