@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { sequenceDefinitions, sequenceEnrollments, sequenceRuns, sequenceSteps } from "@/db/schema";
@@ -206,27 +206,52 @@ export async function processDueSequenceRuns(limit = 20) {
     .orderBy(asc(sequenceEnrollments.nextRunAt))
     .limit(limit);
 
+  if (due.length === 0) {
+    return 0;
+  }
+
+  // Batch-fetch all needed steps (current + next) for all due enrollments
+  const stepConditions = due.flatMap((enrollment) => [
+    and(
+      eq(sequenceSteps.companyId, enrollment.companyId),
+      eq(sequenceSteps.sequenceId, enrollment.sequenceId),
+      eq(sequenceSteps.stepIndex, enrollment.currentStepIndex),
+    ),
+    and(
+      eq(sequenceSteps.companyId, enrollment.companyId),
+      eq(sequenceSteps.sequenceId, enrollment.sequenceId),
+      eq(sequenceSteps.stepIndex, enrollment.currentStepIndex + 1),
+    ),
+  ]);
+
+  const allSteps = await db
+    .select()
+    .from(sequenceSteps)
+    .where(or(...stepConditions));
+
+  // Build lookup map
+  const stepMap = new Map<string, typeof allSteps[number]>();
+  for (const step of allSteps) {
+    stepMap.set(`${step.companyId}:${step.sequenceId}:${step.stepIndex}`, step);
+  }
+
   let processed = 0;
 
   for (const enrollment of due) {
-    const [step] = await db
-      .select()
-      .from(sequenceSteps)
-      .where(and(eq(sequenceSteps.companyId, enrollment.companyId), eq(sequenceSteps.sequenceId, enrollment.sequenceId), eq(sequenceSteps.stepIndex, enrollment.currentStepIndex)))
-      .limit(1);
+    const step = stepMap.get(`${enrollment.companyId}:${enrollment.sequenceId}:${enrollment.currentStepIndex}`);
 
-      if (!step) {
-        await db
+    if (!step) {
+      await db
         .update(sequenceEnrollments)
         .set({
           status: "completed",
           completedAt: new Date(),
           updatedAt: new Date(),
         })
-          .where(eq(sequenceEnrollments.id, enrollment.id));
-        await bumpSequenceAnalytics(enrollment.companyId, enrollment.sequenceId, "completed");
-        continue;
-      }
+        .where(eq(sequenceEnrollments.id, enrollment.id));
+      await bumpSequenceAnalytics(enrollment.companyId, enrollment.sequenceId, "completed");
+      continue;
+    }
 
     const [run] = await db
       .insert(sequenceRuns)
@@ -307,12 +332,9 @@ export async function processDueSequenceRuns(limit = 20) {
           .where(eq(sequenceRuns.id, run.id));
       }
 
+      // Use pre-fetched next step from the Map instead of querying
       const nextIndex = step.stepIndex + 1;
-      const [nextStep] = await db
-        .select()
-        .from(sequenceSteps)
-        .where(and(eq(sequenceSteps.companyId, enrollment.companyId), eq(sequenceSteps.sequenceId, enrollment.sequenceId), eq(sequenceSteps.stepIndex, nextIndex)))
-        .limit(1);
+      const nextStep = stepMap.get(`${enrollment.companyId}:${enrollment.sequenceId}:${nextIndex}`);
 
       if (!nextStep) {
         await db

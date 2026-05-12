@@ -39,6 +39,7 @@ import {
 } from "@/lib/auth";
 import { ok } from "@/lib/api";
 import { env } from "@/lib/config";
+import { ensureSystemEmailAccount, queueEmailMessage } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
 import { ensurePartnerMembershipAssignmentsForUser } from "@/lib/partner-role-access";
 import { ensureAuthSession, recordSecurityAuditLog, requireActiveAuthSession, revokeAuthSession } from "@/lib/security";
@@ -1048,6 +1049,64 @@ export async function inviteMember(c: Context<AppEnv>) {
     },
   });
 
+  // Queue invite email
+  const inviteUrl = buildInviteRegistrationUrl({
+    frontendUrl: env.FRONTEND_URL,
+    inviteToken: createdInvite.token,
+    referralCode: inviterReferralCode.code,
+  });
+
+  const [inviterProfile] = await db
+    .select({ fullName: profiles.fullName, email: profiles.email })
+    .from(profiles)
+    .where(eq(profiles.id, user.id))
+    .limit(1);
+
+  const [company] = await db
+    .select({ name: companies.name })
+    .from(companies)
+    .where(eq(companies.id, tenant.companyId))
+    .limit(1);
+
+  const emailSubject = `You're invited to join ${company?.name || "our team"}`;
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2>You've been invited!</h2>
+      <p>Hi${body.fullName ? ` ${body.fullName}` : ''},</p>
+      <p>${inviterProfile?.fullName || inviterProfile?.email || 'Someone'} has invited you to join <strong>${company?.name || 'their team'}</strong>.</p>
+      ${createdInvite.inviteMessage ? `<p><em>"${createdInvite.inviteMessage}"</em></p>` : ''}
+      <p>Click the button below to accept the invitation and create your account:</p>
+      <div style="margin: 30px 0;">
+        <a href="${inviteUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a>
+      </div>
+      <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
+      <p style="color: #666; font-size: 14px; word-break: break-all;">${inviteUrl}</p>
+      <p style="color: #999; font-size: 12px; margin-top: 40px;">This invitation expires on ${createdInvite.expiresAt.toLocaleDateString()}.</p>
+    </div>
+  `;
+
+  try {
+    // Ensure system email account exists
+    await ensureSystemEmailAccount(tenant.companyId, user.id);
+
+    await queueEmailMessage({
+      companyId: tenant.companyId,
+      recipientEmail: createdInvite.email,
+      recipientName: body.fullName ?? null,
+      subject: emailSubject,
+      htmlContent: emailHtml,
+      textContent: `You've been invited to join ${company?.name || 'a team'}. Accept your invitation here: ${inviteUrl}`,
+      createdBy: user.id,
+      metadata: {
+        inviteId: createdInvite.id,
+        type: 'team_invite',
+      },
+    });
+  } catch (emailError) {
+    console.error('Failed to queue invite email:', emailError);
+    // Don't fail the invite creation if email fails
+  }
+
   return ok(
     c,
     {
@@ -1118,6 +1177,65 @@ export async function resendInvite(c: Context<AppEnv>) {
       expiresAt: updatedInvite.expiresAt.toISOString(),
     },
   });
+
+  // Queue resend invite email
+  const inviteUrl = buildInviteRegistrationUrl({
+    frontendUrl: env.FRONTEND_URL,
+    inviteToken: updatedInvite.token,
+    referralCode: updatedInvite.referralCode,
+  });
+
+  const [inviterProfile] = await db
+    .select({ fullName: profiles.fullName, email: profiles.email })
+    .from(profiles)
+    .where(eq(profiles.id, user.id))
+    .limit(1);
+
+  const [company] = await db
+    .select({ name: companies.name })
+    .from(companies)
+    .where(eq(companies.id, tenant.companyId))
+    .limit(1);
+
+  const emailSubject = `Reminder: You're invited to join ${company?.name || "our team"}`;
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2>Reminder: You've been invited!</h2>
+      <p>Hi,</p>
+      <p>This is a reminder that ${inviterProfile?.fullName || inviterProfile?.email || 'someone'} has invited you to join <strong>${company?.name || 'their team'}</strong>.</p>
+      ${updatedInvite.inviteMessage ? `<p><em>"${updatedInvite.inviteMessage}"</em></p>` : ''}
+      <p>Click the button below to accept the invitation and create your account:</p>
+      <div style="margin: 30px 0;">
+        <a href="${inviteUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a>
+      </div>
+      <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
+      <p style="color: #666; font-size: 14px; word-break: break-all;">${inviteUrl}</p>
+      <p style="color: #999; font-size: 12px; margin-top: 40px;">This invitation expires on ${updatedInvite.expiresAt.toLocaleDateString()}.</p>
+    </div>
+  `;
+
+  try {
+    // Ensure system email account exists
+    await ensureSystemEmailAccount(tenant.companyId, user.id);
+
+    await queueEmailMessage({
+      companyId: tenant.companyId,
+      recipientEmail: updatedInvite.email,
+      recipientName: null,
+      subject: emailSubject,
+      htmlContent: emailHtml,
+      textContent: `Reminder: You've been invited to join ${company?.name || 'a team'}. Accept your invitation here: ${inviteUrl}`,
+      createdBy: user.id,
+      metadata: {
+        inviteId: updatedInvite.id,
+        type: 'team_invite_resend',
+        resendCount: updatedInvite.resendCount,
+      },
+    });
+  } catch (emailError) {
+    console.error('Failed to queue resend invite email:', emailError);
+    // Don't fail the resend if email fails
+  }
 
   return ok(c, {
     inviteId: updatedInvite.id,

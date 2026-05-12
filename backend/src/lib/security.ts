@@ -1,7 +1,7 @@
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { authRefreshTokens, authSessions, requestRateLimits, securityAuditLogs, webhookReplayGuards } from "@/db/schema";
+import { authRefreshTokens, authSessions, securityAuditLogs, webhookReplayGuards } from "@/db/schema";
 import { AppError } from "@/lib/errors";
 
 export interface SecurityAuditInput {
@@ -280,13 +280,26 @@ export async function touchAuthSession(input: { sessionId: string; expiresAt?: D
     .where(eq(authSessions.id, input.sessionId));
 }
 
+// In-memory rate limit buckets (replaces DB-based rate limiting for performance)
+const rateLimitBuckets = new Map<string, { count: number; windowStart: number; expiresAt: number }>();
+
+// Cleanup expired entries every 60 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateLimitBuckets) {
+    if (bucket.expiresAt <= now) {
+      rateLimitBuckets.delete(key);
+    }
+  }
+}, 60_000).unref();
+
 export async function consumeRateLimit(policy: RateLimitPolicy, input: {
   clientIp: string;
   userId?: string | null;
   companyId?: string | null;
   body?: unknown;
 }) {
-  const now = new Date();
+  const now = Date.now();
 
   for (const rule of policy.rules) {
     const resolvedKey = rule.resolveKey(input);
@@ -294,37 +307,23 @@ export async function consumeRateLimit(policy: RateLimitPolicy, input: {
       continue;
     }
 
-    const windowStartMs = Math.floor(now.getTime() / (rule.windowSeconds * 1000)) * rule.windowSeconds * 1000;
-    const windowStart = new Date(windowStartMs);
-    const expiresAt = new Date(windowStartMs + rule.windowSeconds * 1000);
+    const windowMs = rule.windowSeconds * 1000;
+    const windowStart = Math.floor(now / windowMs) * windowMs;
+    const expiresAt = windowStart + windowMs;
+    const bucketKey = `${rule.scope}:${resolvedKey}:${windowStart}`;
 
-    const [bucket] = await db
-      .insert(requestRateLimits)
-      .values({
-        scope: rule.scope,
-        bucketKey: resolvedKey,
-        windowStart,
-        expiresAt,
-      })
-      .onConflictDoUpdate({
-        target: [requestRateLimits.scope, requestRateLimits.bucketKey, requestRateLimits.windowStart],
-        set: {
-          hitCount: sql`${requestRateLimits.hitCount} + 1`,
-          expiresAt,
-          updatedAt: new Date(),
-        },
-      })
-      .returning({
-        hitCount: requestRateLimits.hitCount,
-        expiresAt: requestRateLimits.expiresAt,
-      });
-
-    if (bucket.hitCount > rule.limit) {
-      throw AppError.tooManyRequests("Request rate limit exceeded", {
-        policy: policy.name,
-        scope: rule.scope,
-        retryAfterSeconds: Math.max(1, Math.ceil((bucket.expiresAt.getTime() - now.getTime()) / 1000)),
-      });
+    const existing = rateLimitBuckets.get(bucketKey);
+    if (existing && existing.windowStart === windowStart) {
+      existing.count += 1;
+      if (existing.count > rule.limit) {
+        throw AppError.tooManyRequests("Request rate limit exceeded", {
+          policy: policy.name,
+          scope: rule.scope,
+          retryAfterSeconds: Math.max(1, Math.ceil((expiresAt - now) / 1000)),
+        });
+      }
+    } else {
+      rateLimitBuckets.set(bucketKey, { count: 1, windowStart, expiresAt });
     }
   }
 }

@@ -126,6 +126,46 @@ export async function getDefaultEmailAccount(companyId: string) {
   return account ?? null;
 }
 
+export async function ensureSystemEmailAccount(companyId: string, createdBy: string) {
+  // Check if account already exists
+  const existing = await getDefaultEmailAccount(companyId);
+  if (existing) {
+    return existing;
+  }
+
+  // Create a system email account using Resend
+  const fromEmail = env.RESEND_FROM_EMAIL || "noreply@yourdomain.com";
+  const fromName = env.RESEND_FROM_NAME || "CRM System";
+
+  const [account] = await db
+    .insert(emailAccounts)
+    .values({
+      companyId,
+      userId: null,
+      label: "System Email (Resend)",
+      provider: "resend",
+      fromName,
+      fromEmail,
+      status: "connected",
+      isDefault: true,
+      credentials: {},
+      metadata: { systemGenerated: true },
+      createdBy,
+    })
+    .onConflictDoUpdate({
+      target: [emailAccounts.companyId, emailAccounts.fromEmail],
+      set: {
+        status: "connected",
+        isDefault: true,
+        updatedAt: new Date(),
+        deletedAt: null,
+      },
+    })
+    .returning();
+
+  return account;
+}
+
 export async function ensureEmailAccount(input: {
   companyId: string;
   userId?: string | null;

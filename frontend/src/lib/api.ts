@@ -104,6 +104,12 @@ export async function apiRequest<T>(
     const data = await requestPromise;
     if (shouldCache) {
       apiCache.set(cacheKey, { data, expiresAt: Date.now() + ttlMs });
+      evictOldestCacheEntries();
+    }
+    // Invalidate related cache entries after successful mutations
+    if (method !== "GET") {
+      const basePath = path.split("?")[0].split("/").slice(0, 2).join("/");
+      invalidateCache(basePath);
     }
     return data;
   } finally {
@@ -129,6 +135,34 @@ export function buildApiUrl(path: string, query?: Record<string, string | null |
 
 const apiCache = new Map<string, { data: unknown; expiresAt: number }>();
 const apiInFlight = new Map<string, Promise<unknown>>();
+
+/**
+ * Invalidate all cached entries whose path starts with the given prefix.
+ * Call after mutations to ensure subsequent reads fetch fresh data.
+ */
+export function invalidateCache(pathPrefix?: string) {
+  if (!pathPrefix) {
+    apiCache.clear();
+    return;
+  }
+  for (const [key] of apiCache) {
+    if (key.includes(pathPrefix)) {
+      apiCache.delete(key);
+    }
+  }
+}
+
+// Prevent unbounded cache growth - evict oldest entries when cache exceeds 200 entries
+const MAX_CACHE_SIZE = 200;
+
+function evictOldestCacheEntries() {
+  if (apiCache.size <= MAX_CACHE_SIZE) return;
+  const entries = [...apiCache.entries()].sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+  const toRemove = entries.slice(0, apiCache.size - MAX_CACHE_SIZE);
+  for (const [key] of toRemove) {
+    apiCache.delete(key);
+  }
+}
 
 const cacheTtlByPath: Record<string, number> = {
   "/reports/dashboard": 30_000,

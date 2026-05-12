@@ -519,11 +519,14 @@ export default function PartnersPage() {
 
   const total = filteredPartners.length;
   const totalPages = Math.max(1, Math.ceil(total / limit));
-  const paginatedPartners = filteredPartners.slice((page - 1) * limit, page * limit);
+  const paginatedPartners = useMemo(
+    () => filteredPartners.slice((page - 1) * limit, page * limit),
+    [filteredPartners, page, limit]
+  );
 
   useEffect(() => {
     setSelectedPartnerIds((current) => current.filter((id) => paginatedPartners.some((partner) => partner.id === id)));
-  }, [paginatedPartners]);
+  }, [page, limit]);
 
   useEffect(() => {
     if (page > totalPages) {

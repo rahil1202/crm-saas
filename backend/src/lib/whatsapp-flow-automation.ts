@@ -399,6 +399,33 @@ export async function upsertKeywordTrigger(params: {
     return updated;
   }
 
+  // Check for existing trigger with same keyword (case-insensitive)
+  const existing = await db
+    .select()
+    .from(whatsappKeywordTriggers)
+    .where(and(eq(whatsappKeywordTriggers.companyId, params.companyId), eq(whatsappKeywordTriggers.keyword, params.keyword)))
+    .limit(1);
+
+  if (existing.length > 0) {
+    // Update existing trigger instead of creating duplicate
+    const [updated] = await db
+      .update(whatsappKeywordTriggers)
+      .set({
+        matchType: params.matchType ?? "exact",
+        actionType: params.actionType,
+        replyBody: params.replyBody ?? null,
+        flowId: params.flowId ?? null,
+        assignToUserId: params.assignToUserId ?? null,
+        tagId: params.tagId ?? null,
+        priority: params.priority ?? 100,
+        isActive: params.isActive ?? true,
+        updatedAt: new Date(),
+      })
+      .where(eq(whatsappKeywordTriggers.id, existing[0].id))
+      .returning();
+    return updated;
+  }
+
   const [created] = await db
     .insert(whatsappKeywordTriggers)
     .values({

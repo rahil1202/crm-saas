@@ -3,7 +3,7 @@ import { getCookie } from "hono/cookie";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { companyCustomRoles, companyMemberships, profiles, superAdmins } from "@/db/schema";
+import { companyCustomRoles, companyMemberships, superAdmins } from "@/db/schema";
 import { verifyAccessToken } from "@/lib/auth";
 import { AppError } from "@/lib/errors";
 import { ensurePartnerMembershipAssignmentsForUser } from "@/lib/partner-role-access";
@@ -29,22 +29,6 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
     sessionId: verified.sessionId,
     userId: verified.userId,
   });
-
-  if (verified.email) {
-    await db
-      .insert(profiles)
-      .values({
-        id: verified.userId,
-        email: verified.email,
-      })
-      .onConflictDoUpdate({
-        target: profiles.id,
-        set: {
-          email: verified.email,
-          updatedAt: new Date(),
-        },
-      });
-  }
 
   c.set("user", {
     id: verified.userId,

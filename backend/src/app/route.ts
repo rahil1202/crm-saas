@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 
 import { env } from "@/lib/config";
@@ -45,6 +46,7 @@ export const app = new Hono<AppEnv>();
 app.use("*", requestIdMiddleware);
 app.use("*", resolveClientIp);
 app.use("*", applySecurityHeaders);
+app.use("*", compress());
 app.use(
   "/api/*",
   cors({

@@ -69,6 +69,8 @@ const envSchema = z.object({
   RUNTIME_POLL_INTERVAL_MS: z.coerce.number().int().min(250).default(2000),
   RESEND_API_KEY: z.string().default(""),
   RESEND_WEBHOOK_SECRET: z.string().default(""),
+  RESEND_FROM_EMAIL: z.string().email().default("noreply@yourdomain.com"),
+  RESEND_FROM_NAME: z.string().default("CRM System"),
   WHATSAPP_ACCESS_TOKEN: z.string().default(""),
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().default(""),
   WHATSAPP_APP_SECRET: z.string().default(""),

@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ilike, isNull, lte } from "drizzle-orm";
 
-import { db } from "@/db/client";
+import { db, workerDb } from "@/db/client";
 import {
   automationRunSteps,
   automationRuns,
@@ -139,7 +139,7 @@ async function upsertRunStep(input: {
   startedAt?: Date | null;
   completedAt?: Date | null;
 }) {
-  const [row] = await db
+  const [row] = await workerDb
     .insert(automationRunSteps)
     .values({
       companyId: input.companyId,
@@ -175,11 +175,11 @@ async function upsertRunStep(input: {
 }
 
 async function addLeadActivity(input: { companyId: string; leadId: string; actorUserId: string; type: string; payload: Record<string, unknown> }) {
-  await db.insert(leadActivities).values(input);
+  await workerDb.insert(leadActivities).values(input);
 }
 
 async function addDealActivity(input: { companyId: string; dealId: string; actorUserId: string; type: string; payload: Record<string, unknown> }) {
-  await db.insert(dealActivities).values(input);
+  await workerDb.insert(dealActivities).values(input);
 }
 
 async function executeAction(input: {
@@ -254,7 +254,7 @@ async function executeAction(input: {
     }
     const dueAtOffsetMinutes = asNumber(config.dueAtOffsetMinutes, 0);
     const dueAt = dueAtOffsetMinutes > 0 ? new Date(Date.now() + dueAtOffsetMinutes * 60 * 1000) : null;
-    const [task] = await db
+    const [task] = await workerDb
       .insert(tasks)
       .values({
         companyId: input.companyId,
@@ -281,7 +281,7 @@ async function executeAction(input: {
       throw AppError.badRequest("lead.update action requires leadId in config or runtime context");
     }
 
-    const [existingLead] = await db.select().from(leads).where(and(eq(leads.companyId, input.companyId), eq(leads.id, leadId), isNull(leads.deletedAt))).limit(1);
+    const [existingLead] = await workerDb.select().from(leads).where(and(eq(leads.companyId, input.companyId), eq(leads.id, leadId), isNull(leads.deletedAt))).limit(1);
     if (!existingLead) {
       throw AppError.notFound("Lead not found for automation action");
     }
@@ -290,7 +290,7 @@ async function executeAction(input: {
       ? Array.from(new Set([...(existingLead.tags ?? []), ...asStringArray(config.appendTags)]))
       : existingLead.tags;
     const notesAppend = asString(config.notesAppend);
-    const [lead] = await db
+    const [lead] = await workerDb
       .update(leads)
       .set({
         ...(asString(config.status) ? { status: asString(config.status) as typeof existingLead.status } : {}),
@@ -323,13 +323,13 @@ async function executeAction(input: {
       throw AppError.badRequest("lead.tag action requires leadId in config or runtime context");
     }
 
-    const [existingLead] = await db.select().from(leads).where(and(eq(leads.companyId, input.companyId), eq(leads.id, leadId), isNull(leads.deletedAt))).limit(1);
+    const [existingLead] = await workerDb.select().from(leads).where(and(eq(leads.companyId, input.companyId), eq(leads.id, leadId), isNull(leads.deletedAt))).limit(1);
     if (!existingLead) {
       throw AppError.notFound("Lead not found for automation tag action");
     }
 
     const mergedTags = Array.from(new Set([...(existingLead.tags ?? []), ...asStringArray(config.tags)]));
-    const [lead] = await db
+    const [lead] = await workerDb
       .update(leads)
       .set({
         tags: mergedTags,
@@ -358,7 +358,7 @@ async function executeAction(input: {
       throw AppError.badRequest("deal.stage action requires dealId in config or runtime context");
     }
 
-    const [deal] = await db
+    const [deal] = await workerDb
       .update(deals)
       .set({
         ...(asString(config.pipeline) ? { pipeline: asString(config.pipeline) as string } : {}),
@@ -466,7 +466,7 @@ function batchActions(actions: AutomationActionRecord[], startIndex: number) {
 
 async function markRunFailure(runId: string, errorMessage: string, retryCount: number, maxRetries: number) {
   const retryable = retryCount < maxRetries;
-  await db
+  await workerDb
     .update(automationRuns)
     .set({
       status: retryable ? "queued" : "failed",
@@ -482,24 +482,24 @@ async function markRunFailure(runId: string, errorMessage: string, retryCount: n
 }
 
 async function isRunCanceled(runId: string) {
-  const [run] = await db.select({ canceledAt: automationRuns.canceledAt, status: automationRuns.status }).from(automationRuns).where(eq(automationRuns.id, runId)).limit(1);
+  const [run] = await workerDb.select({ canceledAt: automationRuns.canceledAt, status: automationRuns.status }).from(automationRuns).where(eq(automationRuns.id, runId)).limit(1);
   return !!run && (!!run.canceledAt || run.status === "canceled");
 }
 
 export async function processAutomationRun(runId: string) {
-  const [run] = await db.select().from(automationRuns).where(eq(automationRuns.id, runId)).limit(1);
+  const [run] = await workerDb.select().from(automationRuns).where(eq(automationRuns.id, runId)).limit(1);
   if (!run) {
     return false;
   }
 
-  const [automation] = await db
+  const [automation] = await workerDb
     .select()
     .from(automations)
     .where(and(eq(automations.id, run.automationId), eq(automations.companyId, run.companyId), eq(automations.status, "active"), isNull(automations.deletedAt)))
     .limit(1);
 
   if (!automation) {
-    await db
+    await workerDb
       .update(automationRuns)
       .set({
         status: "failed",
@@ -519,7 +519,7 @@ export async function processAutomationRun(runId: string) {
 
   while (currentIndex < actions.length) {
     if (await isRunCanceled(run.id)) {
-      await db
+      await workerDb
         .update(automationRuns)
         .set({
           status: "canceled",
@@ -583,7 +583,7 @@ export async function processAutomationRun(runId: string) {
 
       if (scheduledResult) {
         const nextRunAt = scheduledResult.result.nextRunAt;
-        await db
+        await workerDb
           .update(automationRuns)
           .set({
             status: "queued",
@@ -601,7 +601,7 @@ export async function processAutomationRun(runId: string) {
         .map((item) => item.result.nextActionIndex)
         .find((value): value is number => typeof value === "number" && Number.isFinite(value));
       currentIndex = branchJump ?? nextIndex;
-      await db
+      await workerDb
         .update(automationRuns)
         .set({
           currentActionIndex: currentIndex,
@@ -630,7 +630,7 @@ export async function processAutomationRun(runId: string) {
     }
   }
 
-  await db
+  await workerDb
     .update(automationRuns)
     .set({
       status: "completed",
@@ -764,7 +764,7 @@ export async function queueLeadInactiveTriggers() {
   }
   lastLeadInactiveScanAt = now;
 
-  const inactiveAutomations = await db
+  const inactiveAutomations = await workerDb
     .select()
     .from(automations)
     .where(and(eq(automations.triggerType, "lead.inactive"), eq(automations.status, "active"), isNull(automations.deletedAt)));
@@ -773,7 +773,7 @@ export async function queueLeadInactiveTriggers() {
   for (const automation of inactiveAutomations) {
     const inactiveDays = Math.max(1, asNumber((automation.triggerConfig as Record<string, unknown> | null)?.inactiveDays, 14));
     const cutoff = new Date(Date.now() - inactiveDays * 24 * 60 * 60 * 1000);
-    const staleLeads = await db
+    const staleLeads = await workerDb
       .select()
       .from(leads)
       .where(and(eq(leads.companyId, automation.companyId), isNull(leads.deletedAt), lte(leads.updatedAt, cutoff)))
@@ -802,7 +802,7 @@ export async function queueLeadInactiveTriggers() {
 
 export async function claimDueAutomationRuns(limit = 10) {
   const now = new Date();
-  const dueRuns = await db
+  const dueRuns = await workerDb
     .select()
     .from(automationRuns)
     .where(and(eq(automationRuns.status, "queued"), lte(automationRuns.nextRunAt, now)))
@@ -811,7 +811,7 @@ export async function claimDueAutomationRuns(limit = 10) {
 
   const claimed: string[] = [];
   for (const run of dueRuns) {
-    const [updated] = await db
+    const [updated] = await workerDb
       .update(automationRuns)
       .set({
         status: "running",
@@ -949,6 +949,8 @@ async function runtimeTick() {
     await processDueSequenceRuns(25);
     await queueLeadInactiveTriggers();
     await expireConversationStates();
+  } catch (error) {
+    console.error("Automation runtime tick error:", error);
   } finally {
     workerBusy = false;
   }
