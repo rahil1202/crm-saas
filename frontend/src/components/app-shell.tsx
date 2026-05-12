@@ -63,6 +63,7 @@ import {
 } from "@/lib/partner-access";
 import { cn } from "@/lib/utils";
 import websiteLogo from "@/assets/logo-png.png";
+import { requestBrowserNotificationPermission, getBrowserNotificationPermission } from "@/features/notifications/browser-notifications";
 
 const NotificationPreview = dynamic(
   () => import("@/features/notifications/notification-preview").then((module) => module.NotificationPreview),
@@ -442,6 +443,11 @@ export function AppShell({
             setStoreCookie(initialMembership.storeId);
           } else {
             clearStoreCookie();
+          }
+
+          // Request browser notification permission if not yet decided
+          if (getBrowserNotificationPermission() === "default") {
+            void requestBrowserNotificationPermission();
           }
         }
       } catch (error) {

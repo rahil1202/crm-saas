@@ -17,6 +17,7 @@ import {
   removeNotification,
   type NotificationItem,
 } from "@/features/notifications/client";
+import { showBrowserNotification } from "@/features/notifications/browser-notifications";
 import { ApiError } from "@/lib/api";
 
 export function NotificationPreview({
@@ -36,8 +37,10 @@ export function NotificationPreview({
   const [error, setError] = useState<string | null>(null);
   const [loadedAt, setLoadedAt] = useState(0);
 
+  const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
+
   const loadPreview = useCallback(
-    async (skipCache = true) => {
+    async (skipCache = true, triggerBrowserNotif = false) => {
       if (!enabled) {
         return;
       }
@@ -46,6 +49,22 @@ export function NotificationPreview({
       setError(null);
       try {
         const response = await fetchNotificationPreview(3, skipCache);
+
+        if (triggerBrowserNotif) {
+          // Show browser notifications for items that are new and unread
+          for (const item of response.items) {
+            if (!item.isRead && !seenIds.has(item.id)) {
+              showBrowserNotification({
+                type: item.type,
+                title: item.title,
+                message: item.message,
+                href: normalizeNotificationHref(item),
+              });
+            }
+          }
+        }
+
+        setSeenIds(new Set(response.items.map((item) => item.id)));
         setItems(response.items);
         setUnreadCount(response.unreadCount);
         setLoadedAt(Date.now());
@@ -55,6 +74,7 @@ export function NotificationPreview({
         setLoading(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [enabled],
   );
 
@@ -68,7 +88,7 @@ export function NotificationPreview({
       return;
     }
 
-    void loadPreview(false);
+    void loadPreview(false, false);
   }, [enabled, loadPreview, refreshKey]);
 
   useEffect(() => {
@@ -77,7 +97,7 @@ export function NotificationPreview({
     }
 
     return addNotificationsChangedListener(() => {
-      void loadPreview(true);
+      void loadPreview(true, false);
     });
   }, [enabled, loadPreview]);
 
@@ -87,7 +107,7 @@ export function NotificationPreview({
     }
 
     return connectNotificationEventStream(() => {
-      void loadPreview(true);
+      void loadPreview(true, true);
     });
   }, [enabled, loadPreview]);
 

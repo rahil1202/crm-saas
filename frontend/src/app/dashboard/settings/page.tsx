@@ -20,6 +20,15 @@ import { OnboardingTour } from "@/features/onboarding/onboarding-tour";
 import { apiRequest, ApiError } from "@/lib/api";
 import { AuthMePayload } from "@/lib/auth-client";
 import { evaluatePasswordStrength, getInitials } from "@/lib/auth-ui";
+import {
+  getBrowserNotificationPermission,
+  isBrowserNotificationSupported,
+  loadBrowserNotificationPrefs,
+  requestBrowserNotificationPermission,
+  saveBrowserNotificationPrefs,
+  type BrowserNotificationPrefs,
+  type BrowserNotificationPermission,
+} from "@/features/notifications/browser-notifications";
 
 interface CompanySnapshot {
   company: {
@@ -267,6 +276,15 @@ export default function SettingsPage() {
   const [savingIntegrations, setSavingIntegrations] = useState(false);
   const [tourModalOpen, setTourModalOpen] = useState(false);
 
+  // Browser notification state
+  const [browserNotifSupported, setBrowserNotifSupported] = useState(false);
+  const [browserNotifPermission, setBrowserNotifPermission] = useState<BrowserNotificationPermission>("default");
+  const [browserNotifPrefs, setBrowserNotifPrefs] = useState<BrowserNotificationPrefs>({
+    enabled: true,
+    categories: { leads: true, deals: true, tasks: true, campaigns: true },
+  });
+  const [requestingBrowserPermission, setRequestingBrowserPermission] = useState(false);
+
   const passwordStrength = useMemo(
     () =>
       evaluatePasswordStrength(password, {
@@ -333,6 +351,13 @@ export default function SettingsPage() {
     return () => {
       disposed = true;
     };
+  }, []);
+
+  // Initialize browser notification state from the browser API + localStorage
+  useEffect(() => {
+    setBrowserNotifSupported(isBrowserNotificationSupported());
+    setBrowserNotifPermission(getBrowserNotificationPermission());
+    setBrowserNotifPrefs(loadBrowserNotificationPrefs());
   }, []);
 
   const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1147,6 +1172,35 @@ export default function SettingsPage() {
     }
   };
 
+  const handleRequestBrowserPermission = async () => {
+    setRequestingBrowserPermission(true);
+    try {
+      const result = await requestBrowserNotificationPermission();
+      setBrowserNotifPermission(result);
+      if (result === "granted") {
+        toast.success("Browser notifications enabled.");
+      } else if (result === "denied") {
+        toast.error("Browser notifications blocked. Update your browser site settings to allow them.");
+      }
+    } finally {
+      setRequestingBrowserPermission(false);
+    }
+  };
+
+  const handleBrowserNotifPrefChange = (
+    field: "enabled" | keyof BrowserNotificationPrefs["categories"],
+    value: boolean,
+  ) => {
+    setBrowserNotifPrefs((current) => {
+      const next =
+        field === "enabled"
+          ? { ...current, enabled: value }
+          : { ...current, categories: { ...current.categories, [field]: value } };
+      saveBrowserNotificationPrefs(next);
+      return next;
+    });
+  };
+
   const handleIntegrationChange = (field: keyof IntegrationSettings["integrations"], value: string) => {
     setIntegrationSettings((current) =>
       current
@@ -1685,6 +1739,124 @@ export default function SettingsPage() {
                     {savingNotificationRules ? "Saving notification rules..." : "Save notification rules"}
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+
+            {/* Browser / Push Notification Settings */}
+            <Card className="border-border/60">
+              <CardHeader>
+                <CardTitle>Browser notifications</CardTitle>
+                <CardDescription>
+                  Receive native browser pop-ups when new CRM events arrive, even when the tab is in the background.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-5">
+                {!browserNotifSupported ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    Your browser does not support the Notification API. Try a modern browser like Chrome, Edge, or Firefox.
+                  </div>
+                ) : (
+                  <>
+                    {/* Permission status + request button */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium">Permission status</span>
+                        <span className="text-xs text-muted-foreground capitalize">
+                          {browserNotifPermission === "granted"
+                            ? "Allowed — browser notifications are active"
+                            : browserNotifPermission === "denied"
+                              ? "Blocked — update your browser site settings to allow"
+                              : "Not yet requested"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            browserNotifPermission === "granted"
+                              ? "secondary"
+                              : browserNotifPermission === "denied"
+                                ? "destructive"
+                                : "outline"
+                          }
+                        >
+                          {browserNotifPermission === "granted" ? "Granted" : browserNotifPermission === "denied" ? "Denied" : "Default"}
+                        </Badge>
+                        {browserNotifPermission !== "granted" && browserNotifPermission !== "denied" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={requestingBrowserPermission}
+                            onClick={() => void handleRequestBrowserPermission()}
+                          >
+                            {requestingBrowserPermission ? "Requesting..." : "Enable notifications"}
+                          </Button>
+                        ) : null}
+                        {browserNotifPermission === "denied" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              toast.info("Open your browser's site settings and set Notifications to 'Allow' for this site.");
+                            }}
+                          >
+                            How to unblock
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {/* Master toggle */}
+                    <label className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">Enable browser notifications</span>
+                        <span className="text-xs text-muted-foreground">Master switch for all browser pop-ups from this CRM.</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={browserNotifPrefs.enabled}
+                        disabled={browserNotifPermission !== "granted"}
+                        onChange={(event) => handleBrowserNotifPrefChange("enabled", event.target.checked)}
+                      />
+                    </label>
+
+                    {/* Per-category toggles */}
+                    <div className="grid gap-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notify me about</div>
+                      {(
+                        [
+                          { key: "leads", label: "Leads", description: "New leads, assignments, and status changes" },
+                          { key: "deals", label: "Deals", description: "Deal stage updates and new deal alerts" },
+                          { key: "tasks", label: "Tasks", description: "Task reminders and overdue alerts" },
+                          { key: "campaigns", label: "Campaigns", description: "Campaign launches and completion events" },
+                        ] as const
+                      ).map(({ key, label, description }) => (
+                        <label
+                          key={key}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm"
+                        >
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium">{label}</span>
+                            <span className="text-xs text-muted-foreground">{description}</span>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={browserNotifPrefs.categories[key]}
+                            disabled={browserNotifPermission !== "granted" || !browserNotifPrefs.enabled}
+                            onChange={(event) => handleBrowserNotifPrefChange(key, event.target.checked)}
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    {browserNotifPermission !== "granted" ? (
+                      <p className="text-xs text-muted-foreground">
+                        Grant browser notification permission above to configure these preferences.
+                      </p>
+                    ) : null}
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

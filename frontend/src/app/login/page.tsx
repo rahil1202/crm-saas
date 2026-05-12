@@ -22,6 +22,7 @@ import { useAsyncForm } from "@/hooks/use-async-form";
 import { apiRequest } from "@/lib/api";
 import { getFrontendEnv } from "@/lib/env";
 import { supabase } from "@/lib/supabase";
+import { requestBrowserNotificationPermission } from "@/features/notifications/browser-notifications";
 
 function LoginPageContent() {
   const router = useRouter();
@@ -108,6 +109,8 @@ function LoginPageContent() {
         "Login failed",
       );
       toast.success("Signed in successfully.");
+      // Ask for browser notification permission after a successful login
+      void requestBrowserNotificationPermission();
       router.replace(await resolveAuthenticatedRoute());
     } catch {
       return;
