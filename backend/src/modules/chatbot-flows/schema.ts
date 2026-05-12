@@ -50,12 +50,114 @@ export const chatbotEndNodeSchema = baseNodeSchema.extend({
   config: z.object({}).default({}),
 });
 
+// Phase 4 extended node types
+export const chatbotDelayNodeSchema = baseNodeSchema.extend({
+  type: z.literal("delay"),
+  config: z.object({
+    delaySeconds: z.number().int().min(1).max(604800).default(60),
+  }),
+});
+
+export const chatbotSendTemplateNodeSchema = baseNodeSchema.extend({
+  type: z.literal("send_template"),
+  config: z.object({
+    templateName: z.string().trim().min(1).max(180),
+    language: z.string().trim().max(16).default("en"),
+    components: z.array(z.record(z.string(), z.unknown())).default([]),
+  }),
+});
+
+export const chatbotWebhookNodeSchema = baseNodeSchema.extend({
+  type: z.literal("webhook"),
+  config: z.object({
+    url: z.string().url(),
+    method: z.enum(["GET", "POST", "PUT"]).default("POST"),
+    headers: z.record(z.string(), z.string()).default({}),
+    bodyTemplate: z.string().max(4000).default(""),
+    captureKey: z.string().trim().max(120).optional(),
+  }),
+});
+
+export const chatbotCrmUpdateNodeSchema = baseNodeSchema.extend({
+  type: z.literal("crm_update"),
+  config: z.object({
+    entityType: z.enum(["lead", "customer", "deal", "contact"]),
+    action: z.enum(["create", "update", "add_tag", "remove_tag", "add_note"]),
+    fields: z.record(z.string(), z.unknown()).default({}),
+  }),
+});
+
+export const chatbotAssignAgentNodeSchema = baseNodeSchema.extend({
+  type: z.literal("assign_agent"),
+  config: z.object({
+    userId: z.string().uuid().optional(),
+    strategy: z.enum(["specific", "round_robin", "least_busy"]).default("specific"),
+  }),
+});
+
+export const chatbotAssignTagNodeSchema = baseNodeSchema.extend({
+  type: z.literal("assign_tag"),
+  config: z.object({
+    tagId: z.string().uuid().optional(),
+    tagName: z.string().trim().max(80).optional(),
+  }),
+});
+
+export const chatbotCreateTaskNodeSchema = baseNodeSchema.extend({
+  type: z.literal("create_task"),
+  config: z.object({
+    title: z.string().trim().min(1).max(240),
+    assignToUserId: z.string().uuid().optional(),
+    dueInHours: z.number().int().min(1).max(8760).default(24),
+    priority: z.enum(["low", "medium", "high"]).default("medium"),
+  }),
+});
+
+export const chatbotHumanHandoffNodeSchema = baseNodeSchema.extend({
+  type: z.literal("human_handoff"),
+  config: z.object({
+    message: z.string().trim().max(1000).optional(),
+    assignToUserId: z.string().uuid().optional(),
+    strategy: z.enum(["specific", "round_robin", "queue"]).default("queue"),
+  }),
+});
+
+export const chatbotAiReplyNodeSchema = baseNodeSchema.extend({
+  type: z.literal("ai_reply"),
+  config: z.object({
+    systemPrompt: z.string().trim().max(4000).default("You are a helpful WhatsApp assistant."),
+    model: z.string().trim().max(80).default("gpt-4o-mini"),
+    maxTokens: z.number().int().min(50).max(4000).default(500),
+    temperature: z.number().min(0).max(2).default(0.7),
+    captureKey: z.string().trim().max(120).optional(),
+    fallbackBody: z.string().trim().max(1000).optional(),
+  }),
+});
+
+export const chatbotKeywordTriggerNodeSchema = baseNodeSchema.extend({
+  type: z.literal("keyword_trigger"),
+  config: z.object({
+    keywords: z.array(z.string().trim().min(1).max(120)).min(1).max(50),
+    matchType: z.enum(["exact", "contains", "starts_with", "regex"]).default("contains"),
+  }),
+});
+
 export const chatbotFlowNodeSchema = z.discriminatedUnion("type", [
   chatbotStartNodeSchema,
   chatbotMessageNodeSchema,
   chatbotConditionNodeSchema,
   chatbotInputNodeSchema,
   chatbotEndNodeSchema,
+  chatbotDelayNodeSchema,
+  chatbotSendTemplateNodeSchema,
+  chatbotWebhookNodeSchema,
+  chatbotCrmUpdateNodeSchema,
+  chatbotAssignAgentNodeSchema,
+  chatbotAssignTagNodeSchema,
+  chatbotCreateTaskNodeSchema,
+  chatbotHumanHandoffNodeSchema,
+  chatbotAiReplyNodeSchema,
+  chatbotKeywordTriggerNodeSchema,
 ]);
 
 export const chatbotFlowEdgeSchema = z.object({

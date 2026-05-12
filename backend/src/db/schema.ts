@@ -1,5 +1,6 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -1973,6 +1974,11 @@ export const socialConversations = pgTable(
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     unreadCount: integer("unread_count").notNull().default(0),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).defaultNow().notNull(),
+    pinnedAt: timestamp("pinned_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    priority: varchar("priority", { length: 20 }).notNull().default("normal"),
+    agentLastReadAt: timestamp("agent_last_read_at", { withTimezone: true }),
+    tagIds: jsonb("tag_ids").$type<string[]>().notNull().default([]),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => profiles.id),
@@ -1984,6 +1990,7 @@ export const socialConversations = pgTable(
     byCompanyIdx: index("social_conversations_company_idx").on(table.companyId, table.lastMessageAt),
     byAccountIdx: index("social_conversations_account_idx").on(table.socialAccountId, table.lastMessageAt),
     byAssignedIdx: index("social_conversations_assigned_idx").on(table.companyId, table.assignedToUserId),
+    priorityIdx: index("social_conversations_priority_idx").on(table.companyId, table.priority, table.lastMessageAt),
   }),
 );
 
@@ -2005,6 +2012,12 @@ export const socialMessages = pgTable(
     senderName: varchar("sender_name", { length: 180 }),
     body: text("body").notNull(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    reactions: jsonb("reactions").$type<Array<{ emoji: string; by: string; at: string }>>().notNull().default([]),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
     createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -2012,6 +2025,303 @@ export const socialMessages = pgTable(
   (table) => ({
     byConversationIdx: index("social_messages_conversation_idx").on(table.conversationId, table.sentAt),
     byCompanyIdx: index("social_messages_company_idx").on(table.companyId, table.sentAt),
+  }),
+);
+
+// -------------------------------------------------------------------------
+// WhatsApp CRM — Phase 2: inbox, contact management, media, notes, tags
+// -------------------------------------------------------------------------
+
+export const conversationTags = pgTable(
+  "conversation_tags",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 80 }).notNull(),
+    color: varchar("color", { length: 32 }).notNull().default("emerald"),
+    description: text("description"),
+    isSystem: boolean("is_system").notNull().default(false),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    companyNameUnique: uniqueIndex("conversation_tags_company_name_unique")
+      .on(table.companyId, table.name)
+      .where(sql`${table.deletedAt} IS NULL`),
+  }),
+);
+
+export const conversationNotes = pgTable(
+  "conversation_notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => socialConversations.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => profiles.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    mentions: jsonb("mentions").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    conversationIdx: index("conversation_notes_conversation_idx").on(table.companyId, table.conversationId, table.createdAt),
+  }),
+);
+
+export const conversationParticipants = pgTable(
+  "conversation_participants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => socialConversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 40 }).notNull().default("watcher"),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }),
+    muted: boolean("muted").notNull().default(false),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueIdx: uniqueIndex("conversation_participants_unique").on(table.conversationId, table.userId),
+    userIdx: index("conversation_participants_user_idx").on(table.companyId, table.userId),
+  }),
+);
+
+export const messageAttachments = pgTable(
+  "message_attachments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").references(() => socialMessages.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => socialConversations.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id"),
+    mediaType: varchar("media_type", { length: 20 }).notNull(),
+    mimeType: varchar("mime_type", { length: 120 }),
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    originalName: varchar("original_name", { length: 240 }),
+    storageProvider: varchar("storage_provider", { length: 40 }).notNull().default("supabase"),
+    storageBucket: varchar("storage_bucket", { length: 120 }),
+    storageObjectPath: text("storage_object_path").notNull(),
+    providerMediaId: varchar("provider_media_id", { length: 180 }),
+    sourceUrl: text("source_url"),
+    caption: text("caption"),
+    width: integer("width"),
+    height: integer("height"),
+    durationMs: integer("duration_ms"),
+    thumbnailObjectPath: text("thumbnail_object_path"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    messageIdx: index("message_attachments_message_idx").on(table.messageId),
+    companyIdx: index("message_attachments_company_idx").on(table.companyId, table.createdAt),
+  }),
+);
+
+export const messageStatusLogs = pgTable(
+  "message_status_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => socialMessages.id, { onDelete: "cascade" }),
+    status: varchar("status", { length: 40 }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+    source: varchar("source", { length: 40 }).notNull().default("provider"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (table) => ({
+    messageIdx: index("message_status_logs_message_idx").on(table.messageId, table.occurredAt),
+  }),
+);
+
+export const contactTags = pgTable(
+  "contact_tags",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    contactHandle: varchar("contact_handle", { length: 180 }).notNull(),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => conversationTags.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueIdx: uniqueIndex("contact_tags_unique").on(table.companyId, table.contactHandle, table.tagId),
+    handleIdx: index("contact_tags_handle_idx").on(table.companyId, table.contactHandle),
+  }),
+);
+
+export const whatsappContactProfiles = pgTable(
+  "whatsapp_contact_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    phoneE164: varchar("phone_e164", { length: 32 }).notNull(),
+    displayName: varchar("display_name", { length: 180 }),
+    avatarUrl: text("avatar_url"),
+    locale: varchar("locale", { length: 16 }),
+    optInStatus: varchar("opt_in_status", { length: 20 }).notNull().default("unknown"),
+    optInSource: varchar("opt_in_source", { length: 80 }),
+    optInAt: timestamp("opt_in_at", { withTimezone: true }),
+    optOutAt: timestamp("opt_out_at", { withTimezone: true }),
+    engagementScore: integer("engagement_score").notNull().default(0),
+    engagementStatus: varchar("engagement_status", { length: 20 }).notNull().default("cold"),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
+    lastOutboundAt: timestamp("last_outbound_at", { withTimezone: true }),
+    customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default({}),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    uniqueIdx: uniqueIndex("whatsapp_contact_profiles_unique")
+      .on(table.companyId, table.phoneE164)
+      .where(sql`${table.deletedAt} IS NULL`),
+    engagementIdx: index("whatsapp_contact_profiles_engagement_idx").on(table.companyId, table.engagementStatus, table.lastInboundAt),
+  }),
+);
+
+// -------------------------------------------------------------------------
+// WhatsApp CRM — Phase 4: Flow Builder, keyword triggers, automation rules
+// -------------------------------------------------------------------------
+
+export const whatsappKeywordTriggers = pgTable(
+  "whatsapp_keyword_triggers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id"),
+    keyword: varchar("keyword", { length: 120 }).notNull(),
+    matchType: varchar("match_type", { length: 20 }).notNull().default("exact"),
+    actionType: varchar("action_type", { length: 40 }).notNull().default("reply"),
+    replyBody: text("reply_body"),
+    flowId: uuid("flow_id"),
+    assignToUserId: uuid("assign_to_user_id"),
+    tagId: uuid("tag_id"),
+    priority: integer("priority").notNull().default(100),
+    isActive: boolean("is_active").notNull().default(true),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    activeIdx: index("whatsapp_keyword_triggers_active_idx").on(table.companyId, table.isActive, table.priority),
+  }),
+);
+
+export const whatsappAutomationRules = pgTable(
+  "whatsapp_automation_rules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 180 }).notNull(),
+    description: text("description"),
+    triggerType: varchar("trigger_type", { length: 40 }).notNull(),
+    triggerConfig: jsonb("trigger_config").$type<Record<string, unknown>>().notNull().default({}),
+    actionType: varchar("action_type", { length: 40 }).notNull(),
+    actionConfig: jsonb("action_config").$type<Record<string, unknown>>().notNull().default({}),
+    conditions: jsonb("conditions").$type<Array<Record<string, unknown>>>().notNull().default([]),
+    priority: integer("priority").notNull().default(100),
+    isActive: boolean("is_active").notNull().default(true),
+    runCount: integer("run_count").notNull().default(0),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    activeIdx: index("whatsapp_automation_rules_active_idx").on(table.companyId, table.isActive, table.triggerType, table.priority),
+  }),
+);
+
+export const whatsappFlowAnalyticsDaily = pgTable(
+  "whatsapp_flow_analytics_daily",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    flowId: uuid("flow_id").notNull(),
+    snapshotDate: timestamp("snapshot_date", { mode: "date", withTimezone: false }).notNull(),
+    executionsStarted: integer("executions_started").notNull().default(0),
+    executionsCompleted: integer("executions_completed").notNull().default(0),
+    executionsFailed: integer("executions_failed").notNull().default(0),
+    messagesSent: integer("messages_sent").notNull().default(0),
+    avgDurationSeconds: integer("avg_duration_seconds"),
+    conversionCount: integer("conversion_count").notNull().default(0),
+    handoffCount: integer("handoff_count").notNull().default(0),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    uniqueIdx: uniqueIndex("whatsapp_flow_analytics_daily_unique").on(table.companyId, table.flowId, table.snapshotDate),
+  }),
+);
+
+export const whatsappCrmSettings = pgTable(
+  "whatsapp_crm_settings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    defaultWorkspaceId: uuid("default_workspace_id"),
+    autoReplyEnabled: boolean("auto_reply_enabled").notNull().default(false),
+    autoReplyBody: text("auto_reply_body"),
+    autoReplyOutsideHours: boolean("auto_reply_outside_hours").notNull().default(false),
+    businessHours: jsonb("business_hours").$type<{ timezone: string; schedule: Array<{ day: number; start: string; end: string }> }>().notNull().default({ timezone: "UTC", schedule: [] }),
+    assignmentStrategy: varchar("assignment_strategy", { length: 40 }).notNull().default("manual"),
+    assignmentUserIds: jsonb("assignment_user_ids").$type<string[]>().notNull().default([]),
+    maxConcurrentPerAgent: integer("max_concurrent_per_agent").notNull().default(20),
+    unassignedTimeoutMinutes: integer("unassigned_timeout_minutes").notNull().default(30),
+    webhookHealthAlertEnabled: boolean("webhook_health_alert_enabled").notNull().default(true),
+    webhookHealthAlertThreshold: integer("webhook_health_alert_threshold").notNull().default(5),
+    realtimeTransport: varchar("realtime_transport", { length: 20 }).notNull().default("sse"),
+    defaultPriority: varchar("default_priority", { length: 20 }).notNull().default("normal"),
+    autoArchiveAfterHours: integer("auto_archive_after_hours").notNull().default(0),
+    optInRequiredForCampaigns: boolean("opt_in_required_for_campaigns").notNull().default(true),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    updatedBy: uuid("updated_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    companyUnique: uniqueIndex("whatsapp_crm_settings_company_unique").on(table.companyId),
   }),
 );
 
@@ -2156,6 +2466,148 @@ export const whatsappSessions = pgTable(
   }),
 );
 
+// -------------------------------------------------------------------------
+// WhatsApp CRM — Phase 3: Campaigns, analytics snapshots
+// -------------------------------------------------------------------------
+
+export const whatsappCampaigns = pgTable(
+  "whatsapp_campaigns",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    templateId: uuid("template_id").references(() => whatsappTemplates.id, { onDelete: "set null" }),
+    name: varchar("name", { length: 180 }).notNull(),
+    description: text("description"),
+    status: varchar("status", { length: 40 }).notNull().default("draft"),
+    audienceType: varchar("audience_type", { length: 40 }).notNull().default("manual"),
+    audienceFilter: jsonb("audience_filter").$type<Record<string, unknown>>().notNull().default({}),
+    templateName: varchar("template_name", { length: 180 }),
+    templateLanguage: varchar("template_language", { length: 16 }).notNull().default("en"),
+    templateVariables: jsonb("template_variables").$type<Record<string, unknown>>().notNull().default({}),
+    scheduleType: varchar("schedule_type", { length: 20 }).notNull().default("immediate"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    recurringCron: varchar("recurring_cron", { length: 120 }),
+    recurringUntil: timestamp("recurring_until", { withTimezone: true }),
+    throttleMps: integer("throttle_mps").notNull().default(30),
+    retryMaxAttempts: integer("retry_max_attempts").notNull().default(3),
+    retryBackoffSeconds: integer("retry_backoff_seconds").notNull().default(60),
+    totalAudience: integer("total_audience").notNull().default(0),
+    sentCount: integer("sent_count").notNull().default(0),
+    deliveredCount: integer("delivered_count").notNull().default(0),
+    readCount: integer("read_count").notNull().default(0),
+    repliedCount: integer("replied_count").notNull().default(0),
+    failedCount: integer("failed_count").notNull().default(0),
+    estimatedCost: numeric("estimated_cost", { precision: 18, scale: 8 }).notNull().default("0"),
+    actualCost: numeric("actual_cost", { precision: 18, scale: 8 }).notNull().default("0"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => profiles.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    companyIdx: index("whatsapp_campaigns_company_idx").on(table.companyId, table.status, table.createdAt),
+    scheduleIdx: index("whatsapp_campaigns_schedule_idx").on(table.status, table.scheduledAt),
+  }),
+);
+
+export const whatsappCampaignContacts = pgTable(
+  "whatsapp_campaign_contacts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => whatsappCampaigns.id, { onDelete: "cascade" }),
+    phoneE164: varchar("phone_e164", { length: 32 }).notNull(),
+    contactName: varchar("contact_name", { length: 180 }),
+    variables: jsonb("variables").$type<Record<string, unknown>>().notNull().default({}),
+    status: varchar("status", { length: 40 }).notNull().default("pending"),
+    outboxId: uuid("outbox_id"),
+    providerMessageId: varchar("provider_message_id", { length: 180 }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    repliedAt: timestamp("replied_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+    attempts: integer("attempts").notNull().default(0),
+    cost: numeric("cost", { precision: 18, scale: 8 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    campaignIdx: index("whatsapp_campaign_contacts_campaign_idx").on(table.campaignId, table.status),
+    phoneIdx: index("whatsapp_campaign_contacts_phone_idx").on(table.companyId, table.phoneE164, table.campaignId),
+    uniqueIdx: uniqueIndex("whatsapp_campaign_contacts_unique").on(table.campaignId, table.phoneE164),
+  }),
+);
+
+export const whatsappCampaignLogs = pgTable(
+  "whatsapp_campaign_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => whatsappCampaigns.id, { onDelete: "cascade" }),
+    eventType: varchar("event_type", { length: 40 }).notNull(),
+    message: text("message"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    campaignIdx: index("whatsapp_campaign_logs_campaign_idx").on(table.campaignId, table.createdAt),
+  }),
+);
+
+export const whatsappAnalyticsSnapshots = pgTable(
+  "whatsapp_analytics_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    campaignId: uuid("campaign_id"),
+    snapshotDate: timestamp("snapshot_date", { mode: "date", withTimezone: false }).notNull(),
+    period: varchar("period", { length: 20 }).notNull().default("daily"),
+    sent: integer("sent").notNull().default(0),
+    delivered: integer("delivered").notNull().default(0),
+    read: integer("read").notNull().default(0),
+    replied: integer("replied").notNull().default(0),
+    failed: integer("failed").notNull().default(0),
+    cost: numeric("cost", { precision: 18, scale: 8 }).notNull().default("0"),
+    templateName: varchar("template_name", { length: 180 }),
+    category: varchar("category", { length: 80 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    companyIdx: index("whatsapp_analytics_snapshots_company_idx").on(table.companyId, table.snapshotDate),
+    uniqueIdx: uniqueIndex("whatsapp_analytics_snapshots_unique").on(
+      table.companyId,
+      table.workspaceId,
+      table.campaignId,
+      table.snapshotDate,
+      table.period,
+      table.templateName,
+    ),
+  }),
+);
+
 export const whatsappOutbox = pgTable(
   "whatsapp_outbox",
   {
@@ -2164,6 +2616,7 @@ export const whatsappOutbox = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: "cascade" }),
     workspaceId: uuid("workspace_id").references(() => whatsappWorkspaces.id, { onDelete: "set null" }),
+    campaignId: uuid("campaign_id").references(() => whatsappCampaigns.id, { onDelete: "set null" }),
     conversationId: uuid("conversation_id").references(() => socialConversations.id, { onDelete: "set null" }),
     socialMessageId: uuid("social_message_id").references(() => socialMessages.id, { onDelete: "set null" }),
     leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
@@ -2193,6 +2646,7 @@ export const whatsappOutbox = pgTable(
     queueIdx: index("whatsapp_outbox_queue_idx").on(table.status, table.nextAttemptAt, table.priority, table.createdAt),
     conversationIdx: index("whatsapp_outbox_conversation_idx").on(table.companyId, table.conversationId, table.createdAt),
     pairIdx: index("whatsapp_outbox_pair_idx").on(table.workspaceId, table.toPhoneE164, table.sentAt),
+    campaignIdx: index("whatsapp_outbox_campaign_idx").on(table.campaignId, table.status),
   }),
 );
 

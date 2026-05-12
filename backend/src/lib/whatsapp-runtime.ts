@@ -7,6 +7,7 @@ import {
   socialAccounts,
   socialConversations,
   socialMessages,
+  whatsappContactProfiles,
   whatsappMediaAssets,
   whatsappMessageCosts,
   whatsappMessageEvents,
@@ -480,6 +481,64 @@ export async function ingestWhatsappReply(input: {
       status: "active",
       expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
     });
+  }
+
+  try {
+    const { publishWhatsappEvent } = await import("@/lib/whatsapp-realtime");
+    publishWhatsappEvent({
+      type: "message.created",
+      companyId: input.companyId,
+      conversationId: conversation.id,
+      messageId: message.id,
+      direction: "inbound",
+      body: message.body,
+      messageType: message.messageType,
+      deliveryStatus: message.deliveryStatus,
+      contactHandle: conversation.contactHandle,
+      contactName: conversation.contactName,
+      sentAt: (message.sentAt as Date).toISOString(),
+    });
+  } catch {
+    // Realtime publish is best-effort; never block webhook ingest.
+  }
+
+  // Best-effort contact profile upkeep so the Contacts list reflects engagement.
+  try {
+    const { upsertContactProfile } = await import("@/lib/whatsapp-inbox");
+    await upsertContactProfile({
+      companyId: input.companyId,
+      phoneE164: conversation.contactHandle.startsWith("+") ? conversation.contactHandle : `+${conversation.contactHandle}`,
+      patch: {
+        displayName: conversation.contactName ?? input.contactName ?? null,
+        engagementStatus: "warm",
+      },
+    });
+    await db
+      .update(whatsappContactProfiles)
+      .set({ lastInboundAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(whatsappContactProfiles.companyId, input.companyId), eq(whatsappContactProfiles.phoneE164, conversation.contactHandle.startsWith("+") ? conversation.contactHandle : `+${conversation.contactHandle}`)));
+  } catch {
+    // Contact upkeep is best-effort.
+  }
+
+  // Phase 4: evaluate keyword triggers and automation rules
+  try {
+    const { evaluateKeywordTriggers, evaluateAutomationRules } = await import("@/lib/whatsapp-flow-automation");
+    const ctx = {
+      companyId: input.companyId,
+      conversationId: conversation.id,
+      contactHandle: conversation.contactHandle,
+      contactName: conversation.contactName,
+      messageBody: input.body,
+      messageId: message.id,
+      createdBy: input.createdBy ?? conversation.createdBy,
+    };
+    const keywordHandled = await evaluateKeywordTriggers(ctx);
+    if (!keywordHandled) {
+      await evaluateAutomationRules(ctx);
+    }
+  } catch {
+    // Automation evaluation is best-effort; never block webhook ingest.
   }
 
   return {

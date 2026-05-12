@@ -20,13 +20,16 @@ import {
   FileBox,
   GraduationCap,
   HeartHandshake,
+  Inbox,
   LayoutDashboard,
   Link2,
   LogOut,
+  MailPlus,
   Megaphone,
   MessageSquareShare,
   Network,
   PanelsTopLeft,
+  Plug,
   Puzzle,
   ScanSearch,
   Settings2,
@@ -35,6 +38,7 @@ import {
   Target,
   TextCursorInput,
   Users,
+  Workflow,
   X,
 } from "lucide-react";
 
@@ -97,6 +101,15 @@ const navItems: NavItem[] = [
   { href: "/dashboard/forms", label: "Forms", icon: TextCursorInput, minRole: "admin", moduleKey: "forms" },
   { href: "/dashboard/integrations", label: "Integrations", icon: Link2, minRole: "admin", moduleKey: "integrations" },
   { href: "/dashboard/social", label: "Social", icon: MessageSquareShare, minRole: "admin", moduleKey: "social" },
+  { href: "/dashboard/whatsapp-crm", label: "Dashboard", icon: LayoutDashboard, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm/integrations", label: "Integrations", icon: Plug, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm/inbox", label: "Inbox", icon: Inbox, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm/contacts", label: "Contacts", icon: Users, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm/campaigns", label: "Campaigns", icon: MailPlus, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm/templates", label: "Templates", icon: FileText, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm/flow-builder", label: "Flow Builder", icon: Workflow, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm/analytics", label: "Analytics", icon: ChartColumnBig, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm/settings", label: "Settings", icon: Settings2, minRole: "admin" },
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell, minRole: "admin", moduleKey: "notifications" },
   { href: "/dashboard/team", label: "Team", icon: Users, minRole: "admin", moduleKey: "teams" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings2, minRole: "admin", moduleKey: "settings" },
@@ -109,6 +122,21 @@ const navGroups = [
   // { id: "agent", label: "Agent", hrefs: ["/dashboard/automation", "/dashboard/chatbot-flows"] },
   { id: "crm", label: "CRM", hrefs: ["/dashboard/contacts", "/dashboard/leads", "/dashboard/deals", "/dashboard/tasks", "/dashboard/forms", "/dashboard/notifications"] },
   { id: "marketing", label: "Marketing", hrefs: ["/dashboard/outreach", "/dashboard/campaigns", "/dashboard/templates", "/dashboard/documents", "/dashboard/social"] },
+  {
+    id: "whatsapp-crm",
+    label: "WhatsApp CRM",
+    hrefs: [
+      "/dashboard/whatsapp-crm",
+      "/dashboard/whatsapp-crm/integrations",
+      "/dashboard/whatsapp-crm/inbox",
+      "/dashboard/whatsapp-crm/contacts",
+      "/dashboard/whatsapp-crm/campaigns",
+      "/dashboard/whatsapp-crm/templates",
+      "/dashboard/whatsapp-crm/flow-builder",
+      "/dashboard/whatsapp-crm/analytics",
+      "/dashboard/whatsapp-crm/settings",
+    ],
+  },
   { id: "users", label: "Users", hrefs: ["/dashboard/meetings", "/dashboard/team", "/dashboard/partners", "/dashboard/settings", "/dashboard/invite"] },
   { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
 ];
@@ -144,6 +172,17 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
     "/dashboard/integrations": { label: "Integrations", icon: Link2 },
     "/dashboard/reports": { label: "Stats", icon: ChartColumnBig },
     "/dashboard/super-admin": { label: "Super Admin", icon: Shield },
+  },
+  "whatsapp-crm": {
+    "/dashboard/whatsapp-crm": { label: "Dashboard", icon: LayoutDashboard },
+    "/dashboard/whatsapp-crm/integrations": { label: "Integrations", icon: Plug },
+    "/dashboard/whatsapp-crm/inbox": { label: "Inbox", icon: Inbox },
+    "/dashboard/whatsapp-crm/contacts": { label: "Contacts", icon: Users },
+    "/dashboard/whatsapp-crm/campaigns": { label: "Campaigns", icon: MailPlus },
+    "/dashboard/whatsapp-crm/templates": { label: "Templates", icon: FileText },
+    "/dashboard/whatsapp-crm/flow-builder": { label: "Flow Builder", icon: Workflow },
+    "/dashboard/whatsapp-crm/analytics": { label: "Analytics", icon: ChartColumnBig },
+    "/dashboard/whatsapp-crm/settings": { label: "Settings", icon: Settings2 },
   },
 };
 
@@ -535,8 +574,9 @@ export function AppShell({
                     ) : null}
                     {group.items.map((item) => {
                       const Icon = item.icon;
-                      const isActive = item.href === "/dashboard"
-                        ? pathname === "/dashboard"
+                      const exactMatchOnly = item.href === "/dashboard" || item.href === "/dashboard/whatsapp-crm";
+                      const isActive = exactMatchOnly
+                        ? pathname === item.href
                         : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
                       return (

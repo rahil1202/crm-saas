@@ -27,6 +27,13 @@ import {
   updateWhatsappWorkspace,
 } from "@/modules/whatsapp/controller";
 import {
+  getWhatsappDashboardConnections,
+  getWhatsappDashboardStats,
+  getWhatsappRecentActivity,
+  getWhatsappRecentWebhookEvents,
+  whatsappDashboardSchemas,
+} from "@/modules/whatsapp/dashboard-controller";
+import {
   embeddedSignupExchangeSchema,
   listWhatsappPricingRatesSchema,
   listWhatsappTemplatesSchema,
@@ -49,6 +56,18 @@ export const whatsappRoutes = new Hono<AppEnv>();
 whatsappRoutes.use("*", requireAuth, requireTenant);
 
 whatsappRoutes.get("/whatsapp", getWhatsappOverview);
+whatsappRoutes.get("/whatsapp/dashboard/stats", getWhatsappDashboardStats);
+whatsappRoutes.get("/whatsapp/dashboard/connections", getWhatsappDashboardConnections);
+whatsappRoutes.get(
+  "/whatsapp/dashboard/recent-events",
+  validateQuery(whatsappDashboardSchemas.recentEventsQuerySchema),
+  getWhatsappRecentWebhookEvents,
+);
+whatsappRoutes.get(
+  "/whatsapp/dashboard/recent-activity",
+  validateQuery(whatsappDashboardSchemas.recentActivityQuerySchema),
+  getWhatsappRecentActivity,
+);
 whatsappRoutes.get("/whatsapp/onboarding/status", getWhatsappOnboardingStatus);
 whatsappRoutes.post("/whatsapp/onboarding/embedded/exchange", requireRole("admin"), validateJson(embeddedSignupExchangeSchema), exchangeWhatsappEmbeddedSignup);
 whatsappRoutes.post("/whatsapp/messages", requireRole("admin"), validateJson(sendWhatsappApiMessageSchema), sendWhatsappApiMessage);

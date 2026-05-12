@@ -173,6 +173,42 @@ const dashboardMeta: Record<string, { title: string; description: string }> = {
     title: "New Template",
     description: "Create email or WhatsApp templates with a guided two-step flow and live preview.",
   },
+  "/dashboard/whatsapp-crm": {
+    title: "WhatsApp Dashboard",
+    description: "Connected WhatsApp accounts, messages sent today, active conversations, and recent webhook activity.",
+  },
+  "/dashboard/whatsapp-crm/integrations": {
+    title: "WhatsApp Integrations",
+    description: "Connect WhatsApp Business Accounts via Meta Embedded Signup, manage phone numbers, and verify webhooks.",
+  },
+  "/dashboard/whatsapp-crm/inbox": {
+    title: "WhatsApp Inbox",
+    description: "Unified inbox for incoming WhatsApp conversations with realtime updates.",
+  },
+  "/dashboard/whatsapp-crm/contacts": {
+    title: "WhatsApp Contacts",
+    description: "Browse contacts synced from WhatsApp business conversations.",
+  },
+  "/dashboard/whatsapp-crm/campaigns": {
+    title: "WhatsApp Campaigns",
+    description: "Plan and launch approved template broadcast campaigns.",
+  },
+  "/dashboard/whatsapp-crm/templates": {
+    title: "WhatsApp Templates",
+    description: "Manage Meta-approved WhatsApp message templates.",
+  },
+  "/dashboard/whatsapp-crm/flow-builder": {
+    title: "WhatsApp Flow Builder",
+    description: "Design automated WhatsApp conversation flows.",
+  },
+  "/dashboard/whatsapp-crm/analytics": {
+    title: "WhatsApp Analytics",
+    description: "Deep reporting for delivery, reads, replies, and cost across all WhatsApp workspaces.",
+  },
+  "/dashboard/whatsapp-crm/settings": {
+    title: "WhatsApp CRM Settings",
+    description: "Module-level settings, routing rules, and realtime configuration for WhatsApp CRM.",
+  },
 };
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {

@@ -166,4 +166,10 @@ const cacheTtlByPath: Record<string, number> = {
   "/outreach/contacts": 15_000,
   "/outreach/lists": 15_000,
   "/settings/outreach-agent": 20_000,
+  "/whatsapp/dashboard/stats": 15_000,
+  "/whatsapp/dashboard/connections": 20_000,
+  "/whatsapp/dashboard/recent-events": 10_000,
+  "/whatsapp/dashboard/recent-activity": 10_000,
+  "/whatsapp/onboarding/status": 20_000,
+  "/whatsapp-workspaces": 20_000,
 };

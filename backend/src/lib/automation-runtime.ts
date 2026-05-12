@@ -16,6 +16,7 @@ import {
 import { processQueuedEmailMessages, queueLeadEmail } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
 import { processDueSequenceRuns } from "@/lib/sequence-runtime";
+import { processCampaignQueue, processScheduledCampaigns } from "@/lib/whatsapp-campaign-engine";
 import {
   sendWhatsappMessage,
   expireConversationStates,
@@ -943,6 +944,8 @@ async function runtimeTick() {
     await processQueuedEmailMessages(25);
     await processQueuedWhatsappWebhookEvents(25, dispatchWhatsappIngestedItems);
     await processQueuedWhatsappOutbox(25);
+    await processCampaignQueue();
+    await processScheduledCampaigns();
     await processDueSequenceRuns(25);
     await queueLeadInactiveTriggers();
     await expireConversationStates();
