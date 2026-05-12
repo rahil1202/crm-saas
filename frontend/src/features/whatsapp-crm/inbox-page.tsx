@@ -170,13 +170,30 @@ export function WhatsappInboxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages.length, activeId]);
 
+  const inboxRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const throttledLoadInbox = useCallback(() => {
+    if (inboxRefreshTimerRef.current) return;
+    inboxRefreshTimerRef.current = setTimeout(() => {
+      inboxRefreshTimerRef.current = null;
+      void loadInbox();
+    }, 2000);
+  }, [loadInbox]);
+
+  useEffect(() => {
+    return () => {
+      if (inboxRefreshTimerRef.current) {
+        clearTimeout(inboxRefreshTimerRef.current);
+      }
+    };
+  }, []);
+
   const realtimeHandler = useCallback(
     (event: RealtimeInboxEvent) => {
       if (event.type === "message.created") {
         if (event.conversationId === activeId) {
           void loadMessages(activeId!);
         }
-        void loadInbox();
+        throttledLoadInbox();
       } else if (event.type === "message.status") {
         setMessages((current) =>
           current.map((message) =>
@@ -186,7 +203,7 @@ export function WhatsappInboxPage() {
           ),
         );
       } else if (event.type === "conversation.updated" || event.type === "conversation.assigned") {
-        void loadInbox();
+        throttledLoadInbox();
         if (event.conversationId === activeId) {
           void loadMessages(activeId!);
         }
@@ -202,7 +219,7 @@ export function WhatsappInboxPage() {
         }
       }
     },
-    [activeId, currentUserId, loadInbox, loadMessages],
+    [activeId, currentUserId, throttledLoadInbox, loadMessages],
   );
 
   useRealtimeInbox(realtimeHandler);

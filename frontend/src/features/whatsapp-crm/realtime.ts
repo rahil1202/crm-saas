@@ -57,6 +57,7 @@ export function useWhatsappRealtime(
     }
 
     let cancelled = false;
+    let intervalId: number | null = null;
 
     const bus = getRealtimeBus();
     const unsubscribe = bus.subscribe((event) => {
@@ -67,17 +68,41 @@ export function useWhatsappRealtime(
       setTick((value) => value + 1);
     });
 
-    const intervalId = window.setInterval(() => {
-      if (cancelled) {
-        return;
+    const startPolling = () => {
+      if (intervalId !== null) return;
+      intervalId = window.setInterval(() => {
+        if (cancelled || document.hidden) {
+          return;
+        }
+        bus.tick();
+      }, pollIntervalMs);
+    };
+
+    const stopPolling = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
       }
-      bus.tick();
-    }, pollIntervalMs);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        // Resume polling and immediately tick to catch up
+        startPolling();
+        bus.tick();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
+      stopPolling();
       unsubscribe();
-      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [enabled, pollIntervalMs]);
 

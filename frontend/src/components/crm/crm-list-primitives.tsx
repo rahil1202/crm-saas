@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode, type WheelEvent } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode, type WheelEvent } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, ArrowUpDown, Filter, RefreshCw, Search, Settings2, Trash2, X } from "lucide-react";
 
 import type { ColumnDefinition, ColumnVisibility, CrmListTabKey, CrmSortDirection } from "@/components/crm/types";
@@ -76,6 +77,28 @@ export function CrmListToolbar({
   onRefresh?: () => void;
   selectionBar?: ReactNode;
 }) {
+  const [localSearch, setLocalSearch] = useState(searchValue);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync external value changes (e.g., filter clear)
+  useEffect(() => {
+    setLocalSearch(searchValue);
+  }, [searchValue]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setLocalSearch(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onSearchChange(value);
+    }, 300);
+  }, [onSearchChange]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   return (
     <div className="grid gap-3 border-b border-border/60 bg-slate-50/45 px-4 py-4">
       {selectionBar ? <div>{selectionBar}</div> : null}
@@ -83,8 +106,8 @@ export function CrmListToolbar({
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            value={searchValue}
-            onChange={(event) => onSearchChange(event.target.value)}
+            value={localSearch}
+            onChange={(event) => handleSearchChange(event.target.value)}
             placeholder={searchPlaceholder}
             className="h-11 rounded-2xl border-border/70 bg-white pl-10 text-sm shadow-sm"
           />
@@ -290,6 +313,63 @@ function SortIcon({ active, direction }: { active: boolean; direction: CrmSortDi
   return direction === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />;
 }
 
+const MemoizedTableRow = memo(function MemoizedTableRow<TRecord, TColumnKey extends string>({
+  row,
+  id,
+  selected,
+  selectable,
+  visibleColumns,
+  actionColumn,
+  cellPaddingClass,
+  bodyTextClass,
+  onToggleRow,
+}: {
+  row: TRecord;
+  id: string;
+  selected: boolean;
+  selectable: boolean;
+  visibleColumns: Array<ColumnDefinition<TRecord, TColumnKey, any>>;
+  actionColumn?: { header: string; className?: string; renderCell: (record: TRecord) => ReactNode };
+  cellPaddingClass: string;
+  bodyTextClass: string;
+  onToggleRow?: (rowId: string, checked: boolean) => void;
+}) {
+  return (
+    <tr
+      className={cn(
+        "group transition-colors",
+        selected ? "bg-sky-50/70" : "bg-white hover:bg-slate-50/75",
+      )}
+    >
+      {selectable ? (
+        <td className={cn("sticky left-0 z-10 border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)}>
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(checked) => onToggleRow?.(id, checked === true)}
+            aria-label={`Select row ${id}`}
+          />
+        </td>
+      ) : null}
+      {visibleColumns.map((column) => (
+        <td key={column.key} className={cn("border-b border-border/50 align-middle text-slate-700", bodyTextClass, cellPaddingClass, column.cellClassName, column.widthClassName)}>
+          {column.renderCell(row)}
+        </td>
+      ))}
+      {actionColumn ? <td className={cn("sticky right-0 z-10 min-w-[170px] border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)}>{actionColumn.renderCell(row)}</td> : null}
+    </tr>
+  );
+}) as <TRecord, TColumnKey extends string>(props: {
+  row: TRecord;
+  id: string;
+  selected: boolean;
+  selectable: boolean;
+  visibleColumns: Array<ColumnDefinition<TRecord, TColumnKey, any>>;
+  actionColumn?: { header: string; className?: string; renderCell: (record: TRecord) => ReactNode };
+  cellPaddingClass: string;
+  bodyTextClass: string;
+  onToggleRow?: (rowId: string, checked: boolean) => void;
+}) => ReactNode;
+
 export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extends string>({
   columns,
   rows,
@@ -328,6 +408,7 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
   density?: "comfortable" | "compact";
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const virtualScrollRef = useRef<HTMLDivElement | null>(null);
   const visibleColumns = columns.filter((column) => columnVisibility[column.key]);
   const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedRowIds.includes(rowKey(row)));
   const colSpan = visibleColumns.length + (selectable ? 1 : 0) + (actionColumn ? 1 : 0);
@@ -339,6 +420,17 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
   const headerTrackingClass = compact ? "tracking-[0.1em]" : "tracking-[0.18em]";
   const bodyTextClass = compact ? "text-[0.78rem] leading-5" : "text-sm";
   const emptyStateClass = compact ? "px-4 py-14" : "px-4 py-20";
+  const ROW_HEIGHT = compact ? 40 : 52;
+
+  // Only virtualize for larger datasets where the DOM savings matter
+  const shouldVirtualize = rows.length > 20;
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => virtualScrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 8,
+  });
 
   const updateHorizontalAffordance = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -389,94 +481,120 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
   return (
     <div className="max-w-full min-w-0 overflow-hidden rounded-[1.35rem] border border-border/60 bg-white shadow-[0_18px_40px_-34px_rgba(15,23,42,0.18)]">
       <div
-        ref={scrollContainerRef}
-        onScroll={updateHorizontalAffordance}
-        onWheel={handleWheel}
-        className="relative overflow-x-auto overscroll-x-contain scroll-smooth"
+        ref={virtualScrollRef}
+        className={cn("overflow-y-auto", shouldVirtualize && "max-h-[600px]")}
       >
-        {canScrollLeft ? <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-6 bg-gradient-to-r from-white to-transparent" /> : null}
-        {canScrollRight ? <div className="pointer-events-none absolute inset-y-0 right-0 z-30 w-6 bg-gradient-to-l from-white to-transparent" /> : null}
-        <table className="min-w-full table-fixed border-separate border-spacing-0">
-          <thead className="bg-slate-50/90">
-            <tr className="text-left">
-            {selectable ? (
-              <th className={cn("sticky left-0 z-20 w-12 border-b border-border/60 bg-slate-50/95", cellPaddingClass)}>
-                <Checkbox
-                  checked={allVisibleSelected}
-                  onCheckedChange={(checked) => onToggleAllVisible?.(checked === true)}
-                  aria-label="Select all visible rows"
-                />
-              </th>
-            ) : null}
-            {visibleColumns.map((column) => (
-              <th key={column.key} className={cn("border-b border-border/60", cellPaddingClass, column.headerClassName, column.widthClassName)}>
-                {column.sortable && column.sortKey && onSort ? (
-                  <button
-                    type="button"
-                    onClick={() => onSort(column.sortKey!)}
-                    className={cn("inline-flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase text-slate-500 transition hover:text-slate-900", headerTrackingClass)}
-                  >
-                    <span>{column.label}</span>
-                    <SortIcon active={sortBy === column.sortKey} direction={sortDir ?? "asc"} />
-                  </button>
-                ) : (
-                  <span className={cn("text-[0.68rem] font-semibold uppercase text-slate-500", headerTrackingClass)}>{column.label}</span>
-                )}
-              </th>
-            ))}
-            {actionColumn ? (
-              <th className={cn("sticky right-0 z-20 min-w-[170px] border-b border-border/60 bg-slate-50/95 text-right text-[0.68rem] font-semibold uppercase text-slate-500", cellPaddingClass, headerTrackingClass, actionColumn.className)}>
-                {actionColumn.header}
-              </th>
-            ) : null}
-            </tr>
-          </thead>
-          <tbody className="bg-white">
-            {loading ? (
-              <tr>
-                <td colSpan={colSpan} className={cn("text-center text-sm text-muted-foreground", emptyStateClass)}>
-                  Loading...
-                </td>
+        <div
+          ref={scrollContainerRef}
+          onScroll={updateHorizontalAffordance}
+          onWheel={handleWheel}
+          className="relative overflow-x-auto overscroll-x-contain scroll-smooth"
+        >
+          {canScrollLeft ? <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-6 bg-gradient-to-r from-white to-transparent" /> : null}
+          {canScrollRight ? <div className="pointer-events-none absolute inset-y-0 right-0 z-30 w-6 bg-gradient-to-l from-white to-transparent" /> : null}
+          <table className="min-w-full table-fixed border-separate border-spacing-0">
+            <thead className="bg-slate-50/90 sticky top-0 z-20">
+              <tr className="text-left">
+              {selectable ? (
+                <th className={cn("sticky left-0 z-20 w-12 border-b border-border/60 bg-slate-50/95", cellPaddingClass)}>
+                  <Checkbox
+                    checked={allVisibleSelected}
+                    onCheckedChange={(checked) => onToggleAllVisible?.(checked === true)}
+                    aria-label="Select all visible rows"
+                  />
+                </th>
+              ) : null}
+              {visibleColumns.map((column) => (
+                <th key={column.key} className={cn("border-b border-border/60 bg-slate-50/90", cellPaddingClass, column.headerClassName, column.widthClassName)}>
+                  {column.sortable && column.sortKey && onSort ? (
+                    <button
+                      type="button"
+                      onClick={() => onSort(column.sortKey!)}
+                      className={cn("inline-flex items-center gap-1.5 text-[0.68rem] font-semibold uppercase text-slate-500 transition hover:text-slate-900", headerTrackingClass)}
+                    >
+                      <span>{column.label}</span>
+                      <SortIcon active={sortBy === column.sortKey} direction={sortDir ?? "asc"} />
+                    </button>
+                  ) : (
+                    <span className={cn("text-[0.68rem] font-semibold uppercase text-slate-500", headerTrackingClass)}>{column.label}</span>
+                  )}
+                </th>
+              ))}
+              {actionColumn ? (
+                <th className={cn("sticky right-0 z-20 min-w-[170px] border-b border-border/60 bg-slate-50/95 text-right text-[0.68rem] font-semibold uppercase text-slate-500", cellPaddingClass, headerTrackingClass, actionColumn.className)}>
+                  {actionColumn.header}
+                </th>
+              ) : null}
               </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={colSpan} className={cn("text-center text-sm text-muted-foreground", emptyStateClass)}>
-                  {emptyLabel}
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => {
-                const id = rowKey(row);
-                const selected = selectedRowIds.includes(id);
-                return (
-                  <tr
-                    key={id}
-                    className={cn(
-                      "group transition-colors",
-                      selected ? "bg-sky-50/70" : "bg-white hover:bg-slate-50/75",
-                    )}
-                  >
-                  {selectable ? (
-                    <td className={cn("sticky left-0 z-10 border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)}>
-                      <Checkbox
-                        checked={selected}
-                        onCheckedChange={(checked) => onToggleRow?.(id, checked === true)}
-                        aria-label={`Select row ${id}`}
-                      />
-                    </td>
-                  ) : null}
-                  {visibleColumns.map((column) => (
-                    <td key={column.key} className={cn("border-b border-border/50 align-middle text-slate-700", bodyTextClass, cellPaddingClass, column.cellClassName, column.widthClassName)}>
-                      {column.renderCell(row)}
-                    </td>
-                  ))}
-                  {actionColumn ? <td className={cn("sticky right-0 z-10 min-w-[170px] border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)}>{actionColumn.renderCell(row)}</td> : null}
+            </thead>
+            <tbody className="bg-white">
+              {loading ? (
+                <tr>
+                  <td colSpan={colSpan} className={cn("text-center text-sm text-muted-foreground", emptyStateClass)}>
+                    Loading...
+                  </td>
                 </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={colSpan} className={cn("text-center text-sm text-muted-foreground", emptyStateClass)}>
+                    {emptyLabel}
+                  </td>
+                </tr>
+              ) : shouldVirtualize ? (
+                <>
+                  {virtualizer.getVirtualItems().length > 0 && (
+                    <tr>
+                      <td colSpan={colSpan} style={{ height: `${virtualizer.getVirtualItems()[0]?.start ?? 0}px`, padding: 0, border: "none" }} />
+                    </tr>
+                  )}
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const row = rows[virtualRow.index];
+                    const id = rowKey(row);
+                    const selected = selectedRowIds.includes(id);
+                    return (
+                      <MemoizedTableRow
+                        key={id}
+                        row={row}
+                        id={id}
+                        selected={selected}
+                        selectable={selectable}
+                        visibleColumns={visibleColumns}
+                        actionColumn={actionColumn}
+                        cellPaddingClass={cellPaddingClass}
+                        bodyTextClass={bodyTextClass}
+                        onToggleRow={onToggleRow}
+                      />
+                    );
+                  })}
+                  {virtualizer.getVirtualItems().length > 0 && (
+                    <tr>
+                      <td colSpan={colSpan} style={{ height: `${virtualizer.getTotalSize() - (virtualizer.getVirtualItems().at(-1)?.end ?? 0)}px`, padding: 0, border: "none" }} />
+                    </tr>
+                  )}
+                </>
+              ) : (
+                rows.map((row) => {
+                  const id = rowKey(row);
+                  const selected = selectedRowIds.includes(id);
+                  return (
+                    <MemoizedTableRow
+                      key={id}
+                      row={row}
+                      id={id}
+                      selected={selected}
+                      selectable={selectable}
+                      visibleColumns={visibleColumns}
+                      actionColumn={actionColumn}
+                      cellPaddingClass={cellPaddingClass}
+                      bodyTextClass={bodyTextClass}
+                      onToggleRow={onToggleRow}
+                    />
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

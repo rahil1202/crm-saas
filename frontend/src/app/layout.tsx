@@ -10,11 +10,15 @@ import { cn } from "@/lib/utils";
 const bodyFont = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-sans",
+  display: "swap",
+  preload: true,
 });
 
 const headingFont = Outfit({
   subsets: ["latin"],
   variable: "--font-heading",
+  display: "swap",
+  preload: true,
 });
 
 export const metadata: Metadata = {

@@ -418,10 +418,13 @@ function CampaignsListPageContent({ mode }: { mode: "campaigns" | "templates" })
   }, [effectiveTab, loadCampaigns, loadTemplates, myUserId]);
 
   const sortedCampaigns = useMemo(() => {
+    // Pre-compute meta for all campaigns to avoid repeated regex parsing during sort
+    const metaMap = new Map(campaigns.map((campaign) => [campaign.id, campaignMeta(campaign)]));
+    
     const next = [...campaigns];
     next.sort((left, right) => {
-      const leftMeta = campaignMeta(left);
-      const rightMeta = campaignMeta(right);
+      const leftMeta = metaMap.get(left.id)!;
+      const rightMeta = metaMap.get(right.id)!;
       const getValue = (campaign: Campaign, meta: ReturnType<typeof campaignMeta>) => {
         switch (sortBy) {
           case "name":

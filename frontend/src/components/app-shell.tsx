@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, memo, type ReactNode } from "react";
 import {
   Bell,
   BriefcaseBusiness,
@@ -204,6 +204,67 @@ function getMembershipRoleLabel(membership?: {
 
   return membership.customRoleName?.trim() || membership.role || "member";
 }
+
+const SidebarNav = memo(function SidebarNav({
+  visibleNavGroups,
+  pathname,
+  sidebarExpanded,
+}: {
+  visibleNavGroups: Array<{ id: string; label: string; items: NavItem[] }>;
+  pathname: string;
+  sidebarExpanded: boolean;
+}) {
+  return (
+    <nav className="hide-scrollbar flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
+      {visibleNavGroups.map((group) => (
+        <div key={group.id} className="grid gap-2 border-t border-sky-200/70 pt-1 first:border-t-0 first:pt-0">
+          {sidebarExpanded ? (
+            <div className="px-2 text-[0.64rem] font-semibold uppercase tracking-[0.1em] text-sky-700/90">
+              {group.label}
+            </div>
+          ) : null}
+          {group.items.map((item) => {
+            const Icon = item.icon;
+            const exactMatchOnly = item.href === "/dashboard" || item.href === "/dashboard/whatsapp-crm";
+            const isActive = exactMatchOnly
+              ? pathname === item.href
+              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                title={!sidebarExpanded ? item.label : undefined}
+                className={cn(
+                  "group relative flex items-center rounded-xl text-sm font-medium transition-all text-sky-900",
+                  sidebarExpanded ? "gap-1 px-2 py-2" : "justify-center px-0 py-2",
+                  isActive
+                    ? "bg-sky-200/90 text-sky-900"
+                    : "border border-transparent text-sky-800/90 hover:bg-sky-50 hover:text-sky-950",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex size-5 shrink-0 items-center justify-center rounded-lg transition-colors text-sky-700",
+                    isActive ? "text-sky-900" : "text-sky-700",
+                  )}
+                >
+                  <Icon className="size-4" />
+                </span>
+                {sidebarExpanded ? <span className="truncate">{item.label}</span> : null}
+                {!sidebarExpanded ? (
+                  <span className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-20 -translate-y-1/2 rounded-xl border border-sky-200/80 bg-white px-2 py-1.5 text-xs font-semibold text-slate-900 opacity-0 shadow-[0_14px_34px_-20px_rgba(35,86,166,0.35)] transition-opacity group-hover:opacity-100">
+                    {item.label}
+                  </span>
+                ) : null}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
+    </nav>
+  );
+});
 
 export function AppShell({
   title,
@@ -564,54 +625,11 @@ export function AppShell({
             ) : null}
 
             <div className="min-h-0 flex-1 overflow-hidden">
-              <nav className="hide-scrollbar flex h-full min-h-0 flex-col gap-4 overflow-y-auto pr-1">
-                {visibleNavGroups.map((group) => (
-                  <div key={group.id} className="grid gap-2 border-t border-sky-200/70 pt-1 first:border-t-0 first:pt-0">
-                    {sidebarExpanded ? (
-                      <div className="px-2 text-[0.64rem] font-semibold uppercase tracking-[0.1em] text-sky-700/90">
-                        {group.label}
-                      </div>
-                    ) : null}
-                    {group.items.map((item) => {
-                      const Icon = item.icon;
-                      const exactMatchOnly = item.href === "/dashboard" || item.href === "/dashboard/whatsapp-crm";
-                      const isActive = exactMatchOnly
-                        ? pathname === item.href
-                        : pathname === item.href || pathname.startsWith(`${item.href}/`);
-
-                      return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          title={!sidebarExpanded ? item.label : undefined}
-                          className={cn(
-                            "group relative flex items-center rounded-xl text-sm font-medium transition-all text-sky-900",
-                            sidebarExpanded ? "gap-1 px-2 py-2" : "justify-center px-0 py-2",
-                            isActive
-                              ? "bg-sky-200/90 text-sky-900"
-                              : "border border-transparent text-sky-800/90 hover:bg-sky-50 hover:text-sky-950",
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "flex size-5 shrink-0 items-center justify-center rounded-lg transition-colors text-sky-700",
-                              isActive ? "text-sky-900" : "text-sky-700",
-                            )}
-                          >
-                            <Icon className="size-4" />
-                          </span>
-                          {sidebarExpanded ? <span className="truncate">{item.label}</span> : null}
-                          {!sidebarExpanded ? (
-                            <span className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-20 -translate-y-1/2 rounded-xl border border-sky-200/80 bg-white px-2 py-1.5 text-xs font-semibold text-slate-900 opacity-0 shadow-[0_14px_34px_-20px_rgba(35,86,166,0.35)] transition-opacity group-hover:opacity-100">
-                              {item.label}
-                            </span>
-                          ) : null}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                ))}
-              </nav>
+              <SidebarNav
+                visibleNavGroups={visibleNavGroups}
+                pathname={pathname}
+                sidebarExpanded={sidebarExpanded}
+              />
             </div>
           </div>
         </aside>
