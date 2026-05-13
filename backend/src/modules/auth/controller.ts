@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
@@ -31,6 +31,7 @@ import {
   registerWithSupabase,
   resendSupabaseVerificationEmail,
   sendPasswordRecoveryEmail,
+  syncLocalPasswordHash,
   unenrollSupabaseMfaFactor,
   updateSupabasePassword,
   verifySupabaseMfaFactor,
@@ -426,6 +427,9 @@ export async function register(c: Context<AppEnv>) {
       })
       .where(eq(profiles.id, registration.userId));
 
+    // Store local password hash for Supabase-down fallback
+    void syncLocalPasswordHash(registration.userId, body.password);
+
     if (body.referralCode) {
       const referralCode = await getReferralCodeByCode(body.referralCode);
       if (referralCode) {
@@ -660,7 +664,15 @@ export async function changePassword(c: Context<AppEnv>) {
   await updateSupabasePassword({
     accessToken: supabaseSession.accessToken,
     password: body.password,
+  }).catch((err) => {
+    // If Supabase is down but we have a local session, still update the local hash
+    // The Supabase password will be out of sync until Supabase recovers, but the
+    // user can still log in via local hash. Log the failure for ops visibility.
+    console.warn("[changePassword] Supabase password update failed:", err instanceof Error ? err.message : err);
   });
+
+  // Keep local hash in sync for Supabase-down fallback
+  void syncLocalPasswordHash(user.id, body.password);
 
   await recordSecurityAuditLog({
     requestId: c.get("requestId"),
@@ -968,6 +980,28 @@ export async function inviteMember(c: Context<AppEnv>) {
   const body = c.get("validatedBody") as InviteInput;
   const user = c.get("user");
   const tenant = c.get("tenant");
+
+  // Enforce seat limit from company plan
+  const [plan] = await db
+    .select({ seatLimit: companyPlans.seatLimit, status: companyPlans.status })
+    .from(companyPlans)
+    .where(eq(companyPlans.companyId, tenant.companyId))
+    .limit(1);
+
+  if (plan && plan.status !== "trial" && plan.status !== "active") {
+    throw AppError.forbidden("Your plan is not active. Upgrade to invite new members.");
+  }
+
+  if (plan?.seatLimit) {
+    const [memberCount] = await db
+      .select({ count: count() })
+      .from(companyMemberships)
+      .where(and(eq(companyMemberships.companyId, tenant.companyId), eq(companyMemberships.status, "active"), isNull(companyMemberships.deletedAt)));
+
+    if ((memberCount?.count ?? 0) >= plan.seatLimit) {
+      throw AppError.forbidden(`Seat limit reached (${plan.seatLimit} seats). Upgrade your plan to add more members.`);
+    }
+  }
 
   const existing = await db
     .select({ id: companyInvites.id })

@@ -398,9 +398,9 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
 
     if (integrationKey === "email") {
       return [
-        { label: "Connect provider", done: Boolean(draft.email.provider ?? draft.emailProvider) },
-        { label: "Set sender details", done: Boolean(draft.email.fromEmail && draft.email.domain) },
-        { label: "Add event webhook", done: Boolean(draft.email.webhookUrl ?? draft.webhookUrl) },
+        { label: "Connect Gmail or Outlook", done: Boolean(draft.email.provider ?? draft.emailProvider) },
+        { label: "Verify sending address", done: Boolean(draft.email.fromEmail) },
+        { label: "Send a test email", done: Boolean(draft.email.provider ?? draft.emailProvider) },
       ];
     }
     if (integrationKey === "whatsapp") {

@@ -53,34 +53,37 @@ function LoginPageContent() {
     let disposed = false;
 
     const bootstrap = async () => {
-      const me = await fetchAuthMe();
-      if (me && !disposed) {
-        router.replace(resolveAuthenticatedRouteFromMe(me));
-        return;
+      try {
+        const me = await fetchAuthMe();
+        if (me && !disposed) {
+          router.replace(resolveAuthenticatedRouteFromMe(me));
+          return;
+        }
+      } catch {
+        // fetchAuthMe never throws now, but guard anyway
       }
 
-      const { data } = await supabase.auth.getSession();
-      const accessToken = data.session?.access_token;
-      if (!accessToken || disposed) {
-        setBootstrapping(false);
-        return;
-      }
+      // Try to exchange a lingering Supabase session (e.g. after Google OAuth)
+      try {
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+        if (accessToken && !disposed) {
+          const exchangeResponse = await fetch(`${env.apiUrl}/api/v1/auth/exchange-supabase`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ supabaseAccessToken: accessToken }),
+            signal: AbortSignal.timeout(8000),
+          });
 
-      const exchangeResponse = await fetch(`${env.apiUrl}/api/v1/auth/exchange-supabase`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          supabaseAccessToken: accessToken,
-        }),
-      });
-
-      if (exchangeResponse.ok && !disposed) {
-        await supabase.auth.signOut();
-        router.replace(await resolveAuthenticatedRoute());
-        return;
+          if (exchangeResponse.ok && !disposed) {
+            await supabase.auth.signOut().catch(() => null);
+            router.replace(await resolveAuthenticatedRoute());
+            return;
+          }
+        }
+      } catch {
+        // Supabase down or network error — fall through to show the login form
       }
 
       if (!disposed) {

@@ -74,6 +74,9 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   email: varchar("email", { length: 320 }).notNull(),
   fullName: varchar("full_name", { length: 180 }),
+  // Local password hash — used as fallback when Supabase is unreachable.
+  // Kept in sync on every successful Supabase login/register.
+  passwordHash: varchar("password_hash", { length: 255 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

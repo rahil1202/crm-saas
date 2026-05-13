@@ -60,6 +60,66 @@ const starterTemplates = [
     content:
       "<p>Hi {{outreach.contact.fullName}},</p><p>I am trying to reach the person who owns CRM follow-up and outbound workflow at {{outreach.account.name}}. Would that be you, or is there someone better to speak with?</p><p>Thanks.</p>",
   },
+  {
+    name: "B2B Intro - Decision Maker",
+    subject: "Quick question for {{outreach.account.name}}",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>I help B2B companies like {{outreach.account.name}} streamline their sales process and close deals faster.</p><p>Would you be open to a 15-minute call this week to explore if there's a fit?</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "B2B Follow-up #1",
+    subject: "Following up — {{outreach.account.name}}",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>I wanted to follow up on my previous email. I know your inbox is busy, so I'll keep this short.</p><p>We've helped similar companies reduce their sales cycle by 30%. Worth a quick chat?</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "B2B Follow-up #2 (Last Touch)",
+    subject: "Last note — {{outreach.account.name}}",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>I'll make this my last email. If improving your team's outbound process isn't a priority right now, no worries at all.</p><p>If timing changes, feel free to reach out. I'll leave the door open.</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "Onboarding Welcome",
+    subject: "Welcome to {{sender_company}} — let's get started",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>Welcome aboard! We're thrilled to have {{outreach.account.name}} with us.</p><p>Here's what happens next:</p><ul><li>✅ Your account is being set up</li><li>📅 We'll schedule your onboarding call within 24 hours</li><li>📚 You'll receive our getting started guide shortly</li></ul><p>Any questions? Just reply to this email.</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "Onboarding Check-in (Day 7)",
+    subject: "How's everything going at {{outreach.account.name}}?",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>It's been a week since you joined us — I wanted to check in and see how things are going.</p><p>Are you getting the value you expected? Any blockers we can help with?</p><p>Happy to jump on a quick call if that would help.</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "Demo Request Follow-up",
+    subject: "Your demo recap — {{outreach.account.name}}",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>Thanks for joining our demo today! I hope it gave you a clear picture of how we can help {{outreach.account.name}}.</p><p>Ready to move forward? I can have you set up within 24 hours.</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "Proposal Sent",
+    subject: "Proposal for {{outreach.account.name}} — next steps",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>I've sent over the proposal for {{outreach.account.name}}. Please find it attached.</p><p>I'm available for a call this week to walk through any questions. What time works best for you?</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "Lead Nurture — Value Email",
+    subject: "3 ways companies like {{outreach.account.name}} grow faster",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>I've been working with companies in your space and noticed three patterns that separate the fastest-growing teams:</p><ol><li><strong>Automated follow-up</strong> — never let a lead go cold</li><li><strong>Personalized outreach at scale</strong> — relevant messages, not blasts</li><li><strong>Clear pipeline visibility</strong> — know exactly where every deal stands</li></ol><p>Would any of these be useful for {{outreach.account.name}} right now?</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "Re-engagement — Dormant Lead",
+    subject: "Still relevant for {{outreach.account.name}}?",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>We spoke a while back about improving your team's outreach process. I wanted to check in — is this still something on your radar?</p><p>Worth a quick 10-minute catch-up?</p><p>Best,<br/>{{sender_name}}</p>",
+  },
+  {
+    name: "Case Study Share",
+    subject: "How similar companies achieved results — relevant for {{outreach.account.name}}?",
+    content:
+      "<p>Hi {{outreach.contact.fullName}},</p><p>I thought this might be relevant for {{outreach.account.name}}.</p><p>One of our customers achieved significant results within 90 days using our platform. Would you like me to send the full case study?</p><p>Best,<br/>{{sender_name}}</p>",
+  },
 ];
 
 const starterLeads = [
@@ -125,57 +185,75 @@ export async function getOutreachDashboard(c: Context<AppEnv>) {
 
   const emailWhere = and(eq(emailMessages.companyId, tenant.companyId), rangeCondition);
 
-  const [foundRow, sentRow, openedRow, hourlyRows, lastRunRows] = await Promise.all([
-    db
+  try {
+    const [foundRow, sentRow, openedRow, hourlyRows, lastRunRows] = await Promise.all([
+      db
+        .select({ count: count() })
+        .from(outreachContacts)
+        .where(and(eq(outreachContacts.companyId, tenant.companyId), isNull(outreachContacts.deletedAt))),
+      db
+        .select({ count: count() })
+        .from(emailMessages)
+        .where(and(emailWhere, inArray(emailMessages.status, ["sent", "delivered"]))),
+      db
+        .select({ count: countDistinctEmailMessageId() })
+        .from(emailTrackingEvents)
+        .innerJoin(emailMessages, eq(emailMessages.id, emailTrackingEvents.emailMessageId))
+        .where(and(emailWhere, eq(emailTrackingEvents.eventType, "opened"))),
+      db
+        .select({
+          hour: sql<string>`to_char(${emailTrackingEvents.occurredAt}, 'HH24')`,
+          opens: count(),
+        })
+        .from(emailTrackingEvents)
+        .innerJoin(emailMessages, eq(emailMessages.id, emailTrackingEvents.emailMessageId))
+        .where(and(emailWhere, eq(emailTrackingEvents.eventType, "opened")))
+        .groupBy(sql`to_char(${emailTrackingEvents.occurredAt}, 'HH24')`),
+      db
+        .select()
+        .from(outreachAgentRuns)
+        .where(eq(outreachAgentRuns.companyId, tenant.companyId))
+        .orderBy(desc(outreachAgentRuns.startedAt))
+        .limit(1),
+    ]);
+
+    const found = foundRow[0]?.count ?? 0;
+    const sent = sentRow[0]?.count ?? 0;
+    const opened = openedRow[0]?.count ?? 0;
+
+    return ok(c, {
+      range: query.range,
+      stats: {
+        emailsFound: found,
+        emailsSent: sent,
+        leadsOpened: opened,
+        openRate: sent > 0 ? Number(((opened / sent) * 100).toFixed(1)) : 0,
+      },
+      funnel: {
+        found,
+        sent,
+        opened,
+      },
+      openTiming: hourlyRows.map((row) => ({ hour: row.hour, opens: row.opens })),
+      lastRun: lastRunRows[0] ?? null,
+    });
+  } catch (err) {
+    // Return empty dashboard if tables are not yet migrated
+    const found = await db
       .select({ count: count() })
       .from(outreachContacts)
-      .where(and(eq(outreachContacts.companyId, tenant.companyId), isNull(outreachContacts.deletedAt))),
-    db
-      .select({ count: count() })
-      .from(emailMessages)
-      .where(and(emailWhere, inArray(emailMessages.status, ["sent", "delivered"]))),
-    db
-      .select({ count: countDistinctEmailMessageId() })
-      .from(emailTrackingEvents)
-      .innerJoin(emailMessages, eq(emailMessages.id, emailTrackingEvents.emailMessageId))
-      .where(and(emailWhere, eq(emailTrackingEvents.eventType, "opened"))),
-    db
-      .select({
-        hour: sql<string>`to_char(${emailTrackingEvents.occurredAt}, 'HH24')`,
-        opens: count(),
-      })
-      .from(emailTrackingEvents)
-      .innerJoin(emailMessages, eq(emailMessages.id, emailTrackingEvents.emailMessageId))
-      .where(and(emailWhere, eq(emailTrackingEvents.eventType, "opened")))
-      .groupBy(sql`to_char(${emailTrackingEvents.occurredAt}, 'HH24')`),
-    db
-      .select()
-      .from(outreachAgentRuns)
-      .where(eq(outreachAgentRuns.companyId, tenant.companyId))
-      .orderBy(desc(outreachAgentRuns.startedAt))
-      .limit(1),
-  ]);
+      .where(and(eq(outreachContacts.companyId, tenant.companyId), isNull(outreachContacts.deletedAt)))
+      .then((rows) => rows[0]?.count ?? 0)
+      .catch(() => 0);
 
-  const found = foundRow[0]?.count ?? 0;
-  const sent = sentRow[0]?.count ?? 0;
-  const opened = openedRow[0]?.count ?? 0;
-
-  return ok(c, {
-    range: query.range,
-    stats: {
-      emailsFound: found,
-      emailsSent: sent,
-      leadsOpened: opened,
-      openRate: sent > 0 ? Number(((opened / sent) * 100).toFixed(1)) : 0,
-    },
-    funnel: {
-      found,
-      sent,
-      opened,
-    },
-    openTiming: hourlyRows.map((row) => ({ hour: row.hour, opens: row.opens })),
-    lastRun: lastRunRows[0] ?? null,
-  });
+    return ok(c, {
+      range: query.range,
+      stats: { emailsFound: found, emailsSent: 0, leadsOpened: 0, openRate: 0 },
+      funnel: { found, sent: 0, opened: 0 },
+      openTiming: [],
+      lastRun: null,
+    });
+  }
 }
 
 function countDistinctEmailMessageId() {

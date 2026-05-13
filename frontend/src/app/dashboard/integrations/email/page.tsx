@@ -1,5 +1,5 @@
-import { IntegrationDetailPage } from "@/features/integrations/integration-detail-page";
+import { EmailIntegrationPage } from "@/features/integrations/email-integration-page";
 
-export default function EmailIntegrationPage() {
-  return <IntegrationDetailPage integrationKey="email" />;
+export default function EmailIntegrationRoute() {
+  return <EmailIntegrationPage />;
 }

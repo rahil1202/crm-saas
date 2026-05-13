@@ -36,18 +36,29 @@ export async function readApiError(response: Response, fallback: string) {
   }
 }
 
-export async function fetchAuthMe() {
-  const env = getFrontendEnv();
-  const response = await fetch(`${env.apiUrl}/api/v1/auth/me`, {
-    credentials: "include",
-  });
+/**
+ * Fetch the current authenticated user from the backend.
+ * Returns null on any error — network failure, 401, 5xx, etc.
+ * Never throws.
+ */
+export async function fetchAuthMe(): Promise<AuthMePayload | null> {
+  try {
+    const env = getFrontendEnv();
+    const response = await fetch(`${env.apiUrl}/api/v1/auth/me`, {
+      credentials: "include",
+      signal: AbortSignal.timeout(8000), // 8s timeout — don't hang the login page
+    });
 
-  if (!response.ok) {
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as { data?: AuthMePayload };
+    return payload.data ?? null;
+  } catch {
+    // Network error, backend down, CORS, timeout — treat as unauthenticated
     return null;
   }
-
-  const payload = (await response.json()) as { data?: AuthMePayload };
-  return payload.data ?? null;
 }
 
 export async function resolveAuthenticatedRoute() {

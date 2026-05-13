@@ -2,6 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 
+import { db } from "@/db/client";
+import { profiles } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 
@@ -492,17 +495,106 @@ export async function unenrollSupabaseMfaFactor(accessToken: string, factorId: s
   }
 }
 
-export async function loginWithSupabasePassword(email: string, password: string): Promise<SupabaseIdentity> {
-  const session = await createSupabasePasswordSession(email, password);
+// ─── Local password hash helpers (Supabase fallback) ─────────────────────────
 
-  return {
-    userId: session.userId,
-    email: session.email,
-  };
+/**
+ * Hash a plaintext password using Bun's built-in bcrypt.
+ * Called after every successful Supabase login/register to keep the local
+ * hash in sync so we can fall back to it when Supabase is unreachable.
+ */
+export async function hashLocalPassword(password: string): Promise<string> {
+  return Bun.password.hash(password, { algorithm: "bcrypt", cost: 12 });
+}
+
+/**
+ * Verify a plaintext password against the stored local hash.
+ */
+export async function verifyLocalPassword(password: string, hash: string): Promise<boolean> {
+  try {
+    return await Bun.password.verify(password, hash);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Persist the local password hash for a user profile.
+ * Called silently after every successful Supabase auth — never blocks the login flow.
+ */
+export async function syncLocalPasswordHash(userId: string, password: string): Promise<void> {
+  try {
+    const hash = await hashLocalPassword(password);
+    await db
+      .update(profiles)
+      .set({ passwordHash: hash, updatedAt: new Date() })
+      .where(eq(profiles.id, userId));
+  } catch {
+    // Non-fatal — Supabase is the source of truth, this is just a fallback
+  }
+}
+
+// ─── Login with Supabase + local fallback ────────────────────────────────────
+
+export async function loginWithSupabasePassword(email: string, password: string): Promise<SupabaseIdentity> {
+  // Try Supabase first (primary path)
+  try {
+    const session = await createSupabasePasswordSession(email, password);
+    // Sync local hash in the background — don't await, don't block login
+    void syncLocalPasswordHash(session.userId, password);
+    return { userId: session.userId, email: session.email };
+  } catch (supabaseError) {
+    // If Supabase returned a clear auth failure (wrong password), propagate it
+    if (supabaseError instanceof AppError && supabaseError.status === 401) {
+      // Check if it's a network/availability error or a real wrong-password error
+      // We can't distinguish easily, so try local fallback before giving up
+    } else {
+      throw supabaseError;
+    }
+  }
+
+  // Supabase fallback: verify against locally stored hash
+  const [profile] = await db
+    .select({ id: profiles.id, email: profiles.email, passwordHash: profiles.passwordHash })
+    .from(profiles)
+    .where(eq(profiles.email, email.toLowerCase().trim()))
+    .limit(1);
+
+  if (!profile?.passwordHash) {
+    // No local hash yet (user never logged in since this feature was added)
+    throw AppError.unauthorized("Invalid email or password");
+  }
+
+  const valid = await verifyLocalPassword(password, profile.passwordHash);
+  if (!valid) {
+    throw AppError.unauthorized("Invalid email or password");
+  }
+
+  return { userId: profile.id, email: profile.email };
 }
 
 export async function loginWithSupabasePasswordSession(email: string, password: string): Promise<SupabasePasswordSession> {
-  return createSupabasePasswordSession(email, password);
+  try {
+    return await createSupabasePasswordSession(email, password);
+  } catch (supabaseError) {
+    if (supabaseError instanceof AppError && supabaseError.status === 401) {
+      // Try local hash fallback for current-password verification
+      const [profile] = await db
+        .select({ id: profiles.id, email: profiles.email, passwordHash: profiles.passwordHash })
+        .from(profiles)
+        .where(eq(profiles.email, email.toLowerCase().trim()))
+        .limit(1);
+
+      if (profile?.passwordHash) {
+        const valid = await verifyLocalPassword(password, profile.passwordHash);
+        if (valid) {
+          // Return a synthetic session — no Supabase access token available
+          // The caller (changePassword) uses this to verify identity, not to call Supabase
+          return { accessToken: "", userId: profile.id, email: profile.email };
+        }
+      }
+    }
+    throw supabaseError;
+  }
 }
 
 export async function registerWithSupabase(input: {

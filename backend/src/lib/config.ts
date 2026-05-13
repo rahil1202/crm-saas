@@ -83,6 +83,30 @@ const envSchema = z.object({
   WHATSAPP_PAIR_INTERVAL_SECONDS: z.coerce.number().int().min(1).default(6),
   WHATSAPP_OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().min(1).default(5),
   TURNSTILE_SECRET_KEY: z.string().default(""),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().default(587),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_SECURE: z
+    .enum(["0", "1", "true", "false"])
+    .default("0")
+    .transform((value) => value === "1" || value === "true"),
+  SMTP_FROM_EMAIL: z.string().email().optional(),
+  SMTP_FROM_NAME: z.string().optional(),
+  EMAIL_CAMPAIGN_MPS: z.coerce.number().positive().default(10),
+}).superRefine((data, ctx) => {
+  if (data.SMTP_HOST) {
+    const hasUser = data.SMTP_USER !== undefined && data.SMTP_USER !== "";
+    const hasPass = data.SMTP_PASS !== undefined && data.SMTP_PASS !== "";
+    if (hasUser !== hasPass) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "SMTP_USER and SMTP_PASS must both be provided together, or both omitted (for unauthenticated relay). Providing only one is not allowed.",
+        path: hasUser ? ["SMTP_USER"] : ["SMTP_PASS"],
+      });
+    }
+  }
 });
 
 export const env = envSchema.parse(process.env);

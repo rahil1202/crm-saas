@@ -359,6 +359,62 @@ export async function listDeliveryLog(c: Context<AppEnv>) {
   });
 }
 
+export async function setDefaultEmailAccount(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const accountId = c.req.param("accountId");
+
+  if (!accountId) {
+    throw AppError.badRequest("accountId is required");
+  }
+
+  // Verify account belongs to this company
+  const [account] = await db
+    .select({ id: emailAccounts.id })
+    .from(emailAccounts)
+    .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.companyId, tenant.companyId), isNull(emailAccounts.deletedAt)))
+    .limit(1);
+
+  if (!account) {
+    throw AppError.notFound("Email account not found");
+  }
+
+  // Clear existing defaults
+  await db
+    .update(emailAccounts)
+    .set({ isDefault: false, updatedAt: new Date() })
+    .where(and(eq(emailAccounts.companyId, tenant.companyId), isNull(emailAccounts.deletedAt)));
+
+  // Set new default
+  const [updated] = await db
+    .update(emailAccounts)
+    .set({ isDefault: true, updatedAt: new Date() })
+    .where(eq(emailAccounts.id, accountId))
+    .returning();
+
+  return ok(c, { updated: true, id: updated.id, isDefault: updated.isDefault });
+}
+
+export async function deleteEmailAccount(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const accountId = c.req.param("accountId");
+
+  if (!accountId) {
+    throw AppError.badRequest("accountId is required");
+  }
+
+  const [deleted] = await db
+    .update(emailAccounts)
+    .set({ deletedAt: new Date(), status: "disconnected", updatedAt: new Date() })
+    .where(and(eq(emailAccounts.id, accountId), eq(emailAccounts.companyId, tenant.companyId), isNull(emailAccounts.deletedAt)))
+    .returning({ id: emailAccounts.id });
+
+  if (!deleted) {
+    throw AppError.notFound("Email account not found");
+  }
+
+  return ok(c, { deleted: true, id: deleted.id });
+}
+
 export async function createEmailAccount(c: Context<AppEnv>) {
   const tenant = c.get("tenant");
   const user = c.get("user");

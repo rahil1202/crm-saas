@@ -102,9 +102,9 @@ export const integrationsCatalog: Array<{
   {
     key: "email",
     title: "Email",
-    description: "Sender identity, OAuth, and event webhook.",
+    description: "Connect Gmail or Outlook to send from your own address.",
     icon: GoogleMailIcon,
-    steps: ["Connect provider", "Set sender details", "Add event webhook"],
+    steps: ["Connect Gmail or Outlook", "Verify sending address", "Send a test email"],
   },
   {
     key: "whatsapp",

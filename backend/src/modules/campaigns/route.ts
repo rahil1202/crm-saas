@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 
 import type { AppEnv } from "@/app/route";
-import { createCampaign, createEmailAccount, deleteCampaign, getCampaignOverview, launchCampaign, listCampaigns, listDeliveryLog, listEmailAccounts, permanentlyDeleteCampaign, restoreCampaign, sendTestEmail, updateCampaign } from "@/modules/campaigns/controller";
+import { createCampaign, createEmailAccount, deleteCampaign, deleteEmailAccount, getCampaignOverview, launchCampaign, listCampaigns, listDeliveryLog, listEmailAccounts, permanentlyDeleteCampaign, restoreCampaign, sendTestEmail, setDefaultEmailAccount, updateCampaign } from "@/modules/campaigns/controller";
 import { campaignSchema, emailAccountSchema, listCampaignsSchema, listDeliveryLogSchema, testEmailSchema, updateCampaignSchema } from "@/modules/campaigns/schema";
 import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
@@ -16,6 +16,8 @@ campaignRoutes.get("/list", validateQuery(listCampaignsSchema), listCampaigns);
 campaignRoutes.get("/email-accounts", listEmailAccounts);
 campaignRoutes.get("/delivery-log", validateQuery(listDeliveryLogSchema), listDeliveryLog);
 campaignRoutes.post("/email-accounts", rateLimit(routePolicies.adminSensitive), enforceBodyLimit(bodyLimits.tenantDefault), validateJson(emailAccountSchema), createEmailAccount);
+campaignRoutes.post("/email-accounts/:accountId/set-default", rateLimit(routePolicies.adminSensitive), setDefaultEmailAccount);
+campaignRoutes.delete("/email-accounts/:accountId", deleteEmailAccount);
 campaignRoutes.post("/test-email", rateLimit(routePolicies.sendMessage), enforceBodyLimit(bodyLimits.tenantDefault), validateJson(testEmailSchema), sendTestEmail);
 campaignRoutes.post("/", rateLimit(routePolicies.adminSensitive), enforceBodyLimit(bodyLimits.tenantDefault), validateJson(campaignSchema), createCampaign);
 campaignRoutes.post("/:campaignId/launch", rateLimit(routePolicies.adminSensitive), launchCampaign);

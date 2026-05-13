@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import nodemailer from "nodemailer";
 import { Webhook } from "svix";
 
 import { db } from "@/db/client";
@@ -18,6 +19,7 @@ import {
 } from "@/db/schema";
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
+import { decryptIntegrationSecret, isEncryptedSecret } from "@/lib/integration-crypto";
 import { renderTemplateContent } from "@/lib/template-renderer";
 import { queueWhatsappMessage } from "@/lib/whatsapp-runtime";
 import { normalizePhoneToE164 } from "@/lib/whatsapp-workspace";
@@ -61,7 +63,7 @@ interface EmailProviderAdapter {
   send(request: SendEmailRequest): Promise<EmailProviderResult>;
 }
 
-class MockEmailProvider implements EmailProviderAdapter {
+export class MockEmailProvider implements EmailProviderAdapter {
   async send(_request: SendEmailRequest) {
     return {
       providerMessageId: crypto.randomUUID(),
@@ -70,7 +72,7 @@ class MockEmailProvider implements EmailProviderAdapter {
   }
 }
 
-class ResendEmailProvider implements EmailProviderAdapter {
+export class ResendEmailProvider implements EmailProviderAdapter {
   async send(request: SendEmailRequest) {
     if (!env.RESEND_API_KEY) {
       throw AppError.conflict("RESEND_API_KEY is not configured");
@@ -107,9 +109,210 @@ class ResendEmailProvider implements EmailProviderAdapter {
   }
 }
 
-function getEmailProviderAdapter(provider: string): EmailProviderAdapter {
+/**
+ * Send via Gmail API using an OAuth access token.
+ * The token must have the gmail.send scope.
+ */
+export class GmailOAuthProvider implements EmailProviderAdapter {
+  constructor(private readonly accessToken: string) {}
+
+  async send(request: SendEmailRequest) {
+    // Build RFC 2822 message
+    const from = request.fromName ? `${request.fromName} <${request.fromEmail}>` : request.fromEmail;
+    const to = request.toName ? `${request.toName} <${request.toEmail}>` : request.toEmail;
+    const boundary = `boundary_${crypto.randomUUID().replace(/-/g, "")}`;
+
+    const rawMessage = [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${request.subject}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/plain; charset=UTF-8`,
+      ``,
+      request.text ?? request.html.replace(/<[^>]+>/g, ""),
+      ``,
+      `--${boundary}`,
+      `Content-Type: text/html; charset=UTF-8`,
+      ``,
+      request.html,
+      ``,
+      `--${boundary}--`,
+    ].join("\r\n");
+
+    // Base64url encode
+    const encoded = Buffer.from(rawMessage).toString("base64url");
+
+    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ raw: encoded }),
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      // If token expired, mark as failed with a clear message
+      if (response.status === 401) {
+        throw AppError.conflict("Gmail OAuth token expired. Please reconnect your Gmail account in Settings → Integrations → Email.");
+      }
+      throw AppError.conflict(`Gmail send failed: ${response.status}`, details);
+    }
+
+    const payload = (await response.json()) as { id?: string };
+    return {
+      providerMessageId: payload.id ?? crypto.randomUUID(),
+    };
+  }
+}
+
+/**
+ * Send via Microsoft Graph API (Outlook/M365) using an OAuth access token.
+ * The token must have the Mail.Send scope.
+ */
+export class OutlookOAuthProvider implements EmailProviderAdapter {
+  constructor(private readonly accessToken: string) {}
+
+  async send(request: SendEmailRequest) {
+    const message = {
+      subject: request.subject,
+      body: {
+        contentType: "HTML",
+        content: request.html,
+      },
+      toRecipients: [
+        {
+          emailAddress: {
+            address: request.toEmail,
+            name: request.toName ?? request.toEmail,
+          },
+        },
+      ],
+      from: {
+        emailAddress: {
+          address: request.fromEmail,
+          name: request.fromName ?? request.fromEmail,
+        },
+      },
+    };
+
+    const response = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ message, saveToSentItems: true }),
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      if (response.status === 401) {
+        throw AppError.conflict("Outlook OAuth token expired. Please reconnect your Outlook account in Settings → Integrations → Email.");
+      }
+      throw AppError.conflict(`Outlook send failed: ${response.status}`, details);
+    }
+
+    // Graph sendMail returns 202 with no body
+    return {
+      providerMessageId: crypto.randomUUID(),
+    };
+  }
+}
+
+/**
+ * Send via SMTP using nodemailer. SMTP connection parameters are read from env vars at call time.
+ * Supports both authenticated and unauthenticated (relay) SMTP servers.
+ */
+export class SmtpEmailProvider implements EmailProviderAdapter {
+  async send(request: SendEmailRequest): Promise<EmailProviderResult> {
+    const host = env.SMTP_HOST;
+    if (!host) {
+      throw AppError.conflict("SMTP_HOST is not configured");
+    }
+
+    const port = env.SMTP_PORT;
+    const secure = env.SMTP_SECURE;
+    const user = env.SMTP_USER;
+    const pass = env.SMTP_PASS;
+
+    // Build transporter options — omit auth entirely for unauthenticated relay
+    const transportOptions: nodemailer.TransportOptions = {
+      host,
+      port,
+      secure,
+      ...(user && pass ? { auth: { user, pass } } : {}),
+    } as nodemailer.TransportOptions;
+
+    const transporter = nodemailer.createTransport(transportOptions);
+
+    // Resolve from address: SMTP_FROM_EMAIL overrides request.fromEmail (Req 3.11)
+    const fromEmail = env.SMTP_FROM_EMAIL ?? request.fromEmail;
+    // Use SMTP_FROM_NAME if set, otherwise fall back to request.fromName
+    const fromName = env.SMTP_FROM_NAME ?? request.fromName;
+    const from = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
+
+    try {
+      const info = await transporter.sendMail({
+        from,
+        to: request.toName ? `${request.toName} <${request.toEmail}>` : request.toEmail,
+        subject: request.subject,
+        html: request.html,
+        text: request.text ?? undefined,
+      });
+
+      // Extract message-id; fall back to a generated UUID if the server returns none
+      const rawMessageId: string | undefined = info.messageId;
+      const providerMessageId =
+        rawMessageId && rawMessageId.length > 0 ? rawMessageId : crypto.randomUUID();
+
+      return { providerMessageId };
+    } catch (error) {
+      if (error instanceof Error) {
+        // SMTP rejection errors carry a `responseCode` property (nodemailer SMTPError)
+        const smtpError = error as Error & { responseCode?: number; code?: string };
+        if (smtpError.responseCode) {
+          throw AppError.conflict(`SMTP send failed: ${smtpError.responseCode} ${error.message}`);
+        }
+        // Connection / network errors (ECONNREFUSED, ETIMEDOUT, etc.)
+        throw AppError.conflict(`SMTP connection failed: ${error.message}`);
+      }
+      throw AppError.conflict("SMTP connection failed: unknown error");
+    }
+  }
+}
+
+export function getEmailProviderAdapter(provider: string, credentials?: Record<string, unknown>): EmailProviderAdapter {
+  if (provider === "smtp") {
+    return env.SMTP_HOST ? new SmtpEmailProvider() : new MockEmailProvider();
+  }
+
   if (provider === "resend") {
     return new ResendEmailProvider();
+  }
+
+  if (provider === "google" && credentials) {
+    const rawToken = credentials.accessToken;
+    const accessToken = typeof rawToken === "string" && isEncryptedSecret(rawToken)
+      ? decryptIntegrationSecret(rawToken)
+      : typeof rawToken === "string" ? rawToken : null;
+    if (accessToken) {
+      return new GmailOAuthProvider(accessToken);
+    }
+  }
+
+  if (provider === "azure" && credentials) {
+    const rawToken = credentials.accessToken;
+    const accessToken = typeof rawToken === "string" && isEncryptedSecret(rawToken)
+      ? decryptIntegrationSecret(rawToken)
+      : typeof rawToken === "string" ? rawToken : null;
+    if (accessToken) {
+      return new OutlookOAuthProvider(accessToken);
+    }
   }
 
   return new MockEmailProvider();
@@ -127,43 +330,82 @@ export async function getDefaultEmailAccount(companyId: string) {
 }
 
 export async function ensureSystemEmailAccount(companyId: string, createdBy: string) {
-  // Check if account already exists
+  // Check if account already exists (Req 5.5)
   const existing = await getDefaultEmailAccount(companyId);
   if (existing) {
     return existing;
   }
 
-  // Create a system email account using Resend
-  const fromEmail = env.RESEND_FROM_EMAIL || "noreply@yourdomain.com";
-  const fromName = env.RESEND_FROM_NAME || "CRM System";
+  // SMTP takes priority over Resend (Req 5.1, 5.2)
+  if (env.SMTP_HOST) {
+    const fromEmail = env.SMTP_FROM_EMAIL ?? "";
+    const fromName = env.SMTP_FROM_NAME ?? null;
 
-  const [account] = await db
-    .insert(emailAccounts)
-    .values({
-      companyId,
-      userId: null,
-      label: "System Email (Resend)",
-      provider: "resend",
-      fromName,
-      fromEmail,
-      status: "connected",
-      isDefault: true,
-      credentials: {},
-      metadata: { systemGenerated: true },
-      createdBy,
-    })
-    .onConflictDoUpdate({
-      target: [emailAccounts.companyId, emailAccounts.fromEmail],
-      set: {
+    const [account] = await db
+      .insert(emailAccounts)
+      .values({
+        companyId,
+        userId: null,
+        label: "System Email (SMTP)",
+        provider: "smtp",
+        fromName,
+        fromEmail,
         status: "connected",
         isDefault: true,
-        updatedAt: new Date(),
-        deletedAt: null,
-      },
-    })
-    .returning();
+        credentials: {},
+        metadata: { systemGenerated: true },
+        createdBy,
+      })
+      .onConflictDoUpdate({
+        target: [emailAccounts.companyId, emailAccounts.fromEmail],
+        set: {
+          status: "connected",
+          isDefault: true,
+          updatedAt: new Date(),
+          deletedAt: null,
+        },
+      })
+      .returning();
 
-  return account;
+    return account;
+  }
+
+  // Fallback to Resend if configured (Req 5.3)
+  if (env.RESEND_API_KEY) {
+    const fromEmail = env.RESEND_FROM_EMAIL || "noreply@yourdomain.com";
+    const fromName = env.RESEND_FROM_NAME || "CRM System";
+
+    const [account] = await db
+      .insert(emailAccounts)
+      .values({
+        companyId,
+        userId: null,
+        label: "System Email (Resend)",
+        provider: "resend",
+        fromName,
+        fromEmail,
+        status: "connected",
+        isDefault: true,
+        credentials: {},
+        metadata: { systemGenerated: true },
+        createdBy,
+      })
+      .onConflictDoUpdate({
+        target: [emailAccounts.companyId, emailAccounts.fromEmail],
+        set: {
+          status: "connected",
+          isDefault: true,
+          updatedAt: new Date(),
+          deletedAt: null,
+        },
+      })
+      .returning();
+
+    return account;
+  }
+
+  // Neither SMTP nor Resend configured (Req 5.4)
+  return null;
 }
 
 export async function ensureEmailAccount(input: {
@@ -376,6 +618,11 @@ export async function queueCampaignDelivery(input: { companyId: string; campaign
     };
   }
 
+  // Conflict guard: reject if campaign is already active (Req 1.10)
+  if (campaign.status === "active") {
+    throw AppError.conflict("Campaign is already active");
+  }
+
   const queueable = recipients.filter((recipient) => recipient.email);
   if (queueable.length === 0) {
     throw AppError.conflict("Campaign has no deliverable email recipients");
@@ -415,8 +662,8 @@ export async function queueCampaignDelivery(input: { companyId: string; campaign
   await db
     .update(campaigns)
     .set({
-      status: campaign.status === "draft" ? "active" : campaign.status,
-      launchedAt: campaign.launchedAt ?? new Date(),
+      status: "active",
+      launchedAt: new Date(),
       sentCount: queued.length,
       updatedAt: new Date(),
     })
@@ -426,6 +673,53 @@ export async function queueCampaignDelivery(input: { companyId: string; campaign
     campaignId: campaign.id,
     queuedCount: queued.length,
   };
+}
+
+/**
+ * Validates and launches an email campaign.
+ * Checks status is draft/scheduled, validates recipients exist, then delegates to queueCampaignDelivery.
+ */
+export async function launchCampaign(
+  companyId: string,
+  campaignId: string,
+  createdBy: string,
+): Promise<{ campaignId: string; queuedCount: number }> {
+  // 1. Load the campaign
+  const [campaign] = await db
+    .select()
+    .from(campaigns)
+    .where(and(eq(campaigns.companyId, companyId), eq(campaigns.id, campaignId), isNull(campaigns.deletedAt)))
+    .limit(1);
+
+  if (!campaign) {
+    throw AppError.notFound("Campaign not found");
+  }
+
+  // 2. Validate status is launchable (Req 2.1, 2.2, 2.3)
+  if (campaign.status !== "draft" && campaign.status !== "scheduled") {
+    throw AppError.conflict(`Campaign cannot be launched from status '${campaign.status}'`);
+  }
+
+  // 3. Validate at least one deliverable recipient exists (Req 2.4)
+  const recipientsWithEmail = await db
+    .select({ customerId: customers.id, email: customers.email })
+    .from(campaignCustomers)
+    .innerJoin(customers, eq(customers.id, campaignCustomers.customerId))
+    .where(
+      and(
+        eq(campaignCustomers.companyId, companyId),
+        eq(campaignCustomers.campaignId, campaignId),
+        isNull(customers.deletedAt),
+      ),
+    );
+
+  const deliverableCount = recipientsWithEmail.filter((r) => r.email).length;
+  if (deliverableCount === 0) {
+    throw AppError.conflict("Campaign has no deliverable email recipients");
+  }
+
+  // 4. Delegate to queueCampaignDelivery
+  return queueCampaignDelivery({ companyId, campaignId, createdBy });
 }
 
 async function trackEmailEvent(input: {
@@ -530,7 +824,71 @@ export async function recalculateCampaignAnalytics(companyId: string, campaignId
     });
 }
 
-export async function processQueuedEmailMessages(limit = 20, filter?: { companyId?: string; messageIds?: string[] }) {
+/**
+ * Computes the per-campaign batch limit for the email campaign worker.
+ * Clamps mps to [1, 500] and multiplies by the interval in seconds, then rounds up.
+ * Exported for unit testing.
+ */
+export function computeCampaignBatchLimit(mps: number, intervalMs: number): number {
+  return Math.ceil(Math.max(1, Math.min(500, mps)) * (intervalMs / 1000));
+}
+
+/**
+ * Processes queued email messages for all active email campaigns.
+ * Called on each runtime worker tick to throttle campaign delivery.
+ */
+export async function processEmailCampaignQueue(): Promise<void> {
+  const activeCampaigns = await db
+    .select()
+    .from(campaigns)
+    .where(
+      and(
+        eq(campaigns.channel, "email"),
+        eq(campaigns.status, "active"),
+        isNull(campaigns.deletedAt),
+      ),
+    )
+    .limit(10);
+
+  for (const campaign of activeCampaigns) {
+    try {
+      const limit = computeCampaignBatchLimit(env.EMAIL_CAMPAIGN_MPS, env.RUNTIME_POLL_INTERVAL_MS);
+      await processQueuedEmailMessages(limit, { campaignId: campaign.id });
+
+      // Check if any messages remain in queued or sending state
+      const remaining = await db
+        .select({ id: emailMessages.id })
+        .from(emailMessages)
+        .where(
+          and(
+            eq(emailMessages.campaignId, campaign.id),
+            or(
+              eq(emailMessages.status, "queued"),
+              eq(emailMessages.status, "sending"),
+            ),
+          ),
+        )
+        .limit(1);
+
+      if (remaining.length === 0) {
+        await db
+          .update(campaigns)
+          .set({
+            status: "completed",
+            completedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(campaigns.id, campaign.id));
+
+        await recalculateCampaignAnalytics(campaign.companyId, campaign.id);
+      }
+    } catch (error) {
+      console.error(`[processEmailCampaignQueue] Error processing campaign ${campaign.id}:`, error);
+    }
+  }
+}
+
+export async function processQueuedEmailMessages(limit = 20, filter?: { companyId?: string; messageIds?: string[]; campaignId?: string }) {
   if (filter?.messageIds && filter.messageIds.length === 0) {
     return 0;
   }
@@ -546,6 +904,9 @@ export async function processQueuedEmailMessages(limit = 20, filter?: { companyI
   }
   if (filter?.messageIds) {
     conditions.push(inArray(emailMessages.id, filter.messageIds));
+  }
+  if (filter?.campaignId) {
+    conditions.push(eq(emailMessages.campaignId, filter.campaignId));
   }
 
   const items = await db
@@ -601,14 +962,18 @@ export async function processQueuedEmailMessages(limit = 20, filter?: { companyI
       .where(eq(emailMessages.id, item.id));
 
     try {
-      const adapter = getEmailProviderAdapter(account.provider);
+      const adapter = getEmailProviderAdapter(account.provider, account.credentials as Record<string, unknown>);
+      // Requirement 7.4: skip tracking pixel injection for SMTP provider
+      const htmlToSend = adapter instanceof SmtpEmailProvider
+        ? item.htmlContent
+        : injectTrackingPixel(item.htmlContent, item.trackingToken);
       const result = await adapter.send({
         fromName: account.fromName,
         fromEmail: account.fromEmail,
         toEmail: item.recipientEmail,
         toName: item.recipientName,
         subject: item.subject,
-        html: injectTrackingPixel(item.htmlContent, item.trackingToken),
+        html: htmlToSend,
         text: item.textContent,
       });
 

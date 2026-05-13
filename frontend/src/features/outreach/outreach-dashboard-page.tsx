@@ -1,9 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AlertTriangle, Mail } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
+import { Button } from "@/components/ui/button";
 import { ApiError, apiRequest } from "@/lib/api";
 import { OutreachTopNav } from "@/features/outreach/outreach-top-nav";
 
@@ -32,9 +35,18 @@ type DashboardPayload = {
   } | null;
 };
 
+type EmailAccount = {
+  id: string;
+  label: string;
+  fromEmail: string;
+  status: string;
+  isDefault: boolean;
+};
+
 export function OutreachDashboardPage() {
   const [range, setRange] = useState("all");
   const [data, setData] = useState<DashboardPayload | null>(null);
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,9 +56,13 @@ export function OutreachDashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await apiRequest<DashboardPayload>(`/outreach/dashboard?range=${range}`);
+        const [dashboardResponse, accountsResponse] = await Promise.all([
+          apiRequest<DashboardPayload>(`/outreach/dashboard?range=${range}`),
+          apiRequest<{ items: EmailAccount[] }>("/campaigns/email-accounts").catch(() => ({ items: [] as EmailAccount[] })),
+        ]);
         if (!disposed) {
-          setData(response);
+          setData(dashboardResponse);
+          setEmailAccounts(accountsResponse.items);
         }
       } catch (caughtError) {
         if (!disposed) {
@@ -65,6 +81,9 @@ export function OutreachDashboardPage() {
     };
   }, [range]);
 
+  const connectedAccounts = emailAccounts.filter((a) => a.status === "connected");
+  const hasEmailIntegration = connectedAccounts.length > 0;
+
   return (
     <div className="space-y-5">
       <div>
@@ -73,6 +92,34 @@ export function OutreachDashboardPage() {
       </div>
 
       <OutreachTopNav />
+
+      {/* Email integration gate */}
+      {!loading && !hasEmailIntegration ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" />
+            <div className="flex-1">
+              <div className="font-semibold text-amber-900">Email integration required</div>
+              <p className="mt-1 text-sm text-amber-800">
+                Connect a Gmail or Outlook account before sending outreach emails. Go to Settings → Integrations → Email to connect your account.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link href="/dashboard/integrations/email">
+                  <Button size="sm" className="gap-2">
+                    <Mail className="size-4" />
+                    Connect Email Account
+                  </Button>
+                </Link>
+                <Link href="/dashboard/settings">
+                  <Button size="sm" variant="outline">
+                    Open Settings
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Card className="border-border/70">
         <CardContent className="p-4">
@@ -86,6 +133,13 @@ export function OutreachDashboardPage() {
 
       {error ? <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
       {loading ? <div className="rounded-xl border border-border/60 bg-white px-4 py-3 text-sm text-slate-500">Loading outreach metrics...</div> : null}
+
+      {hasEmailIntegration ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          ✓ Email connected — {connectedAccounts[0]?.fromEmail}
+          {connectedAccounts.length > 1 ? ` and ${connectedAccounts.length - 1} more` : ""}
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <MetricCard label="Emails Found" value={data?.stats.emailsFound ?? 0} meta="discovered" />

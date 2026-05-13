@@ -17,6 +17,7 @@
     "drizzle-orm": "^0.44.0",
     "hono": "^4.8.0",
     "jose": "^6.2.2",
+    "nodemailer": "^8.0.7",
     "pdf-parse": "^2.4.5",
     "postgres": "^3.4.8",
     "svix": "^1.90.0",
@@ -26,7 +27,9 @@
   "devDependencies": {
     "@types/bun": "^1.2.0",
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.0",
     "drizzle-kit": "^0.31.0",
+    "fast-check": "^4.8.0",
     "typescript": "^5.9.0"
   }
 }

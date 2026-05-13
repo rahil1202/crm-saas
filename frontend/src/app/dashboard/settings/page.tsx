@@ -1261,6 +1261,7 @@ export default function SettingsPage() {
             <TabsTrigger value="tags">Tags</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
+            <TabsTrigger value="integrations">Add Integration</TabsTrigger>
             <TabsTrigger value="tour">Tour</TabsTrigger>
           </TabsList>
 
@@ -1862,6 +1863,75 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="integrations" className="flex flex-col gap-6">
+            {/* Email Integration Quick Setup */}
+            <Card className="border-border/60">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MailCheck className="size-5 text-sky-600" />
+                  Email Integration
+                </CardTitle>
+                <CardDescription>
+                  Connect Gmail or Outlook to send outreach emails on your behalf. Required for Email Outreach.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                {runtimeReadiness?.email.connectedAccounts ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                    <span>✓</span>
+                    <span>{runtimeReadiness.email.connectedAccounts} email account{runtimeReadiness.email.connectedAccounts > 1 ? "s" : ""} connected</span>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    No email account connected. Connect Gmail or Outlook to enable outreach.
+                  </div>
+                )}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Link href="/dashboard/integrations/email">
+                    <div className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border/70 bg-white p-4 shadow-sm transition hover:border-sky-300 hover:shadow-md">
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-50">
+                        <svg className="size-6" viewBox="0 0 24 24" fill="none">
+                          <path d="M20 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2z" fill="#EA4335"/>
+                          <path d="M20 4l-8 8-8-8" stroke="white" strokeWidth="1.5" fill="none"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-900">Gmail / Google Workspace</div>
+                        <div className="text-xs text-slate-500">Connect via OAuth</div>
+                      </div>
+                    </div>
+                  </Link>
+                  <Link href="/dashboard/integrations/email">
+                    <div className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border/70 bg-white p-4 shadow-sm transition hover:border-sky-300 hover:shadow-md">
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                        <svg className="size-6" viewBox="0 0 24 24" fill="none">
+                          <rect width="24" height="24" rx="4" fill="#0078D4"/>
+                          <path d="M4 6l8 6 8-6" stroke="white" strokeWidth="1.5" fill="none"/>
+                          <rect x="4" y="6" width="16" height="12" rx="1" stroke="white" strokeWidth="1.5" fill="none"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-900">Outlook / Microsoft 365</div>
+                        <div className="text-xs text-slate-500">Connect via OAuth</div>
+                      </div>
+                    </div>
+                  </Link>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link href="/dashboard/integrations/email">
+                    <Button size="sm" variant="outline" className="gap-1.5">
+                      <MailCheck className="size-4" />
+                      Manage Email Integration
+                    </Button>
+                  </Link>
+                  <Link href="/dashboard/integrations">
+                    <Button size="sm" variant="ghost">
+                      All Integrations →
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="grid gap-4 lg:grid-cols-2">
               <Card className="border-border/60">
                 <CardHeader>
