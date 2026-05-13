@@ -1,10 +1,10 @@
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 
 import { app } from "@/app/route";
 import { db } from "@/db/client";
-import { authSessions, companies, companyInvites, companyMemberships, profiles, referralAttributions, referralCodes, securityAuditLogs, stores } from "@/db/schema";
+import { authSessions, companies, companyInvites, companyMemberships, emailMessages, profiles, referralAttributions, referralCodes, securityAuditLogs, stores } from "@/db/schema";
 import { issueSessionTokens } from "@/lib/auth";
 import { env } from "@/lib/config";
 import { ensureAuthSession } from "@/lib/security";
@@ -13,6 +13,10 @@ const cleanupCompanyIds = new Set<string>();
 const cleanupUserIds = new Set<string>();
 const cleanupSessionIds = new Set<string>();
 const originalFetch = globalThis.fetch;
+const originalEmailEnv = {
+  SMTP_HOST: env.SMTP_HOST,
+  RESEND_API_KEY: env.RESEND_API_KEY,
+};
 let supabasePublicJwk: JWK | null = null;
 let supabasePrivateKey: CryptoKey | null = null;
 
@@ -22,6 +26,9 @@ interface ApiSuccess<T> {
 }
 
 beforeAll(async () => {
+  env.SMTP_HOST = undefined;
+  env.RESEND_API_KEY = "";
+
   const { publicKey, privateKey } = await generateKeyPair("RS256");
   const exported = await exportJWK(publicKey);
   supabasePublicJwk = {
@@ -31,6 +38,11 @@ beforeAll(async () => {
     kid: "test-supabase-kid",
   };
   supabasePrivateKey = privateKey;
+});
+
+afterAll(() => {
+  env.SMTP_HOST = originalEmailEnv.SMTP_HOST;
+  env.RESEND_API_KEY = originalEmailEnv.RESEND_API_KEY;
 });
 
 function installSupabaseFetchMock(handlers: {
@@ -150,6 +162,38 @@ async function createAuthedMembership(input: { role: "owner" | "admin" | "member
   };
 }
 
+async function createAuthedUserWithoutMembership(input: { emailPrefix: string }) {
+  const userId = crypto.randomUUID();
+  const email = `${input.emailPrefix}-${crypto.randomUUID().slice(0, 8)}@example.com`;
+  cleanupUserIds.add(userId);
+
+  await db.insert(profiles).values({
+    id: userId,
+    email,
+  });
+
+  const sessionId = crypto.randomUUID();
+  cleanupSessionIds.add(sessionId);
+  const tokens = await issueSessionTokens({
+    userId,
+    email,
+    sessionId,
+  });
+  await ensureAuthSession({
+    sessionId,
+    userId,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    ipAddress: "127.0.0.1",
+    userAgent: "bun-test",
+  });
+
+  return {
+    userId,
+    email,
+    accessToken: tokens.accessToken,
+  };
+}
+
 afterEach(async () => {
   globalThis.fetch = originalFetch;
 
@@ -208,13 +252,26 @@ describe("invite + referral route integrations", () => {
 
     expect(inviteResponse.status).toBe(201);
     const invitePayload = (await inviteResponse.json()) as ApiSuccess<{
+      inviteId: string;
       token: string;
       inviteUrl: string;
       referralCode: string;
+      emailDelivery: { status: string; messageId?: string; error?: string };
     }>;
     expect(invitePayload.data.inviteUrl).toContain("inviteToken=");
     expect(invitePayload.data.inviteUrl).toContain("referralCode=");
     expect(invitePayload.data.referralCode).toBeTruthy();
+    expect(invitePayload.data.emailDelivery.status).toBe("not_configured");
+    expect(invitePayload.data.emailDelivery.error).toContain("No connected email account");
+
+    const [inviteEmail] = await db
+      .select()
+      .from(emailMessages)
+      .where(eq(emailMessages.id, invitePayload.data.emailDelivery.messageId ?? ""))
+      .limit(1);
+    expect(inviteEmail?.recipientEmail).toBe("new.teammate@example.com");
+    expect(inviteEmail?.status).toBe("failed");
+    expect(inviteEmail?.metadata).toMatchObject({ inviteId: invitePayload.data.inviteId, type: "team_invite" });
 
     const inviteLookupResponse = await app.request(`http://localhost/api/v1/auth/invite/${invitePayload.data.token}`);
     expect(inviteLookupResponse.status).toBe(200);
@@ -524,5 +581,56 @@ describe("invite + referral route integrations", () => {
       .where(eq(authSessions.userId, invitedUserId))
       .limit(1);
     expect(session?.status).toBe("active");
+  });
+
+  test("onboarding stores expanded company and owner fields with default branch fallback", async () => {
+    const user = await createAuthedUserWithoutMembership({ emailPrefix: "onboarding-owner" });
+
+    const response = await app.request("http://localhost/api/v1/auth/onboarding", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${user.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        companyName: "Expanded CRM Co",
+        companyWebsite: "https://expanded.example.com",
+        companyAddress: "12 Market Street",
+        country: "India",
+        state: "Maharashtra",
+        city: "Mumbai",
+        timezone: "Asia/Kolkata",
+        currency: "INR",
+        firstName: "Asha",
+        lastName: "Mehta",
+        mobileNumber: "+91 98765 43210",
+        secondaryContact: "asha.secondary@example.com",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    const payload = (await response.json()) as ApiSuccess<{ companyId: string; storeId: string; membershipId: string }>;
+    cleanupCompanyIds.add(payload.data.companyId);
+
+    const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.userId)).limit(1);
+    expect(profile?.fullName).toBe("Asha Mehta");
+    expect(profile?.firstName).toBe("Asha");
+    expect(profile?.lastName).toBe("Mehta");
+    expect(profile?.mobilePhone).toBe("+91 98765 43210");
+    expect(profile?.secondaryContact).toBe("asha.secondary@example.com");
+
+    const [company] = await db.select().from(companies).where(eq(companies.id, payload.data.companyId)).limit(1);
+    expect(company?.website).toBe("https://expanded.example.com");
+    expect(company?.address).toBe("12 Market Street");
+    expect(company?.country).toBe("India");
+    expect(company?.state).toBe("Maharashtra");
+    expect(company?.city).toBe("Mumbai");
+
+    const [store] = await db.select().from(stores).where(eq(stores.id, payload.data.storeId)).limit(1);
+    expect(store?.name).toBe("Main Branch");
+    expect(store?.address).toBe("12 Market Street");
+    expect(store?.country).toBe("India");
+    expect(store?.state).toBe("Maharashtra");
+    expect(store?.city).toBe("Mumbai");
   });
 });

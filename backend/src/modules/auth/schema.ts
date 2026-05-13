@@ -63,8 +63,8 @@ export const registerSchema = z
     email: z.string().email(),
     password: z.string().min(8),
     confirmPassword: z.string().min(8),
-    inviteToken: z.string().trim().min(1).optional(),
-    referralCode: z.string().trim().min(1).optional(),
+    inviteToken: z.string().trim().min(1).nullable().optional(),
+    referralCode: z.string().trim().min(1).nullable().optional(),
   })
   .refine((value) => value.password === value.confirmPassword, {
     message: "Passwords do not match",
@@ -73,8 +73,8 @@ export const registerSchema = z
 
 export const exchangeSupabaseSchema = z.object({
   supabaseAccessToken: z.string().min(1),
-  inviteToken: z.string().trim().min(1).optional(),
-  referralCode: z.string().trim().min(1).optional(),
+  inviteToken: z.string().trim().min(1).nullable().optional(),
+  referralCode: z.string().trim().min(1).nullable().optional(),
 });
 
 export const createReferralSchema = z.object({
@@ -116,11 +116,23 @@ export const refreshSchema = z.object({
 });
 
 export const onboardingSchema = z.object({
-  fullName: z.string().trim().min(2).max(180),
   companyName: z.string().trim().min(2).max(180),
-  storeName: z.string().trim().min(2).max(180),
+  companyWebsite: z.string().trim().url().max(255).optional().or(z.literal("")),
+  companyAddress: z.string().trim().min(2).max(500),
+  country: z.string().trim().min(2).max(120),
+  state: z.string().trim().min(2).max(120),
+  city: z.string().trim().min(2).max(120),
   timezone: z.string().trim().min(2).max(80).default("UTC"),
   currency: z.string().trim().min(3).max(8).default("USD"),
+  firstName: z.string().trim().min(1).max(90),
+  lastName: z.string().trim().min(1).max(90),
+  mobileNumber: z.string().trim().min(6).max(40),
+  secondaryContact: z.string().trim().max(320).optional().or(z.literal("")),
+  branchName: z.string().trim().max(180).optional().or(z.literal("")),
+  branchAddress: z.string().trim().max(500).optional().or(z.literal("")),
+  branchCountry: z.string().trim().max(120).optional().or(z.literal("")),
+  branchState: z.string().trim().max(120).optional().or(z.literal("")),
+  branchCity: z.string().trim().max(120).optional().or(z.literal("")),
 });
 
 export type InviteInput = z.infer<typeof inviteSchema>;

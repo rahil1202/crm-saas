@@ -15,6 +15,40 @@ import { clearPendingInviteReferralContext, readPendingInviteReferralContext, sa
 import { resolveAuthenticatedRouteFromMe } from "@/lib/partner-access";
 import { supabase } from "@/lib/supabase";
 
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isClockSkewError(error: unknown) {
+  return error instanceof Error && /issued in the future|clock.*skew/i.test(error.message);
+}
+
+async function exchangeCodeForSessionWithSkewRetry(code: string) {
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (!error) {
+    return;
+  }
+
+  if (!isClockSkewError(error)) {
+    throw error;
+  }
+
+  await sleep(2000);
+  const retry = await supabase.auth.exchangeCodeForSession(code);
+  if (retry.error) {
+    throw retry.error;
+  }
+}
+
+async function readApiError(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { error?: { message?: string }; message?: string };
+    return payload.error?.message ?? payload.message ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function AuthCallbackContent() {
   const env = getFrontendEnv();
   const router = useRouter();
@@ -44,10 +78,7 @@ function AuthCallbackContent() {
         });
 
         if (code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) {
-            throw exchangeError;
-          }
+          await exchangeCodeForSessionWithSkewRetry(code);
         } else if (accessTokenFromUrl && refreshTokenFromUrl) {
           const { error: setSessionError } = await supabase.auth.setSession({
             access_token: accessTokenFromUrl,
@@ -124,7 +155,7 @@ function AuthCallbackContent() {
           });
 
           if (!linkResponse.ok) {
-            throw new Error("Failed to link OAuth integration to the current workspace");
+            throw new Error(await readApiError(linkResponse, "Failed to link OAuth integration to the current workspace"));
           }
 
           await supabase.auth.signOut();
@@ -149,7 +180,7 @@ function AuthCallbackContent() {
         });
 
         if (!exchangeResponse.ok) {
-          throw new Error("Backend session exchange failed");
+          throw new Error(await readApiError(exchangeResponse, "Backend session exchange failed"));
         }
 
         await supabase.auth.signOut();

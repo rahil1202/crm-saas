@@ -169,6 +169,11 @@ async function loadCompanySnapshot(companyId: string) {
     company: {
       id: company.id,
       name: company.name,
+      website: company.website,
+      address: company.address,
+      country: company.country,
+      state: company.state,
+      city: company.city,
       timezone: company.timezone,
       currency: company.currency,
       createdBy: company.createdBy,

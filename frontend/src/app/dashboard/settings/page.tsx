@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Building2, Clock3, Compass, KeyRound, LifeBuoy, MailCheck, MapPinned, Palette, QrCode, ShieldCheck, Smartphone, UserPlus, Users, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
@@ -16,7 +17,7 @@ import { Progress, ProgressLabel } from "@/components/ui/progress";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { OnboardingTour } from "@/features/onboarding/onboarding-tour";
+import { COMPANY_TOUR_QUERY, COMPANY_TOUR_START_KEY } from "@/features/onboarding/company-joyride-tour";
 import { apiRequest, ApiError } from "@/lib/api";
 import { AuthMePayload } from "@/lib/auth-client";
 import { evaluatePasswordStrength, getInitials } from "@/lib/auth-ui";
@@ -178,44 +179,10 @@ type MfaSignInFactor = {
   friendlyName: string | null;
 };
 
-function SettingsModal({
-  open,
-  title,
-  description,
-  onClose,
-  children,
-}: {
-  open: boolean;
-  title: string;
-  description?: string;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  if (!open) {
-    return null;
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/45 px-4 py-5 backdrop-blur-sm">
-      <div className="flex h-full items-start justify-center overflow-y-auto">
-        <div className="w-full max-w-3xl rounded-[1.75rem] border border-border/70 bg-white shadow-[0_24px_70px_-32px_rgba(15,23,42,0.4)]">
-          <div className="flex items-start justify-between gap-4 border-b border-border/60 px-5 py-4">
-            <div>
-              <h3 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h3>
-              {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-            </div>
-            <Button type="button" variant="outline" size="xs" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={onClose}>
-              Close
-            </Button>
-          </div>
-          <div className="max-h-[calc(100vh-10rem)] overflow-y-auto px-5 py-4">{children}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
+type InviteEmailDelivery = { status: "sent" | "queued" | "failed" | "not_configured"; error?: string };
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [me, setMe] = useState<AuthMePayload | null>(null);
   const [companySnapshot, setCompanySnapshot] = useState<CompanySnapshot | null>(null);
   const [loading, setLoading] = useState(true);
@@ -274,7 +241,6 @@ export default function SettingsPage() {
   const [savingTags, setSavingTags] = useState(false);
   const [savingNotificationRules, setSavingNotificationRules] = useState(false);
   const [savingIntegrations, setSavingIntegrations] = useState(false);
-  const [tourModalOpen, setTourModalOpen] = useState(false);
 
   // Browser notification state
   const [browserNotifSupported, setBrowserNotifSupported] = useState(false);
@@ -293,6 +259,11 @@ export default function SettingsPage() {
       }),
     [me?.user.email, me?.user.fullName, password],
   );
+
+  const startGuidedTour = () => {
+    window.sessionStorage.setItem(COMPANY_TOUR_START_KEY, String(Date.now()));
+    router.push(`/dashboard?tour=${COMPANY_TOUR_QUERY}`);
+  };
 
   const activeMembership = useMemo(() => {
     if (!me || !companySnapshot) {
@@ -645,6 +616,7 @@ export default function SettingsPage() {
         role: "owner" | "admin" | "member";
         expiresAt: string;
         storeId: string | null;
+        emailDelivery?: InviteEmailDelivery;
       }>("/auth/invite", {
         method: "POST",
         body: JSON.stringify({
@@ -677,7 +649,11 @@ export default function SettingsPage() {
             }
           : current,
       );
-      toast.success("Team invite created.");
+      if (response.emailDelivery?.status === "sent") {
+        toast.success("Team invite email sent.");
+      } else {
+        toast.warning(response.emailDelivery?.error ?? "Team invite created, but email was not sent. Check email integration settings.");
+      }
     } catch (caughtError) {
       const message = caughtError instanceof ApiError ? caughtError.message : "Unable to send team invite.";
       setError(message);
@@ -2314,7 +2290,7 @@ export default function SettingsPage() {
                   pipelines, lead sources, integrations, and reporting modules.
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" onClick={() => setTourModalOpen(true)}>
+                  <Button type="button" onClick={startGuidedTour}>
                     Start full tour
                   </Button>
                   <Link href="/dashboard/settings?tab=company" className="inline-flex items-center rounded-xl border border-border/60 px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40">
@@ -2336,21 +2312,6 @@ export default function SettingsPage() {
         </Tabs>
       </div>
 
-      <SettingsModal
-        open={tourModalOpen}
-        title="Onboarding tour"
-        description="Review the same guided CRM setup tour shown after first workspace creation."
-        onClose={() => setTourModalOpen(false)}
-      >
-        <OnboardingTour
-          onFinish={() => setTourModalOpen(false)}
-          onSkipTour={() => setTourModalOpen(false)}
-          role={activeMembership?.role === "owner" || activeMembership?.role === "admin" || activeMembership?.role === "member" ? activeMembership.role : "member"}
-          customRoleModules={activeMembership?.customRoleModules ?? []}
-          isPartnerAccess={Boolean(activeMembership?.isPartnerAccess)}
-        />
-      </SettingsModal>
     </>
   );
 }
-

@@ -20,6 +20,7 @@ import { Progress, ProgressLabel } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { apiRequest } from "@/lib/api";
 import { evaluatePasswordStrength } from "@/lib/auth-ui";
+import { clearPendingIntegrationOauthContext } from "@/lib/integration-oauth";
 import { savePendingInviteReferralContext } from "@/lib/invite-referral";
 import { supabase } from "@/lib/supabase";
 import { useAsyncForm } from "@/hooks/use-async-form";
@@ -231,6 +232,7 @@ function RegisterPageContent() {
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
+    clearPendingIntegrationOauthContext();
     savePendingInviteReferralContext({
       inviteToken,
       referralCode,

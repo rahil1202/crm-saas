@@ -64,6 +64,7 @@ import {
 import { cn } from "@/lib/utils";
 import websiteLogo from "@/assets/logo-png.png";
 import { requestBrowserNotificationPermission, getBrowserNotificationPermission } from "@/features/notifications/browser-notifications";
+import { CompanyJoyrideTour } from "@/features/onboarding/company-joyride-tour";
 
 const NotificationPreview = dynamic(
   () => import("@/features/notifications/notification-preview").then((module) => module.NotificationPreview),
@@ -206,6 +207,12 @@ function getMembershipRoleLabel(membership?: {
   return membership.customRoleName?.trim() || membership.role || "member";
 }
 
+function getTourKey(item: NavItem) {
+  if (item.href === "/dashboard") return "dashboard";
+  if (item.href === "/dashboard/report" || item.href === "/dashboard/reports") return "reports";
+  return item.moduleKey ?? item.href.split("/").filter(Boolean).at(-1) ?? item.label.toLowerCase();
+}
+
 const SidebarNav = memo(function SidebarNav({
   visibleNavGroups,
   pathname,
@@ -235,6 +242,7 @@ const SidebarNav = memo(function SidebarNav({
               <Link
                 key={item.href}
                 href={item.href}
+                data-tour={`nav-${getTourKey(item)}`}
                 title={!sidebarExpanded ? item.label : undefined}
                 className={cn(
                   "group relative flex items-center rounded-xl text-sm font-medium transition-all text-sky-900",
@@ -424,7 +432,7 @@ export function AppShell({
         }
 
         if (response.needsOnboarding && !response.isSuperAdmin) {
-          router.replace("/onboarding");
+          router.replace("/company-onboarding?step=1");
           return;
         }
 
@@ -579,6 +587,7 @@ export function AppShell({
         )}
       >
         <aside
+          data-tour="sidebar"
           className={cn(
             "z-40 mb-4 w-full rounded-[2rem] border border-sky-200/70 bg-white p-3 shadow-[0_28px_80px_-42px_rgba(56,122,199,0.26)] transition-[width] duration-200 lg:fixed lg:bottom-4 lg:left-4 lg:top-4 lg:mb-0 lg:overflow-y-auto lg:rounded-[2rem] lg:border lg:p-3",
             sidebarExpanded ? "lg:w-[240px]" : "lg:w-[84px]",
@@ -674,6 +683,7 @@ export function AppShell({
                 <div className="relative">
                   <button
                     type="button"
+                    data-tour="profile-menu"
                     className="flex items-center gap-2 rounded-xl border border-sky-200/70 bg-white px-2.5 py-1.5 text-sky-900 transition-colors hover:bg-sky-50"
                     onClick={() => setProfileMenuOpen((current) => !current)}
                   >
@@ -722,7 +732,7 @@ export function AppShell({
           </header>
 
           <section className="hide-scrollbar min-w-0 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-            <div className="grid gap-5">
+            <div className="grid gap-5" data-tour="dashboard-content">
               {loading ? <div className="rounded-2xl border border-dashed border-border/80 bg-white/55 px-4 py-3 text-sm text-muted-foreground">Loading workspace...</div> : null}
               {loadError ? <div className="rounded-2xl border border-destructive/15 bg-destructive/5 px-4 py-3 text-sm text-destructive">{loadError}</div> : null}
               {!loading && !loadError ? <div className="grid gap-6">{children}</div> : null}
@@ -765,6 +775,8 @@ export function AppShell({
           </div>
         </div>
       ) : null}
+
+      <CompanyJoyrideTour user={me?.user ?? null} activeMembership={activeMembership} />
     </main>
   );
 }

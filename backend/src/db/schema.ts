@@ -74,6 +74,10 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey(),
   email: varchar("email", { length: 320 }).notNull(),
   fullName: varchar("full_name", { length: 180 }),
+  firstName: varchar("first_name", { length: 90 }),
+  lastName: varchar("last_name", { length: 90 }),
+  mobilePhone: varchar("mobile_phone", { length: 40 }),
+  secondaryContact: varchar("secondary_contact", { length: 320 }),
   // Local password hash — used as fallback when Supabase is unreachable.
   // Kept in sync on every successful Supabase login/register.
   passwordHash: varchar("password_hash", { length: 255 }),
@@ -84,6 +88,11 @@ export const profiles = pgTable("profiles", {
 export const companies = pgTable("companies", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: varchar("name", { length: 180 }).notNull(),
+  website: varchar("website", { length: 255 }),
+  address: varchar("address", { length: 500 }),
+  country: varchar("country", { length: 120 }),
+  state: varchar("state", { length: 120 }),
+  city: varchar("city", { length: 120 }),
   timezone: varchar("timezone", { length: 80 }).notNull().default("UTC"),
   currency: varchar("currency", { length: 8 }).notNull().default("USD"),
   createdBy: uuid("created_by").references(() => profiles.id),
@@ -424,6 +433,10 @@ export const stores = pgTable(
       .references(() => companies.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 180 }).notNull(),
     code: varchar("code", { length: 64 }).notNull(),
+    address: varchar("address", { length: 500 }),
+    country: varchar("country", { length: 120 }),
+    state: varchar("state", { length: 120 }),
+    city: varchar("city", { length: 120 }),
     isDefault: boolean("is_default").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -3147,6 +3160,37 @@ export const securityAuditLogs = pgTable(
     routeCreatedIdx: index("security_audit_logs_route_created_idx").on(table.route, table.createdAt),
     companyCreatedIdx: index("security_audit_logs_company_created_idx").on(table.companyId, table.createdAt),
     userCreatedIdx: index("security_audit_logs_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
+// ─── Gmail / Connected Email Accounts ────────────────────────────────────────
+
+export const connectedEmailAccounts = pgTable(
+  "connected_email_accounts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    provider: varchar("provider", { length: 32 }).notNull().default("google"),
+    email: varchar("email", { length: 320 }).notNull(),
+    // AES-256-GCM encrypted blobs — use encryptIntegrationSecret / decryptIntegrationSecret
+    accessTokenEnc: text("access_token_enc").notNull(),
+    refreshTokenEnc: text("refresh_token_enc").notNull(),
+    tokenExpiry: timestamp("token_expiry", { withTimezone: true }).notNull(),
+    scopes: text("scopes").array().notNull().default(sql`'{}'::text[]`),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    userProviderEmailUnique: uniqueIndex("connected_email_accounts_user_provider_email_unique").on(
+      table.userId,
+      table.provider,
+      table.email,
+    ),
+    userIdx: index("connected_email_accounts_user_idx").on(table.userId),
+    userActiveIdx: index("connected_email_accounts_user_active_idx").on(table.userId, table.isActive),
   }),
 );
 

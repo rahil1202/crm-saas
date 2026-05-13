@@ -94,6 +94,10 @@ const envSchema = z.object({
   SMTP_FROM_EMAIL: z.string().email().optional(),
   SMTP_FROM_NAME: z.string().optional(),
   EMAIL_CAMPAIGN_MPS: z.coerce.number().positive().default(10),
+  // Google OAuth — Gmail outreach connection (separate from Supabase login)
+  GOOGLE_CLIENT_ID: z.string().default(""),
+  GOOGLE_CLIENT_SECRET: z.string().default(""),
+  GOOGLE_GMAIL_REDIRECT_URI: z.string().url().default("http://localhost:8787/api/v1/google/callback"),
 }).superRefine((data, ctx) => {
   if (data.SMTP_HOST) {
     const hasUser = data.SMTP_USER !== undefined && data.SMTP_USER !== "";

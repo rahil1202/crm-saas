@@ -97,6 +97,7 @@ interface InviteCreateResponse {
   inviteId: string;
   inviteUrl: string;
   referralCode: string | null;
+  emailDelivery?: { status: "sent" | "queued" | "failed" | "not_configured"; error?: string };
 }
 
 interface ReferralCreateResponse {
@@ -241,7 +242,11 @@ export default function CompanyAdminPage() {
       setInviteExpiresInDays("7");
       setInviteMessage("");
       await navigator.clipboard.writeText(response.inviteUrl);
-      toast.success("Invite created and copied.");
+      if (response.emailDelivery?.status === "sent") {
+        toast.success("Invite email sent and link copied.");
+      } else {
+        toast.warning(response.emailDelivery?.error ?? "Invite created and copied, but email was not sent. Check email integration settings.");
+      }
     } catch {}
   };
 

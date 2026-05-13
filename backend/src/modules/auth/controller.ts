@@ -11,6 +11,7 @@ import {
   companyInvites,
   companyMemberships,
   companyPlans,
+  emailMessages,
   partnerCompanies,
   partnerUsers,
   profiles,
@@ -40,7 +41,7 @@ import {
 } from "@/lib/auth";
 import { ok } from "@/lib/api";
 import { env } from "@/lib/config";
-import { ensureSystemEmailAccount, queueEmailMessage } from "@/lib/email-runtime";
+import { ensureSystemEmailAccount, processQueuedEmailMessages, queueEmailMessage } from "@/lib/email-runtime";
 import { AppError } from "@/lib/errors";
 import { ensurePartnerMembershipAssignmentsForUser } from "@/lib/partner-role-access";
 import { ensureAuthSession, recordSecurityAuditLog, requireActiveAuthSession, revokeAuthSession } from "@/lib/security";
@@ -876,6 +877,12 @@ export async function getCurrentUser(c: Context<AppEnv>) {
 export async function onboarding(c: Context<AppEnv>) {
   const user = c.get("user");
   const body = c.get("validatedBody") as OnboardingInput;
+  const fullName = `${body.firstName} ${body.lastName}`.replace(/\s+/g, " ").trim();
+  const branchName = body.branchName?.trim() || "Main Branch";
+  const branchAddress = body.branchAddress?.trim() || body.companyAddress;
+  const branchCountry = body.branchCountry?.trim() || body.country;
+  const branchState = body.branchState?.trim() || body.state;
+  const branchCity = body.branchCity?.trim() || body.city;
 
   const existingMembership = await db
     .select({ id: companyMemberships.id })
@@ -891,7 +898,11 @@ export async function onboarding(c: Context<AppEnv>) {
   await db
     .update(profiles)
     .set({
-      fullName: body.fullName,
+      fullName,
+      firstName: body.firstName,
+      lastName: body.lastName,
+      mobilePhone: body.mobileNumber,
+      secondaryContact: body.secondaryContact?.trim() || null,
       updatedAt: new Date(),
     })
     .where(eq(profiles.id, user.id));
@@ -900,6 +911,11 @@ export async function onboarding(c: Context<AppEnv>) {
     .insert(companies)
     .values({
       name: body.companyName,
+      website: body.companyWebsite?.trim() || null,
+      address: body.companyAddress,
+      country: body.country,
+      state: body.state,
+      city: body.city,
       timezone: body.timezone,
       currency: body.currency.toUpperCase(),
       createdBy: user.id,
@@ -919,7 +935,7 @@ export async function onboarding(c: Context<AppEnv>) {
   });
 
   const storeCode = (
-    body.storeName
+    branchName
       .toUpperCase()
       .replace(/[^A-Z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
@@ -930,8 +946,12 @@ export async function onboarding(c: Context<AppEnv>) {
     .insert(stores)
     .values({
       companyId: company.id,
-      name: body.storeName,
+      name: branchName,
       code: storeCode,
+      address: branchAddress,
+      country: branchCountry,
+      state: branchState,
+      city: branchCity,
       isDefault: true,
     })
     .returning();
@@ -974,6 +994,82 @@ export async function onboarding(c: Context<AppEnv>) {
     },
     201,
   );
+}
+
+type InviteEmailDispatchStatus = "sent" | "queued" | "failed" | "not_configured";
+
+async function queueAndDispatchInviteEmail(input: {
+  companyId: string;
+  createdBy: string;
+  recipientEmail: string;
+  recipientName?: string | null;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+  metadata: Record<string, unknown>;
+}): Promise<{ status: InviteEmailDispatchStatus; messageId?: string; error?: string }> {
+  const account = await ensureSystemEmailAccount(input.companyId, input.createdBy);
+  const message = await queueEmailMessage({
+    companyId: input.companyId,
+    recipientEmail: input.recipientEmail,
+    recipientName: input.recipientName ?? null,
+    subject: input.subject,
+    htmlContent: input.htmlContent,
+    textContent: input.textContent,
+    createdBy: input.createdBy,
+    emailAccountId: account?.id ?? null,
+    metadata: input.metadata,
+  });
+
+  if (!account || account.provider === "mock") {
+    await db
+      .update(emailMessages)
+      .set({
+        status: "failed",
+        failedAt: new Date(),
+        lastError: "No connected email account is available",
+        updatedAt: new Date(),
+      })
+      .where(eq(emailMessages.id, message.id));
+
+    return {
+      status: "not_configured",
+      messageId: message.id,
+      error: "No connected email account is available",
+    };
+  }
+
+  await processQueuedEmailMessages(1, {
+    companyId: input.companyId,
+    messageIds: [message.id],
+  });
+
+  const [processedMessage] = await db
+    .select({
+      status: emailMessages.status,
+      lastError: emailMessages.lastError,
+    })
+    .from(emailMessages)
+    .where(eq(emailMessages.id, message.id))
+    .limit(1);
+
+  if (!processedMessage) {
+    return { status: "failed", messageId: message.id, error: "Queued invite email could not be found after dispatch" };
+  }
+
+  if (processedMessage.status === "sent" || processedMessage.status === "delivered") {
+    return { status: "sent", messageId: message.id };
+  }
+
+  if (processedMessage.status === "queued" || processedMessage.status === "sending") {
+    return { status: "queued", messageId: message.id };
+  }
+
+  return {
+    status: "failed",
+    messageId: message.id,
+    error: processedMessage.lastError ?? "Invite email dispatch failed",
+  };
 }
 
 export async function inviteMember(c: Context<AppEnv>) {
@@ -1119,11 +1215,9 @@ export async function inviteMember(c: Context<AppEnv>) {
     </div>
   `;
 
+  let emailDelivery: { status: InviteEmailDispatchStatus; messageId?: string; error?: string } = { status: "failed" };
   try {
-    // Ensure system email account exists
-    await ensureSystemEmailAccount(tenant.companyId, user.id);
-
-    await queueEmailMessage({
+    emailDelivery = await queueAndDispatchInviteEmail({
       companyId: tenant.companyId,
       recipientEmail: createdInvite.email,
       recipientName: body.fullName ?? null,
@@ -1138,6 +1232,10 @@ export async function inviteMember(c: Context<AppEnv>) {
     });
   } catch (emailError) {
     console.error('Failed to queue invite email:', emailError);
+    emailDelivery = {
+      status: "failed",
+      error: emailError instanceof Error ? emailError.message : "Invite email dispatch failed",
+    };
     // Don't fail the invite creation if email fails
   }
 
@@ -1156,6 +1254,7 @@ export async function inviteMember(c: Context<AppEnv>) {
       email: createdInvite.email,
       referralCode: inviterReferralCode.code,
       inviteMessage: createdInvite.inviteMessage,
+      emailDelivery,
     },
     201,
   );
@@ -1248,11 +1347,9 @@ export async function resendInvite(c: Context<AppEnv>) {
     </div>
   `;
 
+  let emailDelivery: { status: InviteEmailDispatchStatus; messageId?: string; error?: string } = { status: "failed" };
   try {
-    // Ensure system email account exists
-    await ensureSystemEmailAccount(tenant.companyId, user.id);
-
-    await queueEmailMessage({
+    emailDelivery = await queueAndDispatchInviteEmail({
       companyId: tenant.companyId,
       recipientEmail: updatedInvite.email,
       recipientName: null,
@@ -1268,6 +1365,10 @@ export async function resendInvite(c: Context<AppEnv>) {
     });
   } catch (emailError) {
     console.error('Failed to queue resend invite email:', emailError);
+    emailDelivery = {
+      status: "failed",
+      error: emailError instanceof Error ? emailError.message : "Invite email dispatch failed",
+    };
     // Don't fail the resend if email fails
   }
 
@@ -1280,6 +1381,7 @@ export async function resendInvite(c: Context<AppEnv>) {
     resentAt: updatedInvite.resentAt,
     expiresAt: updatedInvite.expiresAt,
     inviteMessage: updatedInvite.inviteMessage,
+    emailDelivery,
     inviteUrl: buildInviteRegistrationUrl({
       frontendUrl: env.FRONTEND_URL,
       inviteToken: updatedInvite.token,

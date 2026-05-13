@@ -4,7 +4,8 @@ import type { NextRequest } from "next/server";
 export function middleware(request: NextRequest) {
   if (
     !request.nextUrl.pathname.startsWith("/dashboard") &&
-    !request.nextUrl.pathname.startsWith("/onboarding")
+    !request.nextUrl.pathname.startsWith("/onboarding") &&
+    !request.nextUrl.pathname.startsWith("/company-onboarding")
   ) {
     return NextResponse.next();
   }
@@ -20,5 +21,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/onboarding"],
+  matcher: ["/dashboard/:path*", "/onboarding", "/company-onboarding", "/company-onboarding-tour"],
 };

@@ -39,6 +39,7 @@ type TeamDataColumnKey = Exclude<TeamColumnKey, "actions">;
 
 type InviteSortKey = "email" | "role" | "status" | "expiresAt";
 type InviteColumnKey = InviteSortKey;
+type InviteEmailDelivery = { status: "sent" | "queued" | "failed" | "not_configured"; error?: string };
 
 type RoleSortKey = "name" | "modules" | "createdAt";
 type RoleColumnKey = RoleSortKey | "actions";
@@ -598,11 +599,15 @@ export default function TeamPage() {
   const handleResendInvite = async (row: InviteRow) => {
     setResendingInviteId(row.inviteId);
     try {
-      await apiRequest(`/auth/invites/${row.inviteId}/resend`, {
+      const response = await apiRequest<{ emailDelivery?: InviteEmailDelivery }>(`/auth/invites/${row.inviteId}/resend`, {
         method: "POST",
         body: JSON.stringify({}),
       });
-      toast.success("Invite resent.");
+      if (response.emailDelivery?.status === "sent") {
+        toast.success("Invite email resent.");
+      } else {
+        toast.warning(response.emailDelivery?.error ?? "Invite link updated, but email was not sent. Check email integration settings.");
+      }
       await loadData();
     } catch (caughtError) {
       const message = caughtError instanceof ApiError ? caughtError.message : "Unable to resend invite.";
@@ -775,6 +780,7 @@ export default function TeamPage() {
         role: CompanyRole;
         expiresAt: string;
         storeId: string | null;
+        emailDelivery?: InviteEmailDelivery;
       }>("/auth/invite", {
         method: "POST",
         body: JSON.stringify({
@@ -813,7 +819,11 @@ export default function TeamPage() {
       );
 
       setInviteOpen(false);
-      toast.success("Invite sent.");
+      if (response.emailDelivery?.status === "sent") {
+        toast.success("Invite email sent.");
+      } else {
+        toast.warning(response.emailDelivery?.error ?? "Invite created, but email was not sent. Check email integration settings.");
+      }
     } catch (caughtError) {
       const message = caughtError instanceof ApiError ? caughtError.message : "Unable to send invite.";
       setError(message);
@@ -1174,7 +1184,7 @@ export default function TeamPage() {
                 <Upload className="size-4" /> Import
               </Button>
               <Button type="button" size="sm" onClick={() => void openInviteModal()}>
-                <Plus className="size-4" /> Add New Team
+                <Plus className="size-4" /> Add New Member
               </Button>
             </>
           )
@@ -1543,7 +1553,7 @@ export default function TeamPage() {
           <div className="grid gap-4">
             <Alert>
               <AlertTitle>Import pending</AlertTitle>
-              <AlertDescription>Use Add New Team to send invites. CSV/XLS import for teams will be wired when backend import endpoints are added.</AlertDescription>
+              <AlertDescription>Use Add New Member to send invites. CSV/XLS import for teams will be wired when backend import endpoints are added.</AlertDescription>
             </Alert>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setImportModalOpen(false)}>
@@ -1556,7 +1566,7 @@ export default function TeamPage() {
                   void openInviteModal();
                 }}
               >
-                Add New Team
+                Add New Member
               </Button>
             </div>
           </div>
@@ -1565,7 +1575,7 @@ export default function TeamPage() {
 
       {inviteOpen ? (
         <Modal
-          title="Add New Team"
+          title="Add New Member"
           description="Select role, capture teammate details, then send invite."
           onClose={() => setInviteOpen(false)}
           maxWidthClassName="max-w-xl"

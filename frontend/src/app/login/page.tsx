@@ -21,6 +21,7 @@ import { resolveAuthenticatedRouteFromMe } from "@/lib/partner-access";
 import { useAsyncForm } from "@/hooks/use-async-form";
 import { apiRequest } from "@/lib/api";
 import { getFrontendEnv } from "@/lib/env";
+import { clearPendingIntegrationOauthContext } from "@/lib/integration-oauth";
 import { supabase } from "@/lib/supabase";
 import { requestBrowserNotificationPermission } from "@/features/notifications/browser-notifications";
 
@@ -123,6 +124,7 @@ function LoginPageContent() {
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     setInfo(null);
+    clearPendingIntegrationOauthContext();
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",

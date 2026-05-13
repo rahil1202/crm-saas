@@ -29,7 +29,7 @@ export function resolveAuthenticatedRouteFromMe(me: PartnerMeLike | null | undef
   }
 
   if (me.needsOnboarding && !me.isSuperAdmin) {
-    return "/onboarding";
+    return "/company-onboarding?step=1";
   }
 
   return hasMultiplePartnerCompanies(me) ? "/dashboard/company" : "/dashboard";
