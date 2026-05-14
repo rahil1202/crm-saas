@@ -10,7 +10,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const meta = resolveDashboardMeta(pathname);
 
   return (
-    <AppShell title={meta.title} description={meta.description}>
+    <AppShell title={meta.title}>
       {children}
     </AppShell>
   );

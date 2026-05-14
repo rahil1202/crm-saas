@@ -1608,8 +1608,6 @@ export async function deleteInvite(c: Context<AppEnv>) {
     throw AppError.conflict("Only pending invites can be deleted");
   }
 
-  await db.delete(companyInvites).where(eq(companyInvites.id, invite.id));
-
   await recordTeamAudit({
     companyId: tenant.companyId,
     actorUserId: user.id,
@@ -1617,6 +1615,8 @@ export async function deleteInvite(c: Context<AppEnv>) {
     eventType: "invite.deleted",
     summary: "Pending invite deleted",
   });
+
+  await db.delete(companyInvites).where(eq(companyInvites.id, invite.id));
 
   return ok(c, {
     deleted: true,

@@ -173,6 +173,13 @@ export function WhatsappCampaignsPage() {
         </Alert>
       ) : null}
 
+      <Alert>
+        <AlertTitle>Use flows after a campaign reply</AlertTitle>
+        <AlertDescription>
+          Send an approved WhatsApp template from a campaign, ask the customer to reply with a keyword, then map that keyword to a published flow in Flow Builder.
+        </AlertDescription>
+      </Alert>
+
       <PageSection title="Campaign Builder" description="Create a broadcast campaign, select a template, add audience, and schedule delivery.">
         <Card className="border-border/70 bg-card/95">
           <CardHeader>

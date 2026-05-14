@@ -521,9 +521,10 @@ export async function ingestWhatsappReply(input: {
     // Contact upkeep is best-effort.
   }
 
-  // Phase 4: evaluate keyword triggers and automation rules
+  // Phase 4: resume an active flow first, then evaluate keyword triggers and automation rules.
   try {
     const { evaluateKeywordTriggers, evaluateAutomationRules } = await import("@/lib/whatsapp-flow-automation");
+    const { resumeActiveChatbotFlowForConversation } = await import("@/lib/chatbot-flow-engine");
     const ctx = {
       companyId: input.companyId,
       conversationId: conversation.id,
@@ -533,6 +534,22 @@ export async function ingestWhatsappReply(input: {
       messageId: message.id,
       createdBy: input.createdBy ?? conversation.createdBy,
     };
+
+    const resumed = await resumeActiveChatbotFlowForConversation({
+      companyId: ctx.companyId,
+      socialConversationId: ctx.conversationId,
+      inboundMessageBody: ctx.messageBody,
+      lastInboundMessageId: ctx.messageId,
+    });
+
+    if (resumed) {
+      return {
+        conversation,
+        message,
+        state: existingState ?? null,
+      };
+    }
+
     const keywordHandled = await evaluateKeywordTriggers(ctx);
     if (!keywordHandled) {
       await evaluateAutomationRules(ctx);

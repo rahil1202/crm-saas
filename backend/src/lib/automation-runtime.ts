@@ -24,7 +24,6 @@ import {
   processQueuedWhatsappWebhookEvents,
   type WhatsappIngestedItem,
 } from "@/lib/whatsapp-runtime";
-import { resumeActiveChatbotFlowForConversation } from "@/lib/chatbot-flow-engine";
 
 type RuntimeContext = Record<string, unknown> & {
   leadId?: string | null;
@@ -891,13 +890,6 @@ export async function cancelAutomationRun(companyId: string, runId: string) {
 
 async function dispatchWhatsappIngestedItems(items: WhatsappIngestedItem[]) {
   for (const item of items) {
-    await resumeActiveChatbotFlowForConversation({
-      companyId: item.companyId,
-      socialConversationId: item.conversationId,
-      inboundMessageBody: item.body,
-      lastInboundMessageId: item.messageId,
-    });
-
     await recordTriggerEvent({
       companyId: item.companyId,
       triggerType: "whatsapp.replied",

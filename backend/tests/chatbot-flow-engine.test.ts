@@ -55,6 +55,29 @@ describe("chatbot flow validation", () => {
     expect(result.valid).toBe(false);
     expect(result.errors.some((error) => error.code === "invalid_condition_branch")).toBe(true);
   });
+
+  test("allows action nodes that pass through to the next connected node", () => {
+    const definition: ChatbotFlowDefinition = {
+      entry: "start",
+      nodes: [
+        { id: "start", type: "start", position: { x: 0, y: 0 }, config: {} },
+        { id: "task", type: "create_task", position: { x: 120, y: 0 }, config: { title: "Follow up", dueInHours: 24, priority: "medium" } },
+        { id: "end", type: "end", position: { x: 240, y: 0 }, config: {} },
+      ],
+      edges: [
+        { sourceNodeId: "start", targetNodeId: "task" },
+        { sourceNodeId: "task", targetNodeId: "end" },
+      ],
+      settings: {},
+    };
+
+    const result = validateFlowDefinition(definition);
+    expect(result.valid).toBe(true);
+
+    const taskNode = definition.nodes[1];
+    const resolved = resolveNextNode({ definition, node: taskNode, context: {} });
+    expect(resolved.nextNode?.id).toBe("end");
+  });
 });
 
 describe("chatbot flow branching", () => {

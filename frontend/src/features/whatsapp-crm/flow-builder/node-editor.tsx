@@ -62,6 +62,7 @@ export function NodeEditor({ node, onUpdate, onDelete, onClose }: NodeEditorProp
                 onChange={(e) => set("keywords", e.target.value.split(",").map((k) => k.trim()).filter(Boolean))}
                 placeholder="pricing, demo, help"
               />
+              <FieldDescription>Used inside this flow node only. Global WhatsApp keyword triggers are managed from the Keywords tab.</FieldDescription>
             </Field>
             <Field>
               <FieldLabel>Match type</FieldLabel>
@@ -71,6 +72,7 @@ export function NodeEditor({ node, onUpdate, onDelete, onClose }: NodeEditorProp
                 <option value="starts_with">Starts with</option>
                 <option value="regex">Regex</option>
               </NativeSelect>
+              <FieldDescription>Matching is case-insensitive for normal WhatsApp text.</FieldDescription>
             </Field>
           </>
         ) : null}

@@ -403,7 +403,13 @@ export async function upsertKeywordTrigger(params: {
   const existing = await db
     .select()
     .from(whatsappKeywordTriggers)
-    .where(and(eq(whatsappKeywordTriggers.companyId, params.companyId), eq(whatsappKeywordTriggers.keyword, params.keyword)))
+    .where(
+      and(
+        eq(whatsappKeywordTriggers.companyId, params.companyId),
+        isNull(whatsappKeywordTriggers.deletedAt),
+        sql`lower(${whatsappKeywordTriggers.keyword}) = lower(${params.keyword})`,
+      ),
+    )
     .limit(1);
 
   if (existing.length > 0) {

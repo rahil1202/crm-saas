@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Save, Trash2, Upload, Zap } from "lucide-react";
+import { LayoutTemplate, Plus, Save, Trash2, Upload, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,7 +16,7 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { FlowCanvas } from "@/features/whatsapp-crm/flow-builder/flow-canvas";
 import { NodeEditor } from "@/features/whatsapp-crm/flow-builder/node-editor";
-import { NODE_CATALOG, getNodeMeta } from "@/features/whatsapp-crm/flow-builder/canvas-types";
+import { BUILDER_PALETTE_NODES, getNodeMeta } from "@/features/whatsapp-crm/flow-builder/canvas-types";
 import { FLOW_TEMPLATES, KEYWORD_PRESETS } from "@/features/whatsapp-crm/flow-builder/prebuilt-templates";
 import type { CanvasEdge, CanvasNode, FlowDefinition, FlowRecord, FlowVersion } from "@/features/whatsapp-crm/flow-builder/canvas-types";
 
@@ -31,8 +31,15 @@ interface KeywordTrigger {
 }
 
 type ViewMode = "canvas" | "keywords" | "templates";
+type FlowDetail = FlowRecord & {
+  draftVersion: FlowVersion;
+};
 
-export function WhatsappFlowBuilderPage() {
+interface WhatsappFlowBuilderPageProps {
+  initialFlowId?: string;
+}
+
+export function WhatsappFlowBuilderPage({ initialFlowId }: WhatsappFlowBuilderPageProps) {
   // Flow state
   const [flows, setFlows] = useState<FlowRecord[]>([]);
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
@@ -44,7 +51,7 @@ export function WhatsappFlowBuilderPage() {
 
   // Keywords state
   const [keywords, setKeywords] = useState<KeywordTrigger[]>([]);
-  const [kwDraft, setKwDraft] = useState({ keyword: "", matchType: "contains", actionType: "reply", replyBody: "" });
+  const [kwDraft, setKwDraft] = useState({ keyword: "", matchType: "contains", actionType: "reply", replyBody: "", flowId: "" });
   const [kwSaving, setKwSaving] = useState(false);
 
   // UI state
@@ -77,9 +84,9 @@ export function WhatsappFlowBuilderPage() {
 
   const loadFlow = async (flowId: string) => {
     try {
-      const payload = await apiRequest<{ flow: FlowRecord; draftVersion: FlowVersion }>(`/chatbot-flows/${flowId}`, { skipCache: true });
-      setActiveFlowId(flowId);
-      setFlowName(payload.flow.name);
+      const payload = await apiRequest<FlowDetail>(`/chatbot-flows/${flowId}`, { skipCache: true });
+      setActiveFlowId(payload.id);
+      setFlowName(payload.name);
       const def = payload.draftVersion.definition;
       setNodes(def.nodes);
       setEdges(def.edges.map((e, i) => ({ ...e, id: e.id ?? `edge-${i}` })));
@@ -92,12 +99,13 @@ export function WhatsappFlowBuilderPage() {
 
   useEffect(() => {
     void loadAll().then((items) => {
-      if (items.length > 0 && !activeFlowId) {
-        void loadFlow(items[0]!.id);
+      const flowToOpen = initialFlowId && items.some((item) => item.id === initialFlowId) ? initialFlowId : items[0]?.id;
+      if (flowToOpen && !activeFlowId) {
+        void loadFlow(flowToOpen);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialFlowId]);
 
   // Canvas operations
   const handleMoveNode = (nodeId: string, position: { x: number; y: number }) => {
@@ -181,12 +189,12 @@ export function WhatsappFlowBuilderPage() {
   // Create new flow
   const createFlow = async () => {
     try {
-      const payload = await apiRequest<{ flow: FlowRecord }>("/chatbot-flows", {
+      const payload = await apiRequest<FlowDetail>("/chatbot-flows", {
         method: "POST",
         body: JSON.stringify({ name: "New WhatsApp Flow", entryChannel: "whatsapp" }),
       });
-      await loadFlow(payload.flow.id);
       await loadAll();
+      await loadFlow(payload.id);
       toast.success("New flow created.");
     } catch (caught) {
       toast.error(caught instanceof ApiError ? caught.message : "Unable to create flow.");
@@ -195,20 +203,24 @@ export function WhatsappFlowBuilderPage() {
 
   // Keyword CRUD
   const createKeyword = async () => {
-    if (!kwDraft.keyword.trim()) { toast.error("Keyword is required."); return; }
+    const keyword = kwDraft.keyword.trim();
+    if (!keyword) { toast.error("Trigger phrase is required."); return; }
+    if (keyword.includes(",")) { toast.error("Create one trigger phrase at a time. Commas are treated as separate keywords."); return; }
+    if (kwDraft.actionType === "reply" && !kwDraft.replyBody.trim()) { toast.error("Reply message is required for auto replies."); return; }
+    if (kwDraft.actionType === "assign_flow" && !kwDraft.flowId && !activeFlowId) { toast.error("Select a flow to start."); return; }
     setKwSaving(true);
     try {
       await apiRequest("/whatsapp/keyword-triggers", {
         method: "POST",
         body: JSON.stringify({
-          keyword: kwDraft.keyword.trim(),
+          keyword,
           matchType: kwDraft.matchType,
           actionType: kwDraft.actionType,
           replyBody: kwDraft.replyBody.trim() || undefined,
-          flowId: kwDraft.actionType === "assign_flow" && activeFlowId ? activeFlowId : undefined,
+          flowId: kwDraft.actionType === "assign_flow" ? (kwDraft.flowId || activeFlowId || undefined) : undefined,
         }),
       });
-      setKwDraft({ keyword: "", matchType: "contains", actionType: "reply", replyBody: "" });
+      setKwDraft({ keyword: "", matchType: "contains", actionType: "reply", replyBody: "", flowId: "" });
       toast.success("Keyword trigger created.");
       const payload = await apiRequest<{ items: KeywordTrigger[] }>("/whatsapp/keyword-triggers", { skipCache: true });
       setKeywords(payload.items);
@@ -234,7 +246,7 @@ export function WhatsappFlowBuilderPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-168px)] flex-col overflow-hidden rounded-[1.6rem] border border-border/60 bg-white shadow-sm">
+    <div className="flex h-[calc(100vh-168px)] min-h-[680px] flex-col overflow-hidden rounded-2xl border border-border/60 bg-white shadow-sm">
       {error ? (
         <Alert variant="destructive" className="m-3">
           <AlertTitle>Error</AlertTitle>
@@ -243,13 +255,14 @@ export function WhatsappFlowBuilderPage() {
       ) : null}
 
       {/* Header */}
-      <header className="border-b border-border/60 bg-gradient-to-r from-emerald-50/80 to-sky-50/50 px-5 py-3">
-        <div className="flex items-center gap-3">
+      <header className="border-b border-border/60 bg-gradient-to-r from-emerald-50/80 to-sky-50/50 px-4 py-3">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {/* Flow selector */}
           <NativeSelect
             value={activeFlowId ?? ""}
             onChange={(e) => { if (e.target.value) void loadFlow(e.target.value); }}
-            className="h-8 max-w-[200px] text-xs"
+            className="h-8 w-full min-w-44 max-w-64 text-xs sm:w-auto"
           >
             {flows.map((f) => (
               <option key={f.id} value={f.id}>{f.name} ({f.status})</option>
@@ -261,11 +274,11 @@ export function WhatsappFlowBuilderPage() {
           <Input
             value={flowName}
             onChange={(e) => { setFlowName(e.target.value); setDirty(true); }}
-            className="h-8 w-48 text-xs font-semibold"
+            className="h-8 w-full min-w-44 max-w-72 text-xs font-semibold sm:w-56"
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
           {/* View toggle */}
           <div className="flex rounded-lg border border-border/60 p-0.5">
             <button
@@ -282,6 +295,13 @@ export function WhatsappFlowBuilderPage() {
             >
               Keywords
             </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("templates")}
+              className={cn("rounded-md px-3 py-1 text-xs font-medium transition-colors", viewMode === "templates" ? "bg-emerald-100 text-emerald-800" : "text-slate-600 hover:bg-slate-50")}
+            >
+              Templates
+            </button>
           </div>
 
           {dirty ? <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50">Unsaved</Badge> : null}
@@ -292,16 +312,20 @@ export function WhatsappFlowBuilderPage() {
             <Upload className="mr-1 size-3" /> {publishing ? "Publishing…" : "Publish"}
           </Button>
         </div>
+        </div>
       </header>
 
       {/* Main content */}
       {viewMode === "canvas" ? (
-        <div className="flex flex-1 min-h-0">
+        <div className="flex min-h-0 flex-1">
           {/* Node palette (drag source) */}
-          <aside className="w-56 shrink-0 overflow-y-auto border-r border-border/60 bg-slate-50/80 p-3">
-            <div className="mb-2 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-slate-500">Drag to canvas</div>
+          <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-border/60 bg-slate-50/80 p-3 md:block">
+            <div className="mb-3">
+              <div className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-slate-500">Drag to canvas</div>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Build WhatsApp replies, waits, branches, handoffs, CRM actions, and follow-up tasks. Campaigns should send the first template message, then this flow can continue from a keyword reply.</p>
+            </div>
             <div className="grid gap-1.5">
-              {NODE_CATALOG.map((meta) => (
+              {BUILDER_PALETTE_NODES.map((meta) => (
                 <div
                   key={meta.type}
                   draggable
@@ -343,29 +367,36 @@ export function WhatsappFlowBuilderPage() {
               onDelete={handleDeleteNode}
               onClose={() => setSelectedNodeId(null)}
             />
-          ) : null}
+          ) : (
+            <aside className="hidden w-72 shrink-0 border-l border-border/60 bg-white p-4 lg:block">
+              <div className="rounded-xl border border-dashed border-border/70 bg-slate-50/70 p-4">
+                <div className="text-sm font-semibold text-slate-800">Select a node</div>
+                <p className="mt-2 text-xs leading-5 text-slate-500">Click any canvas node to edit its WhatsApp message, trigger, routing, or CRM action settings.</p>
+              </div>
+            </aside>
+          )}
         </div>
       ) : null}
 
       {/* Keywords view */}
       {viewMode === "keywords" ? (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto max-w-4xl grid gap-6">
+        <div className="flex-1 overflow-y-auto bg-slate-50/50 p-4 sm:p-6">
+          <div className="mx-auto grid max-w-6xl gap-6">
             <Card className="border-border/70 bg-card/95">
               <CardHeader>
                 <CardTitle className="text-base">
                   <Zap className="mr-1.5 inline size-4" /> Keyword Triggers
                 </CardTitle>
                 <CardDescription>
-                  When an inbound message matches a keyword, the system auto-replies or triggers a flow.
-                  Keywords are evaluated before automation rules and chatbot flows.
+                  WhatsApp inbound text is trimmed and matched case-insensitively. The first active trigger by priority runs before automation rules.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4">
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 lg:grid-cols-[1fr_220px_220px]">
                   <Field>
-                    <FieldLabel>Keyword</FieldLabel>
-                    <Input value={kwDraft.keyword} onChange={(e) => setKwDraft({ ...kwDraft, keyword: e.target.value })} placeholder="pricing, demo, support" />
+                    <FieldLabel>Trigger phrase</FieldLabel>
+                    <Input value={kwDraft.keyword} onChange={(e) => setKwDraft({ ...kwDraft, keyword: e.target.value })} placeholder="pricing" />
+                    <p className="text-xs leading-5 text-muted-foreground">Use one phrase per trigger. Add more rows for synonyms like demo, plans, or support.</p>
                   </Field>
                   <Field>
                     <FieldLabel>Match type</FieldLabel>
@@ -375,6 +406,7 @@ export function WhatsappFlowBuilderPage() {
                       <option value="starts_with">Starts with</option>
                       <option value="regex">Regex pattern</option>
                     </NativeSelect>
+                    <p className="text-xs leading-5 text-muted-foreground">Contains is best for normal WhatsApp messages. Exact is best for STOP/START/menu.</p>
                   </Field>
                   <Field>
                     <FieldLabel>Action</FieldLabel>
@@ -387,10 +419,22 @@ export function WhatsappFlowBuilderPage() {
                       <option value="create_task">Create task</option>
                     </NativeSelect>
                   </Field>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
                   {kwDraft.actionType === "reply" ? (
                     <Field>
                       <FieldLabel>Reply message</FieldLabel>
-                      <Textarea value={kwDraft.replyBody} onChange={(e) => setKwDraft({ ...kwDraft, replyBody: e.target.value })} rows={2} placeholder="Thanks for your interest! Here are our plans…" />
+                      <Textarea value={kwDraft.replyBody} onChange={(e) => setKwDraft({ ...kwDraft, replyBody: e.target.value })} rows={3} placeholder="Thanks for your interest. Here are our plans..." />
+                    </Field>
+                  ) : null}
+                  {kwDraft.actionType === "assign_flow" ? (
+                    <Field>
+                      <FieldLabel>Flow to start</FieldLabel>
+                      <NativeSelect value={kwDraft.flowId || activeFlowId || ""} onChange={(e) => setKwDraft({ ...kwDraft, flowId: e.target.value })}>
+                        {flows.map((flow) => (
+                          <option key={flow.id} value={flow.id}>{flow.name}</option>
+                        ))}
+                      </NativeSelect>
                     </Field>
                   ) : null}
                 </div>
@@ -408,17 +452,17 @@ export function WhatsappFlowBuilderPage() {
                 ) : (
                   <div className="grid gap-2">
                     {keywords.map((kw) => (
-                      <div key={kw.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-white px-4 py-3">
+                      <div key={kw.id} className="grid gap-3 rounded-xl border border-border/60 bg-white px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <code className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-800">{kw.keyword}</code>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <code className="max-w-full truncate rounded bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-800">{kw.keyword}</code>
                             <Badge variant="outline" className="text-[0.6rem]">{kw.matchType}</Badge>
                             <Badge variant={kw.isActive ? "secondary" : "outline"} className="text-[0.6rem]">
                               {kw.isActive ? "Active" : "Off"}
                             </Badge>
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            → {kw.actionType}
+                            {"->"} {kw.actionType}
                             {kw.replyBody ? `: "${kw.replyBody.slice(0, 60)}${kw.replyBody.length > 60 ? "…" : ""}"` : ""}
                             {kw.flowId ? ` (flow: ${kw.flowId.slice(0, 8)}…)` : ""}
                           </div>
@@ -442,7 +486,7 @@ export function WhatsappFlowBuilderPage() {
           <div className="mx-auto max-w-6xl grid gap-6">
             {/* Flow templates */}
             <div>
-              <h2 className="text-lg font-bold text-slate-900 mb-1">Pre-built Flow Templates</h2>
+              <h2 className="mb-1 flex items-center gap-2 text-lg font-bold text-slate-900"><LayoutTemplate className="size-4" /> Pre-built Flow Templates</h2>
               <p className="text-sm text-slate-500 mb-4">Click a template to load it into the canvas. Customize it and publish.</p>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {FLOW_TEMPLATES.map((template) => (

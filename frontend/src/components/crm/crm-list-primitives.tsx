@@ -323,26 +323,30 @@ const MemoizedTableRow = memo(function MemoizedTableRow<TRecord, TColumnKey exte
   cellPaddingClass,
   bodyTextClass,
   onToggleRow,
+  onRowClick,
 }: {
   row: TRecord;
   id: string;
   selected: boolean;
   selectable: boolean;
-  visibleColumns: Array<ColumnDefinition<TRecord, TColumnKey, any>>;
+  visibleColumns: Array<ColumnDefinition<TRecord, TColumnKey, string>>;
   actionColumn?: { header: string; className?: string; renderCell: (record: TRecord) => ReactNode };
   cellPaddingClass: string;
   bodyTextClass: string;
   onToggleRow?: (rowId: string, checked: boolean) => void;
+  onRowClick?: (record: TRecord) => void;
 }) {
   return (
     <tr
       className={cn(
         "group transition-colors",
+        onRowClick && "cursor-pointer",
         selected ? "bg-sky-50/70" : "bg-white hover:bg-slate-50/75",
       )}
+      onClick={() => onRowClick?.(row)}
     >
       {selectable ? (
-        <td className={cn("sticky left-0 z-10 border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)}>
+        <td className={cn("sticky left-0 z-10 border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)} onClick={(event) => event.stopPropagation()}>
           <Checkbox
             checked={selected}
             onCheckedChange={(checked) => onToggleRow?.(id, checked === true)}
@@ -355,7 +359,7 @@ const MemoizedTableRow = memo(function MemoizedTableRow<TRecord, TColumnKey exte
           {column.renderCell(row)}
         </td>
       ))}
-      {actionColumn ? <td className={cn("sticky right-0 z-10 min-w-[170px] border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)}>{actionColumn.renderCell(row)}</td> : null}
+      {actionColumn ? <td className={cn("sticky right-0 z-10 min-w-[170px] border-b border-border/50 align-middle", selected ? "bg-sky-50/70" : "bg-white group-hover:bg-slate-50/75", cellPaddingClass)} onClick={(event) => event.stopPropagation()}>{actionColumn.renderCell(row)}</td> : null}
     </tr>
   );
 }) as <TRecord, TColumnKey extends string>(props: {
@@ -363,11 +367,12 @@ const MemoizedTableRow = memo(function MemoizedTableRow<TRecord, TColumnKey exte
   id: string;
   selected: boolean;
   selectable: boolean;
-  visibleColumns: Array<ColumnDefinition<TRecord, TColumnKey, any>>;
+  visibleColumns: Array<ColumnDefinition<TRecord, TColumnKey, string>>;
   actionColumn?: { header: string; className?: string; renderCell: (record: TRecord) => ReactNode };
   cellPaddingClass: string;
   bodyTextClass: string;
   onToggleRow?: (rowId: string, checked: boolean) => void;
+  onRowClick?: (record: TRecord) => void;
 }) => ReactNode;
 
 export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extends string>({
@@ -381,6 +386,7 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
   selectedRowIds = [],
   onToggleRow,
   onToggleAllVisible,
+  onRowClick,
   sortBy,
   sortDir,
   onSort,
@@ -397,6 +403,7 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
   selectedRowIds?: string[];
   onToggleRow?: (rowId: string, checked: boolean) => void;
   onToggleAllVisible?: (checked: boolean) => void;
+  onRowClick?: (record: TRecord) => void;
   sortBy?: TSortKey;
   sortDir?: CrmSortDirection;
   onSort?: (sortKey: TSortKey) => void;
@@ -563,6 +570,7 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
                         cellPaddingClass={cellPaddingClass}
                         bodyTextClass={bodyTextClass}
                         onToggleRow={onToggleRow}
+                        onRowClick={onRowClick}
                       />
                     );
                   })}
@@ -588,6 +596,7 @@ export function CrmDataTable<TRecord, TColumnKey extends string, TSortKey extend
                       cellPaddingClass={cellPaddingClass}
                       bodyTextClass={bodyTextClass}
                       onToggleRow={onToggleRow}
+                      onRowClick={onRowClick}
                     />
                   );
                 })

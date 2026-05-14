@@ -1,11 +1,10 @@
-/* eslint-disable @next/next/no-html-link-for-pages */
 "use client";
 
 import Image from "next/image";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, memo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, memo, type ReactNode } from "react";
 import {
   Bell,
   BriefcaseBusiness,
@@ -18,7 +17,6 @@ import {
   ChevronsRight,
   FileText,
   FileBox,
-  GraduationCap,
   HeartHandshake,
   Inbox,
   LayoutDashboard,
@@ -30,7 +28,6 @@ import {
   Network,
   PanelsTopLeft,
   Plug,
-  Puzzle,
   ScanSearch,
   Settings2,
   Shield,
@@ -277,11 +274,9 @@ const SidebarNav = memo(function SidebarNav({
 
 export function AppShell({
   title,
-  description,
   children,
 }: {
   title: string;
-  description: string;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -356,34 +351,22 @@ export function AppShell({
 
   const breadcrumbItems = useMemo(() => {
     const itemMap = new Map(navItems.map((item) => [item.href, item.label]));
-    const items = [{ href: "/dashboard", label: "Home" }];
+    const segments = pathname.split("/").filter(Boolean);
+    const items: Array<{ href: string; label: string }> = [];
 
-    if (pathname.startsWith("/dashboard/contacts/")) {
-      items.push({ href: "/dashboard/contacts", label: "Contact" });
-      items.push({ href: pathname, label: title });
-    } else if (pathname.startsWith("/dashboard/leads/")) {
-      items.push({ href: "/dashboard/leads", label: "Leads" });
-      items.push({ href: pathname, label: title });
-    } else if (pathname.startsWith("/dashboard/deals/")) {
-      items.push({ href: "/dashboard/deals", label: "Deals" });
-      items.push({ href: pathname, label: title });
-    } else if (pathname.startsWith("/dashboard/tasks/")) {
-      items.push({ href: "/dashboard/tasks", label: "Tasks" });
-      items.push({ href: pathname, label: title });
-    } else if (pathname.startsWith("/dashboard/meetings/")) {
-      items.push({ href: "/dashboard/meetings", label: "Meetings" });
-      items.push({ href: pathname, label: title });
-    } else if (pathname.startsWith("/dashboard/forms/")) {
-      items.push({ href: "/dashboard/forms", label: "Forms" });
-      items.push({ href: pathname, label: title });
-    } else if (pathname.startsWith("/dashboard/documents/files/")) {
-      items.push({ href: "/dashboard/documents", label: "Files" });
-      items.push({ href: pathname, label: title });
-    } else if (pathname !== "/dashboard") {
-      items.push({
-        href: pathname,
-        label: itemMap.get(pathname) ?? formatBreadcrumbLabel(pathname.split("/").filter(Boolean).at(-1) ?? title),
-      });
+    segments.forEach((segment, index) => {
+      const href = `/${segments.slice(0, index + 1).join("/")}`;
+      if (href === "/dashboard") {
+        items.push({ href, label: "Home" });
+        return;
+      }
+
+      const label = itemMap.get(href) ?? (href === pathname ? title : formatBreadcrumbLabel(segment));
+      items.push({ href, label });
+    });
+
+    if (items.length === 0) {
+      items.push({ href: "/dashboard", label: "Home" });
     }
 
     if (activeTab) {
@@ -651,7 +634,7 @@ export function AppShell({
 
         <div className="flex min-h-0 flex-col lg:h-full">
           <header className="z-30 mb-4 shrink-0 rounded-[1.4rem] border border-sky-200/70 bg-white px-3 py-2 shadow-[0_18px_45px_-32px_rgba(56,122,199,0.22)] lg:sticky lg:top-4 lg:mb-4 lg:rounded-[1.4rem] lg:border lg:px-4">
-            <div className="flex gap-3 lg:items-start lg:justify-between">
+            <div className="flex gap-3 lg:items-center lg:justify-between">
               <div className="min-w-0 flex-1">
                 <nav className="flex flex-wrap items-center gap-1 text-xs text-sky-700 lg:text-sm">
                   {breadcrumbItems.map((item, index) => {
@@ -671,10 +654,9 @@ export function AppShell({
                     );
                   })}
                 </nav>
-                <p className="mt-0.5 text-sm text-sky-700">{description}</p>
               </div>
 
-              <div className="flex shrink-0 items-start gap-2 self-start">
+              <div className="flex shrink-0 items-center gap-2 self-center">
                 <NotificationPreview
                   enabled={canAccessNotifications && !loading && Boolean(activeMembership)}
                   refreshKey={activeMembership?.membershipId ?? "none"}

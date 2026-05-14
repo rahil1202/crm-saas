@@ -8,8 +8,10 @@ import {
   chatbotFlowVersions,
   conversationStates,
   socialConversations,
+  tasks,
 } from "@/db/schema";
 import { AppError } from "@/lib/errors";
+import { patchConversation } from "@/lib/whatsapp-inbox";
 import { findOrCreateWhatsappConversation, sendWhatsappMessage } from "@/lib/whatsapp-runtime";
 import type {
   ChatbotConditionOperator,
@@ -170,7 +172,7 @@ export function resolveNextNode(input: {
   }
 
   return {
-    nextNode: null,
+    nextNode: getNextNodeByHandle(definition, node.id),
     context,
     pause: false,
   };
@@ -353,6 +355,146 @@ async function loadConversationContext(companyId: string, socialConversationId: 
   return conversation;
 }
 
+function normalizeTaskPriority(priority: string | undefined) {
+  return priority === "low" || priority === "high" ? priority : "medium";
+}
+
+async function executeRuntimeNodeAction(input: {
+  companyId: string;
+  flow: FlowRow;
+  execution: ExecutionRow;
+  conversation: RuntimeConversationContext;
+  node: ChatbotFlowNode;
+  context: Record<string, unknown>;
+  deps: ExecutionDependencies;
+}) {
+  const { companyId, flow, execution, conversation, node, context, deps } = input;
+
+  switch (node.type) {
+    case "ai_reply": {
+      if (node.config.fallbackBody?.trim()) {
+        const rendered = renderNodeResponse(node.config.fallbackBody, context);
+        await deps.sendMessage({ body: rendered });
+        await appendExecutionLog({
+          companyId,
+          executionId: execution.id,
+          nodeId: node.id,
+          eventType: "ai_reply.fallback_sent",
+          message: "Sent configured AI fallback reply",
+          payload: { body: rendered },
+        });
+      } else {
+        await appendExecutionLog({
+          companyId,
+          executionId: execution.id,
+          nodeId: node.id,
+          eventType: "ai_reply.skipped",
+          message: "AI reply has no fallback message configured",
+        });
+      }
+      break;
+    }
+
+    case "assign_agent": {
+      if (node.config.userId) {
+        await patchConversation(companyId, conversation.socialConversationId, {
+          assignedToUserId: node.config.userId,
+        });
+        await appendExecutionLog({
+          companyId,
+          executionId: execution.id,
+          nodeId: node.id,
+          eventType: "conversation.assigned",
+          message: "Assigned conversation to agent",
+          payload: { assignedToUserId: node.config.userId },
+        });
+      }
+      break;
+    }
+
+    case "assign_tag": {
+      if (node.config.tagId) {
+        const [row] = await db
+          .select({ tagIds: socialConversations.tagIds })
+          .from(socialConversations)
+          .where(and(eq(socialConversations.companyId, companyId), eq(socialConversations.id, conversation.socialConversationId)))
+          .limit(1);
+        const currentTags = (row?.tagIds ?? []) as string[];
+        if (!currentTags.includes(node.config.tagId)) {
+          await patchConversation(companyId, conversation.socialConversationId, {
+            tagIds: [...currentTags, node.config.tagId],
+          });
+        }
+        await appendExecutionLog({
+          companyId,
+          executionId: execution.id,
+          nodeId: node.id,
+          eventType: "conversation.tagged",
+          message: "Tagged conversation",
+          payload: { tagId: node.config.tagId },
+        });
+      }
+      break;
+    }
+
+    case "create_task": {
+      const title = renderNodeResponse(node.config.title, context);
+      await db.insert(tasks).values({
+        companyId,
+        title,
+        taskType: "follow_up",
+        status: "todo",
+        priority: normalizeTaskPriority(node.config.priority),
+        assignedToUserId: node.config.assignToUserId ?? null,
+        dueAt: new Date(Date.now() + node.config.dueInHours * 60 * 60 * 1000),
+        createdBy: flow.createdBy,
+      });
+      await appendExecutionLog({
+        companyId,
+        executionId: execution.id,
+        nodeId: node.id,
+        eventType: "task.created",
+        message: "Created follow-up task",
+        payload: { title },
+      });
+      break;
+    }
+
+    case "human_handoff": {
+      if (node.config.message?.trim()) {
+        const rendered = renderNodeResponse(node.config.message, context);
+        await deps.sendMessage({ body: rendered });
+      }
+      await patchConversation(companyId, conversation.socialConversationId, {
+        humanTakeoverEnabled: true,
+        ...(node.config.assignToUserId ? { assignedToUserId: node.config.assignToUserId } : {}),
+      });
+      await appendExecutionLog({
+        companyId,
+        executionId: execution.id,
+        nodeId: node.id,
+        eventType: "handoff.enabled",
+        message: "Enabled human handoff",
+      });
+      break;
+    }
+
+    case "delay":
+    case "keyword_trigger":
+    case "send_template":
+    case "webhook":
+    case "crm_update":
+      await appendExecutionLog({
+        companyId,
+        executionId: execution.id,
+        nodeId: node.id,
+        eventType: `${node.type}.passed`,
+        message: `${node.type} node passed through during WhatsApp runtime execution`,
+      });
+      break;
+  }
+}
+
 async function persistConversationState(input: {
   companyId: string;
   socialConversationId: string;
@@ -449,6 +591,16 @@ async function executeFlowUntilPauseOrEnd(input: {
         payload: { body: rendered },
       });
     }
+
+    await executeRuntimeNodeAction({
+      companyId: input.companyId,
+      flow: input.flow,
+      execution: input.execution,
+      conversation: input.conversation,
+      node: currentNode,
+      context,
+      deps,
+    });
 
     if (currentNode.type === "end") {
       const finalState = {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { Maximize2, Minus, Plus } from "lucide-react";
 
 import type { CanvasEdge, CanvasNode } from "./canvas-types";
 import { FlowEdges } from "./flow-edges";
@@ -132,7 +133,7 @@ export function FlowCanvas({
   return (
     <div
       ref={containerRef}
-      className="relative flex-1 overflow-hidden bg-slate-50 cursor-crosshair"
+      className="relative min-w-0 flex-1 cursor-crosshair overflow-hidden bg-slate-50"
       style={{
         backgroundImage:
           "radial-gradient(circle, #e2e8f0 1px, transparent 1px)",
@@ -147,12 +148,31 @@ export function FlowCanvas({
       onDrop={handleDrop}
       data-canvas="true"
     >
-      {/* Zoom indicator */}
-      <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2 rounded-lg bg-white/90 px-2 py-1 text-xs font-medium text-slate-600 shadow-sm border border-border/60">
-        <button type="button" onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))} className="px-1 hover:text-slate-900">−</button>
-        <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => setZoom((z) => Math.min(2, z + 0.1))} className="px-1 hover:text-slate-900">+</button>
-        <button type="button" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="ml-1 px-1 text-emerald-600 hover:text-emerald-800">Reset</button>
+      <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-xl border border-border/60 bg-white/90 px-3 py-2 text-xs text-slate-600 shadow-sm">
+        Drag blank canvas to pan. Use the node plus handle to connect steps.
+      </div>
+
+      {nodes.length === 0 ? (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-6">
+          <div className="max-w-sm rounded-xl border border-dashed border-border/70 bg-white/85 p-5 text-center shadow-sm">
+            <div className="text-sm font-semibold text-slate-800">Start building your WhatsApp flow</div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">Drag a trigger or message from the left panel onto the canvas.</p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Zoom controls */}
+      <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1 rounded-xl border border-border/60 bg-white/95 p-1 text-xs font-medium text-slate-600 shadow-sm">
+        <button type="button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))} className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-100 hover:text-slate-900">
+          <Minus className="size-3.5" />
+        </button>
+        <span className="w-11 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+        <button type="button" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(2, z + 0.1))} className="flex size-7 items-center justify-center rounded-lg hover:bg-slate-100 hover:text-slate-900">
+          <Plus className="size-3.5" />
+        </button>
+        <button type="button" aria-label="Reset canvas view" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="flex size-7 items-center justify-center rounded-lg text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800">
+          <Maximize2 className="size-3.5" />
+        </button>
       </div>
 
       {/* Canvas transform layer */}
