@@ -17,7 +17,16 @@ export type CompanyModuleKey =
   | "partners"
   | "documents"
   | "notifications"
-  | "integrations";
+  | "integrations"
+  | "whatsapp-crm"
+  | "whatsapp-integrations"
+  | "whatsapp-inbox"
+  | "whatsapp-contacts"
+  | "whatsapp-campaigns"
+  | "whatsapp-templates"
+  | "whatsapp-flow-builder"
+  | "whatsapp-analytics"
+  | "whatsapp-settings";
 
 export interface AuthUser {
   id: string;

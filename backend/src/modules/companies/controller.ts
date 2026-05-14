@@ -137,6 +137,11 @@ async function loadCompanySnapshot(companyId: string) {
     .orderBy(desc(referralAttributions.createdAt));
 
   const [plan] = await db.select().from(companyPlans).where(eq(companyPlans.companyId, companyId)).limit(1);
+  const activeMemberEmails = new Set(
+    memberRows
+      .filter((member) => member.status === "active")
+      .map((member) => member.email.toLowerCase()),
+  );
 
   const externalInviteRows = await db
     .select({
@@ -184,10 +189,12 @@ async function loadCompanySnapshot(companyId: string) {
     stores: storeRows,
     customRoles: customRoleRows,
     members: memberRows,
-    invites: inviteRows.map((invite) => ({
-      ...invite,
-      inviteUrl: `${env.FRONTEND_URL}/register?inviteToken=${encodeURIComponent(invite.token)}${invite.referralCode ? `&referralCode=${encodeURIComponent(invite.referralCode)}` : ""}`,
-    })),
+    invites: inviteRows
+      .filter((invite) => invite.status === "pending" && invite.expiresAt.getTime() > Date.now() && !activeMemberEmails.has(invite.email.toLowerCase()))
+      .map((invite) => ({
+        ...invite,
+        inviteUrl: `${env.FRONTEND_URL}/register?inviteToken=${encodeURIComponent(invite.token)}${invite.referralCode ? `&referralCode=${encodeURIComponent(invite.referralCode)}` : ""}`,
+      })),
     referralCodes: referralCodeRows.map((item) => ({
       ...item,
       referralUrl: `${env.FRONTEND_URL}/register?referralCode=${encodeURIComponent(item.code)}`,

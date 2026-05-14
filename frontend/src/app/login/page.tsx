@@ -17,11 +17,13 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAuthMe, resolveAuthenticatedRoute } from "@/lib/auth-client";
+import { clearCachedMe } from "@/lib/me-cache";
 import { resolveAuthenticatedRouteFromMe } from "@/lib/partner-access";
 import { useAsyncForm } from "@/hooks/use-async-form";
 import { apiRequest } from "@/lib/api";
 import { getFrontendEnv } from "@/lib/env";
 import { clearPendingIntegrationOauthContext } from "@/lib/integration-oauth";
+import { clearPendingInviteReferralContext, readPendingInviteReferralContext, savePendingInviteReferralContext } from "@/lib/invite-referral";
 import { supabase } from "@/lib/supabase";
 import { requestBrowserNotificationPermission } from "@/features/notifications/browser-notifications";
 
@@ -29,6 +31,8 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const env = getFrontendEnv();
+  const inviteTokenFromUrl = searchParams.get("inviteToken");
+  const referralCodeFromUrl = searchParams.get("referralCode");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -51,6 +55,15 @@ function LoginPageContent() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (inviteTokenFromUrl || referralCodeFromUrl) {
+      savePendingInviteReferralContext({
+        inviteToken: inviteTokenFromUrl,
+        referralCode: referralCodeFromUrl,
+      });
+    }
+  }, [inviteTokenFromUrl, referralCodeFromUrl]);
+
+  useEffect(() => {
     let disposed = false;
 
     const bootstrap = async () => {
@@ -68,18 +81,30 @@ function LoginPageContent() {
       try {
         const { data } = await supabase.auth.getSession();
         const accessToken = data.session?.access_token;
+        const storedPendingInviteReferral = readPendingInviteReferralContext();
+        const pendingInviteReferral = {
+          inviteToken: inviteTokenFromUrl ?? storedPendingInviteReferral.inviteToken,
+          referralCode: referralCodeFromUrl ?? storedPendingInviteReferral.referralCode,
+        };
         if (accessToken && !disposed) {
           const exchangeResponse = await fetch(`${env.apiUrl}/api/v1/auth/exchange-supabase`, {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ supabaseAccessToken: accessToken }),
+            body: JSON.stringify({
+              supabaseAccessToken: accessToken,
+              inviteToken: pendingInviteReferral.inviteToken,
+              referralCode: pendingInviteReferral.referralCode,
+            }),
             signal: AbortSignal.timeout(8000),
           });
 
           if (exchangeResponse.ok && !disposed) {
+            const exchangePayload = (await exchangeResponse.json()) as { data?: { inviteAccepted?: boolean } };
             await supabase.auth.signOut().catch(() => null);
-            router.replace(await resolveAuthenticatedRoute());
+            clearPendingInviteReferralContext();
+            clearCachedMe();
+            router.replace(exchangePayload.data?.inviteAccepted ? "/company-onboarding-tour" : await resolveAuthenticatedRoute());
             return;
           }
         }
@@ -97,25 +122,44 @@ function LoginPageContent() {
     return () => {
       disposed = true;
     };
-  }, [env.apiUrl, router]);
+  }, [env.apiUrl, inviteTokenFromUrl, referralCodeFromUrl, router]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setInfo(null);
 
     try {
+      const storedPendingInviteReferral = readPendingInviteReferralContext();
+      const pendingInviteReferral = {
+        inviteToken: inviteTokenFromUrl ?? storedPendingInviteReferral.inviteToken,
+        referralCode: referralCodeFromUrl ?? storedPendingInviteReferral.referralCode,
+      };
+      let inviteAccepted = false;
       await runSubmit(
-        () =>
-          apiRequest("/auth/login", {
+        async () => {
+          const response = await apiRequest<{ inviteAccepted?: boolean; inviteError?: string | null }>("/auth/login", {
             method: "POST",
-            body: JSON.stringify({ email, password }),
-          }),
+            body: JSON.stringify({
+              email,
+              password,
+              inviteToken: pendingInviteReferral.inviteToken,
+              referralCode: pendingInviteReferral.referralCode,
+            }),
+          });
+          inviteAccepted = response.inviteAccepted === true;
+          if (response.inviteError) {
+            toast.warning(response.inviteError);
+          }
+          return response;
+        },
         "Login failed",
       );
       toast.success("Signed in successfully.");
+      clearPendingInviteReferralContext();
+      clearCachedMe();
       // Ask for browser notification permission after a successful login
       void requestBrowserNotificationPermission();
-      router.replace(await resolveAuthenticatedRoute());
+      router.replace(inviteAccepted ? "/company-onboarding-tour" : await resolveAuthenticatedRoute());
     } catch {
       return;
     }

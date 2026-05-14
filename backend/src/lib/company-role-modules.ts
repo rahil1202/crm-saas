@@ -17,6 +17,15 @@ export const companyRoleModules = [
   "documents",
   "notifications",
   "integrations",
+  "whatsapp-crm",
+  "whatsapp-integrations",
+  "whatsapp-inbox",
+  "whatsapp-contacts",
+  "whatsapp-campaigns",
+  "whatsapp-templates",
+  "whatsapp-flow-builder",
+  "whatsapp-analytics",
+  "whatsapp-settings",
 ] as const;
 
 export type CompanyRoleModule = (typeof companyRoleModules)[number];
@@ -34,6 +43,9 @@ export const partnerRoleModules: CompanyRoleModule[] = [
   "reports",
   "documents",
   "integrations",
+  "whatsapp-crm",
+  "whatsapp-inbox",
+  "whatsapp-contacts",
 ];
 
 export function mergeCompanyRoleModules(modules: readonly CompanyRoleModule[]) {

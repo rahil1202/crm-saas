@@ -78,7 +78,7 @@ type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   minRole: CompanyRole;
-  moduleKey?: "outreach" | "contacts" | "leads" | "deals" | "forms" | "tasks" | "meetings" | "documents" | "templates" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams";
+  moduleKey?: "outreach" | "contacts" | "leads" | "deals" | "forms" | "tasks" | "meetings" | "documents" | "templates" | "reports" | "campaigns" | "automation" | "integrations" | "social" | "notifications" | "partners" | "settings" | "teams" | "whatsapp-crm" | "whatsapp-integrations" | "whatsapp-inbox" | "whatsapp-contacts" | "whatsapp-campaigns" | "whatsapp-templates" | "whatsapp-flow-builder" | "whatsapp-analytics" | "whatsapp-settings";
   superAdminOnly?: boolean;
   partnerAccessOnly?: boolean;
 };
@@ -103,15 +103,15 @@ const navItems: NavItem[] = [
   { href: "/dashboard/forms", label: "Forms", icon: TextCursorInput, minRole: "admin", moduleKey: "forms" },
   { href: "/dashboard/integrations", label: "Integrations", icon: Link2, minRole: "admin", moduleKey: "integrations" },
   { href: "/dashboard/social", label: "Social", icon: MessageSquareShare, minRole: "admin", moduleKey: "social" },
-  { href: "/dashboard/whatsapp-crm", label: "Dashboard", icon: LayoutDashboard, minRole: "admin" },
-  { href: "/dashboard/whatsapp-crm/integrations", label: "Integrations", icon: Plug, minRole: "admin" },
-  { href: "/dashboard/whatsapp-crm/inbox", label: "Inbox", icon: Inbox, minRole: "admin" },
-  { href: "/dashboard/whatsapp-crm/contacts", label: "Contacts", icon: Users, minRole: "admin" },
-  { href: "/dashboard/whatsapp-crm/campaigns", label: "Campaigns", icon: MailPlus, minRole: "admin" },
-  { href: "/dashboard/whatsapp-crm/templates", label: "Templates", icon: FileText, minRole: "admin" },
-  { href: "/dashboard/whatsapp-crm/flow-builder", label: "Flow Builder", icon: Workflow, minRole: "admin" },
-  { href: "/dashboard/whatsapp-crm/analytics", label: "Analytics", icon: ChartColumnBig, minRole: "admin" },
-  { href: "/dashboard/whatsapp-crm/settings", label: "Settings", icon: Settings2, minRole: "admin" },
+  { href: "/dashboard/whatsapp-crm", label: "Dashboard", icon: LayoutDashboard, minRole: "admin", moduleKey: "whatsapp-crm" },
+  { href: "/dashboard/whatsapp-crm/integrations", label: "Integrations", icon: Plug, minRole: "admin", moduleKey: "whatsapp-integrations" },
+  { href: "/dashboard/whatsapp-crm/inbox", label: "Inbox", icon: Inbox, minRole: "admin", moduleKey: "whatsapp-inbox" },
+  { href: "/dashboard/whatsapp-crm/contacts", label: "Contacts", icon: Users, minRole: "admin", moduleKey: "whatsapp-contacts" },
+  { href: "/dashboard/whatsapp-crm/campaigns", label: "Campaigns", icon: MailPlus, minRole: "admin", moduleKey: "whatsapp-campaigns" },
+  { href: "/dashboard/whatsapp-crm/templates", label: "Templates", icon: FileText, minRole: "admin", moduleKey: "whatsapp-templates" },
+  { href: "/dashboard/whatsapp-crm/flow-builder", label: "Flow Builder", icon: Workflow, minRole: "admin", moduleKey: "whatsapp-flow-builder" },
+  { href: "/dashboard/whatsapp-crm/analytics", label: "Analytics", icon: ChartColumnBig, minRole: "admin", moduleKey: "whatsapp-analytics" },
+  { href: "/dashboard/whatsapp-crm/settings", label: "Settings", icon: Settings2, minRole: "admin", moduleKey: "whatsapp-settings" },
   { href: "/dashboard/notifications", label: "Notifications", icon: Bell, minRole: "admin", moduleKey: "notifications" },
   { href: "/dashboard/team", label: "Team", icon: Users, minRole: "admin", moduleKey: "teams" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings2, minRole: "admin", moduleKey: "settings" },
@@ -139,8 +139,8 @@ const navGroups = [
       "/dashboard/whatsapp-crm/settings",
     ],
   },
-  { id: "users", label: "Users", hrefs: ["/dashboard/meetings", "/dashboard/team", "/dashboard/partners", "/dashboard/settings", "/dashboard/invite"] },
-  { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin"] },
+  { id: "users", label: "Users", hrefs: ["/dashboard/meetings", "/dashboard/team", "/dashboard/partners", "/dashboard/settings"] },
+  { id: "addons", label: "Add Ons", hrefs: ["/dashboard/integrations", "/dashboard/reports", "/dashboard/super-admin" , "/dashboard/invite" ] },
 ];
 
 const navGroupItemOverrides: Record<string, Record<string, { label?: string; icon?: NavItem["icon"] }>> = {

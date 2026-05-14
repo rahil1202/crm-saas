@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 
 import type { AppEnv } from "@/app/route";
-import { requireAuth, requireRole, requireTenant } from "@/middleware/auth";
+import { requireAuth, requireModuleAccess, requireRole, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
 import {
   addAudienceController,
@@ -35,27 +35,27 @@ export const whatsappCampaignRoutes = new Hono<AppEnv>();
 whatsappCampaignRoutes.use("*", requireAuth, requireTenant);
 
 // Campaigns CRUD
-whatsappCampaignRoutes.get("/whatsapp/campaigns", validateQuery(listCampaignsSchema), listCampaigns);
-whatsappCampaignRoutes.get("/whatsapp/campaigns/:campaignId", getCampaign);
-whatsappCampaignRoutes.post("/whatsapp/campaigns", requireRole("admin"), validateJson(createCampaignSchema), createCampaignController);
-whatsappCampaignRoutes.patch("/whatsapp/campaigns/:campaignId", requireRole("admin"), validateJson(updateCampaignSchema), updateCampaignController);
-whatsappCampaignRoutes.delete("/whatsapp/campaigns/:campaignId", requireRole("admin"), deleteCampaignController);
+whatsappCampaignRoutes.get("/whatsapp/campaigns", requireModuleAccess("whatsapp-campaigns"), validateQuery(listCampaignsSchema), listCampaigns);
+whatsappCampaignRoutes.get("/whatsapp/campaigns/:campaignId", requireModuleAccess("whatsapp-campaigns"), getCampaign);
+whatsappCampaignRoutes.post("/whatsapp/campaigns", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), validateJson(createCampaignSchema), createCampaignController);
+whatsappCampaignRoutes.patch("/whatsapp/campaigns/:campaignId", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), validateJson(updateCampaignSchema), updateCampaignController);
+whatsappCampaignRoutes.delete("/whatsapp/campaigns/:campaignId", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), deleteCampaignController);
 
 // Audience
-whatsappCampaignRoutes.get("/whatsapp/campaigns/:campaignId/audience", listAudienceController);
-whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/audience", requireRole("admin"), validateJson(addAudienceSchema), addAudienceController);
-whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/audience/segment", requireRole("admin"), validateJson(addAudienceFromSegmentSchema), addAudienceFromSegmentController);
+whatsappCampaignRoutes.get("/whatsapp/campaigns/:campaignId/audience", requireModuleAccess("whatsapp-campaigns"), listAudienceController);
+whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/audience", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), validateJson(addAudienceSchema), addAudienceController);
+whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/audience/segment", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), validateJson(addAudienceFromSegmentSchema), addAudienceFromSegmentController);
 
 // Lifecycle
-whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/start", requireRole("admin"), startCampaignController);
-whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/pause", requireRole("admin"), pauseCampaignController);
-whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/cancel", requireRole("admin"), cancelCampaignController);
-whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/duplicate", requireRole("admin"), duplicateCampaignController);
+whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/start", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), startCampaignController);
+whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/pause", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), pauseCampaignController);
+whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/cancel", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), cancelCampaignController);
+whatsappCampaignRoutes.post("/whatsapp/campaigns/:campaignId/duplicate", requireModuleAccess("whatsapp-campaigns"), requireRole("admin"), duplicateCampaignController);
 
 // Analytics
-whatsappCampaignRoutes.get("/whatsapp/campaigns/:campaignId/analytics", getCampaignAnalyticsController);
-whatsappCampaignRoutes.get("/whatsapp/campaigns/:campaignId/logs", getCampaignLogs);
-whatsappCampaignRoutes.get("/whatsapp/analytics", validateQuery(analyticsQuerySchema), getGlobalAnalyticsController);
+whatsappCampaignRoutes.get("/whatsapp/campaigns/:campaignId/analytics", requireModuleAccess("whatsapp-campaigns"), getCampaignAnalyticsController);
+whatsappCampaignRoutes.get("/whatsapp/campaigns/:campaignId/logs", requireModuleAccess("whatsapp-campaigns"), getCampaignLogs);
+whatsappCampaignRoutes.get("/whatsapp/analytics", requireModuleAccess("whatsapp-analytics"), validateQuery(analyticsQuerySchema), getGlobalAnalyticsController);
 
 // Template test send
-whatsappCampaignRoutes.post("/whatsapp/templates/test-send", requireRole("admin"), validateJson(testSendSchema), testTemplateSend);
+whatsappCampaignRoutes.post("/whatsapp/templates/test-send", requireModuleAccess("whatsapp-templates"), requireRole("admin"), validateJson(testSendSchema), testTemplateSend);

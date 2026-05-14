@@ -601,12 +601,24 @@ export async function registerWithSupabase(input: {
   email: string;
   password: string;
   fullName: string;
+  inviteToken?: string | null;
+  referralCode?: string | null;
 }): Promise<{
   userId: string | null;
   email: string | null;
   emailConfirmationRequired: boolean;
 }> {
-  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/signup`, {
+  const signupUrl = new URL(`${env.SUPABASE_URL}/auth/v1/signup`);
+  const redirectUrl = new URL(env.AUTH_CALLBACK_URL);
+  if (input.inviteToken) {
+    redirectUrl.searchParams.set("inviteToken", input.inviteToken);
+  }
+  if (input.referralCode) {
+    redirectUrl.searchParams.set("referralCode", input.referralCode);
+  }
+  signupUrl.searchParams.set("redirect_to", redirectUrl.toString());
+
+  const response = await fetch(signupUrl.toString(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -617,12 +629,6 @@ export async function registerWithSupabase(input: {
       password: input.password,
       data: {
         full_name: input.fullName,
-      },
-      options: {
-        emailRedirectTo: env.AUTH_CALLBACK_URL,
-        data: {
-          full_name: input.fullName,
-        },
       },
     }),
   });

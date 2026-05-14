@@ -31,6 +31,10 @@ interface InviteLookupResponse {
     email: string;
     role: string;
     storeId: string | null;
+    companyName: string | null;
+    storeName: string | null;
+    fullName: string | null;
+    inviterName: string | null;
     referralCode: string | null;
     inviteMessage: string | null;
     expiresAt: string;
@@ -120,6 +124,10 @@ function RegisterPageContent() {
         }
 
         setInviteLookup(response.invite);
+        if (response.invite.fullName) {
+          setFullName(response.invite.fullName);
+        }
+        setEmail(response.invite.email);
         setInviteWarning(null);
       } catch {
         if (!disposed) {
@@ -176,10 +184,7 @@ function RegisterPageContent() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!acknowledged || !policyConfirmed) {
-      if (!policyConfirmed) {
-        setPolicyModalOpen(true);
-      }
+    if (!acknowledged) {
       return;
     }
 
@@ -256,16 +261,23 @@ function RegisterPageContent() {
     externalInviteLookup?.inviterEmail ??
     externalInviteLookup?.companyName ??
     null;
+  const loginHref =
+    inviteToken || referralCode
+      ? `/auth/login?${new URLSearchParams({
+          ...(inviteToken ? { inviteToken } : {}),
+          ...(referralCode ? { referralCode } : {}),
+        }).toString()}`
+      : "/auth/login";
 
   return (
     <AuthShell
       // badge="Register"
-      title="Create the first operator account"
+      title={inviteLookup ? `Join ${inviteLookup.companyName ?? "your CRM workspace"}` : "Create the first operator account"}
       // description="Registration is email-first. After verification, the callback sends the user into workspace onboarding automatically."
       footer={
         <div className="flex flex-wrap items-center gap-2">
           <span>Already registered?</span>
-          <Link href="/auth/login" className="font-medium text-foreground underline underline-offset-4">
+          <Link href={loginHref} className="font-medium text-foreground underline underline-offset-4">
             Sign in
           </Link>
         </div>
@@ -371,7 +383,7 @@ function RegisterPageContent() {
             <MailCheck />
             <AlertTitle>Verification email sent</AlertTitle>
             <AlertDescription>
-              Open the verification email sent to <strong>{successEmail}</strong>. Once the link is confirmed, this account can continue directly into onboarding.
+              Open the verification email sent to <strong>{successEmail}</strong>. Once the link is confirmed, this account can continue into the workspace.
             </AlertDescription>
           </Alert>
           {inviteLookup || externalInviteLookup || referralCode ? (
@@ -380,7 +392,7 @@ function RegisterPageContent() {
               <AlertTitle>Invite or referral captured</AlertTitle>
               <AlertDescription>
                 {inviteLookup
-                  ? `This account will try to accept the ${inviteLookup.role} invite for ${inviteLookup.email} after verification.`
+                  ? `This account will join ${inviteLookup.companyName ?? "the CRM workspace"} as ${inviteLookup.role} after verification.`
                   : externalInviteLookup
                     ? `This link is valid for ${externalInviteLookup.companyName} until ${new Date(externalInviteLookup.expiresAt).toLocaleString()}.`
                   : "Referral attribution is saved and will continue after verification."}
@@ -429,9 +441,11 @@ function RegisterPageContent() {
             {inviteLookup ? (
               <Alert>
                 <CheckCircle2 />
-                <AlertTitle>Invite recognized</AlertTitle>
+                <AlertTitle>CRM workspace invite recognized</AlertTitle>
                 <AlertDescription>
-                  {inviteLookup.email} is invited as <strong>{inviteLookup.role}</strong>.
+                  {inviteLookup.inviterName ? `${inviteLookup.inviterName} invited you` : "You were invited"} to join{" "}
+                  <strong>{inviteLookup.companyName ?? "this company"}</strong> as <strong>{inviteLookup.role}</strong>
+                  {inviteLookup.storeName ? ` with ${inviteLookup.storeName} branch access` : " with company-wide access"}.
                   {inviteLookup.inviteMessage ? ` Message: ${inviteLookup.inviteMessage}` : ""}
                 </AlertDescription>
               </Alert>
@@ -490,9 +504,11 @@ function RegisterPageContent() {
                       clearFieldError("email");
                       setEmail(event.target.value);
                     }}
+                    readOnly={Boolean(inviteLookup)}
                     required
                     className="border-sky-200/90 focus-visible:border-sky-400 focus-visible:ring-sky-100"
                   />
+                  {inviteLookup ? <FieldDescription>This email must match the team invite.</FieldDescription> : null}
                   <FieldError errors={fieldErrors.email?.map((message) => ({ message }))} />
                 </Field>
                 <Field>

@@ -49,44 +49,46 @@ import {
   whatsappTemplateSchema,
   whatsappWorkspaceSchema,
 } from "@/modules/whatsapp/schema";
-import { requireAuth, requireRole, requireTenant } from "@/middleware/auth";
+import { requireAnyModuleAccess, requireAuth, requireModuleAccess, requireRole, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
 
 export const whatsappRoutes = new Hono<AppEnv>();
 whatsappRoutes.use("*", requireAuth, requireTenant);
 
-whatsappRoutes.get("/whatsapp", getWhatsappOverview);
-whatsappRoutes.get("/whatsapp/dashboard/stats", getWhatsappDashboardStats);
-whatsappRoutes.get("/whatsapp/dashboard/connections", getWhatsappDashboardConnections);
+whatsappRoutes.get("/whatsapp", requireModuleAccess("whatsapp-crm"), getWhatsappOverview);
+whatsappRoutes.get("/whatsapp/dashboard/stats", requireModuleAccess("whatsapp-crm"), getWhatsappDashboardStats);
+whatsappRoutes.get("/whatsapp/dashboard/connections", requireAnyModuleAccess(["whatsapp-crm", "whatsapp-integrations", "whatsapp-settings"]), getWhatsappDashboardConnections);
 whatsappRoutes.get(
   "/whatsapp/dashboard/recent-events",
+  requireModuleAccess("whatsapp-crm"),
   validateQuery(whatsappDashboardSchemas.recentEventsQuerySchema),
   getWhatsappRecentWebhookEvents,
 );
 whatsappRoutes.get(
   "/whatsapp/dashboard/recent-activity",
+  requireModuleAccess("whatsapp-crm"),
   validateQuery(whatsappDashboardSchemas.recentActivityQuerySchema),
   getWhatsappRecentActivity,
 );
-whatsappRoutes.get("/whatsapp/onboarding/status", getWhatsappOnboardingStatus);
-whatsappRoutes.post("/whatsapp/onboarding/embedded/exchange", requireRole("admin"), validateJson(embeddedSignupExchangeSchema), exchangeWhatsappEmbeddedSignup);
-whatsappRoutes.post("/whatsapp/messages", requireRole("admin"), validateJson(sendWhatsappApiMessageSchema), sendWhatsappApiMessage);
-whatsappRoutes.get("/whatsapp/messages/:messageId", getWhatsappApiMessage);
-whatsappRoutes.get("/whatsapp/conversations/:conversationId/session", getWhatsappConversationSession);
-whatsappRoutes.post("/whatsapp/media", requireRole("admin"), validateJson(createWhatsappMediaSchema), createWhatsappMedia);
-whatsappRoutes.get("/whatsapp/pricing/rates", validateQuery(listWhatsappPricingRatesSchema), listWhatsappPricingRates);
-whatsappRoutes.post("/whatsapp/pricing/estimate", validateJson(whatsappPricingEstimateSchema), estimateWhatsappPricing);
-whatsappRoutes.post("/whatsapp/pricing/import-rate-card", requireRole("admin"), validateJson(whatsappPricingImportSchema), importWhatsappPricing);
-whatsappRoutes.get("/whatsapp-workspaces", validateQuery(listWhatsappWorkspacesSchema), getWhatsappWorkspaces);
-whatsappRoutes.post("/whatsapp-workspaces", requireRole("admin"), validateJson(whatsappWorkspaceSchema), createWhatsappWorkspace);
-whatsappRoutes.patch("/whatsapp-workspaces/:workspaceId", requireRole("admin"), validateJson(updateWhatsappWorkspaceSchema), updateWhatsappWorkspace);
-whatsappRoutes.delete("/whatsapp-workspaces/:workspaceId", requireRole("admin"), deleteWhatsappWorkspace);
-whatsappRoutes.post("/whatsapp/workspaces/:id/sync-meta", requireRole("admin"), syncWhatsappWorkspaceMeta);
-whatsappRoutes.post("/whatsapp/workspaces/:id/test-readiness", requireRole("admin"), testWhatsappWorkspaceReadiness);
-whatsappRoutes.get("/whatsapp-templates", validateQuery(listWhatsappTemplatesSchema), getWhatsappTemplates);
-whatsappRoutes.post("/whatsapp-templates", requireRole("admin"), validateJson(whatsappTemplateSchema), createWhatsappTemplate);
-whatsappRoutes.patch("/whatsapp-templates/:templateId", requireRole("admin"), validateJson(updateWhatsappTemplateSchema), updateWhatsappTemplate);
-whatsappRoutes.post("/whatsapp-templates/sync", requireRole("admin"), validateJson(syncWhatsappTemplateSchema), syncWhatsappTemplate);
-whatsappRoutes.post("/whatsapp-templates/:templateId/submit", requireRole("admin"), validateJson(submitWhatsappTemplateSchema), submitWhatsappTemplate);
-whatsappRoutes.post("/whatsapp-templates/:templateId/refresh", requireRole("admin"), validateJson(submitWhatsappTemplateSchema), refreshWhatsappTemplate);
-whatsappRoutes.delete("/whatsapp-templates/:templateId", requireRole("admin"), deleteWhatsappTemplate);
+whatsappRoutes.get("/whatsapp/onboarding/status", requireModuleAccess("whatsapp-integrations"), getWhatsappOnboardingStatus);
+whatsappRoutes.post("/whatsapp/onboarding/embedded/exchange", requireModuleAccess("whatsapp-integrations"), requireRole("admin"), validateJson(embeddedSignupExchangeSchema), exchangeWhatsappEmbeddedSignup);
+whatsappRoutes.post("/whatsapp/messages", requireModuleAccess("whatsapp-inbox"), requireRole("admin"), validateJson(sendWhatsappApiMessageSchema), sendWhatsappApiMessage);
+whatsappRoutes.get("/whatsapp/messages/:messageId", requireModuleAccess("whatsapp-inbox"), getWhatsappApiMessage);
+whatsappRoutes.get("/whatsapp/conversations/:conversationId/session", requireModuleAccess("whatsapp-inbox"), getWhatsappConversationSession);
+whatsappRoutes.post("/whatsapp/media", requireModuleAccess("whatsapp-inbox"), requireRole("admin"), validateJson(createWhatsappMediaSchema), createWhatsappMedia);
+whatsappRoutes.get("/whatsapp/pricing/rates", requireModuleAccess("whatsapp-integrations"), validateQuery(listWhatsappPricingRatesSchema), listWhatsappPricingRates);
+whatsappRoutes.post("/whatsapp/pricing/estimate", requireModuleAccess("whatsapp-integrations"), validateJson(whatsappPricingEstimateSchema), estimateWhatsappPricing);
+whatsappRoutes.post("/whatsapp/pricing/import-rate-card", requireModuleAccess("whatsapp-integrations"), requireRole("admin"), validateJson(whatsappPricingImportSchema), importWhatsappPricing);
+whatsappRoutes.get("/whatsapp-workspaces", requireModuleAccess("whatsapp-integrations"), validateQuery(listWhatsappWorkspacesSchema), getWhatsappWorkspaces);
+whatsappRoutes.post("/whatsapp-workspaces", requireModuleAccess("whatsapp-integrations"), requireRole("admin"), validateJson(whatsappWorkspaceSchema), createWhatsappWorkspace);
+whatsappRoutes.patch("/whatsapp-workspaces/:workspaceId", requireModuleAccess("whatsapp-integrations"), requireRole("admin"), validateJson(updateWhatsappWorkspaceSchema), updateWhatsappWorkspace);
+whatsappRoutes.delete("/whatsapp-workspaces/:workspaceId", requireModuleAccess("whatsapp-integrations"), requireRole("admin"), deleteWhatsappWorkspace);
+whatsappRoutes.post("/whatsapp/workspaces/:id/sync-meta", requireAnyModuleAccess(["whatsapp-crm", "whatsapp-integrations"]), requireRole("admin"), syncWhatsappWorkspaceMeta);
+whatsappRoutes.post("/whatsapp/workspaces/:id/test-readiness", requireModuleAccess("whatsapp-integrations"), requireRole("admin"), testWhatsappWorkspaceReadiness);
+whatsappRoutes.get("/whatsapp-templates", requireAnyModuleAccess(["whatsapp-templates", "whatsapp-campaigns"]), validateQuery(listWhatsappTemplatesSchema), getWhatsappTemplates);
+whatsappRoutes.post("/whatsapp-templates", requireModuleAccess("whatsapp-templates"), requireRole("admin"), validateJson(whatsappTemplateSchema), createWhatsappTemplate);
+whatsappRoutes.patch("/whatsapp-templates/:templateId", requireModuleAccess("whatsapp-templates"), requireRole("admin"), validateJson(updateWhatsappTemplateSchema), updateWhatsappTemplate);
+whatsappRoutes.post("/whatsapp-templates/sync", requireModuleAccess("whatsapp-templates"), requireRole("admin"), validateJson(syncWhatsappTemplateSchema), syncWhatsappTemplate);
+whatsappRoutes.post("/whatsapp-templates/:templateId/submit", requireModuleAccess("whatsapp-templates"), requireRole("admin"), validateJson(submitWhatsappTemplateSchema), submitWhatsappTemplate);
+whatsappRoutes.post("/whatsapp-templates/:templateId/refresh", requireModuleAccess("whatsapp-templates"), requireRole("admin"), validateJson(submitWhatsappTemplateSchema), refreshWhatsappTemplate);
+whatsappRoutes.delete("/whatsapp-templates/:templateId", requireModuleAccess("whatsapp-templates"), requireRole("admin"), deleteWhatsappTemplate);

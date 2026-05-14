@@ -22,13 +22,13 @@ import {
   testRunChatbotFlowSchema,
   updateChatbotFlowSchema,
 } from "@/modules/chatbot-flows/schema";
-import { requireAuth, requireRole, requireTenant } from "@/middleware/auth";
+import { requireAnyModuleAccess, requireAuth, requireRole, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
 import { enforceBodyLimit, rateLimit } from "@/middleware/security";
 import { bodyLimits, routePolicies } from "@/lib/security";
 
 export const chatbotFlowRoutes = new Hono<AppEnv>().basePath("/chatbot-flows");
-chatbotFlowRoutes.use("*", requireAuth, requireTenant, requireRole("admin"));
+chatbotFlowRoutes.use("*", requireAuth, requireTenant, requireAnyModuleAccess(["automation", "whatsapp-flow-builder"]), requireRole("admin"));
 chatbotFlowRoutes.use("*", rateLimit(routePolicies.adminSensitive));
 
 chatbotFlowRoutes.get("/", getChatbotFlowOverview);

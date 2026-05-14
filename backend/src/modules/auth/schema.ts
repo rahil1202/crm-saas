@@ -5,7 +5,7 @@ export const inviteSchema = z.object({
   role: z.enum(["owner", "admin", "member"]).default("member"),
   customRoleId: z.string().uuid().nullable().optional(),
   storeId: z.string().uuid().nullable().optional(),
-  fullName: z.string().trim().min(2).max(180).optional(),
+  fullName: z.string().trim().min(2).max(180),
   phoneNumber: z.string().trim().max(60).optional(),
   address: z.string().trim().max(240).optional(),
   governmentId: z.string().trim().max(120).optional(),
@@ -55,6 +55,8 @@ export const mfaUnenrollSchema = mfaSessionSchema.extend({
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
+  inviteToken: z.string().trim().min(1).nullable().optional(),
+  referralCode: z.string().trim().min(1).nullable().optional(),
 });
 
 export const registerSchema = z

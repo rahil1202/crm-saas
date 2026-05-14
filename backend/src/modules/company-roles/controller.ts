@@ -13,15 +13,15 @@ import type { CreateCustomRoleInput, UpdateCustomRoleInput } from "@/modules/com
 const defaultCompanyRoles: Array<{ name: string; modules: string[] }> = [
   {
     name: "Owner",
-    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "meetings", "campaigns", "reports", "settings", "social", "automation", "partners", "documents", "notifications", "integrations"],
+    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "meetings", "campaigns", "reports", "settings", "social", "automation", "partners", "documents", "notifications", "integrations", "whatsapp-crm", "whatsapp-integrations", "whatsapp-inbox", "whatsapp-contacts", "whatsapp-campaigns", "whatsapp-templates", "whatsapp-flow-builder", "whatsapp-analytics", "whatsapp-settings"],
   },
   {
     name: "Admin",
-    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "meetings", "campaigns", "reports", "settings", "social", "automation", "partners", "documents", "notifications", "integrations"],
+    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "meetings", "campaigns", "reports", "settings", "social", "automation", "partners", "documents", "notifications", "integrations", "whatsapp-crm", "whatsapp-integrations", "whatsapp-inbox", "whatsapp-contacts", "whatsapp-campaigns", "whatsapp-templates", "whatsapp-flow-builder", "whatsapp-analytics", "whatsapp-settings"],
   },
   {
     name: "Sub-Admin",
-    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "meetings", "campaigns", "reports", "settings", "documents", "notifications"],
+    modules: ["contacts", "leads", "deals", "forms", "templates", "teams", "tasks", "meetings", "campaigns", "reports", "settings", "documents", "notifications", "whatsapp-crm", "whatsapp-inbox", "whatsapp-contacts", "whatsapp-campaigns", "whatsapp-templates"],
   },
   {
     name: "Sales Team",

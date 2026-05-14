@@ -416,6 +416,8 @@ export async function register(c: Context<AppEnv>) {
     email: body.email,
     password: body.password,
     fullName: body.fullName,
+    inviteToken: body.inviteToken ?? null,
+    referralCode: body.referralCode ?? null,
   });
 
   if (registration.userId && registration.email) {
@@ -465,6 +467,51 @@ export async function login(c: Context<AppEnv>) {
     const identity = await loginWithSupabasePassword(body.email, body.password);
 
     await createSession(c, identity);
+    let inviteAccepted = false;
+    let inviteError: string | null = null;
+
+    if (body.inviteToken) {
+      try {
+        const inviteResult = await acceptInviteForIdentity({
+          token: body.inviteToken,
+          userId: identity.userId,
+          email: identity.email,
+        });
+        inviteAccepted = inviteResult.accepted;
+      } catch (error) {
+        if (error instanceof AppError && error.status < 500) {
+          inviteError = error.message;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    if (body.referralCode) {
+      const referralCode = await getReferralCodeByCode(body.referralCode);
+      if (referralCode) {
+        const membership = referralCode.companyId
+          ? await db
+              .select({ id: companyMemberships.id })
+              .from(companyMemberships)
+              .where(and(eq(companyMemberships.userId, identity.userId), eq(companyMemberships.companyId, referralCode.companyId), isNull(companyMemberships.deletedAt)))
+              .limit(1)
+              .then((rows) => rows[0] ?? null)
+          : null;
+
+        await createOrUpdateReferralAttribution({
+          referralCodeId: referralCode.id,
+          companyId: referralCode.companyId ?? null,
+          referrerUserId: referralCode.referrerUserId,
+          referredUserId: identity.userId,
+          referredEmail: identity.email,
+          status: resolveReferralStatusAfterVerification({
+            hasCompanyMembership: Boolean(membership),
+          }),
+        });
+      }
+    }
+
     await recordSecurityAuditLog({
       requestId: c.get("requestId"),
       userId: identity.userId,
@@ -484,6 +531,8 @@ export async function login(c: Context<AppEnv>) {
         email: identity.email,
       },
       authenticated: true,
+      inviteAccepted,
+      inviteError,
     });
   } catch (error) {
     await recordSecurityAuditLog({
@@ -998,6 +1047,142 @@ export async function onboarding(c: Context<AppEnv>) {
 
 type InviteEmailDispatchStatus = "sent" | "queued" | "failed" | "not_configured";
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatInviteDate(value: Date) {
+  return value.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatInviteRole(role: string) {
+  if (role === "owner") return "Owner";
+  if (role === "admin") return "Admin";
+  return "Member";
+}
+
+function getInviteMetadataString(metadata: unknown, key: string) {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function buildTeamInviteEmail(input: {
+  isReminder: boolean;
+  companyName: string;
+  inviterName: string;
+  recipientName?: string | null;
+  recipientEmail: string;
+  role: string;
+  branchName?: string | null;
+  inviteMessage?: string | null;
+  inviteUrl: string;
+  expiresAt: Date;
+}) {
+  const companyName = escapeHtml(input.companyName);
+  const inviterName = escapeHtml(input.inviterName);
+  const recipientName = input.recipientName ? escapeHtml(input.recipientName) : null;
+  const recipientEmail = escapeHtml(input.recipientEmail);
+  const role = escapeHtml(formatInviteRole(input.role));
+  const branchName = escapeHtml(input.branchName ?? "Company-wide access");
+  const inviteMessage = input.inviteMessage?.trim() ? escapeHtml(input.inviteMessage.trim()) : null;
+  const inviteUrl = escapeHtml(input.inviteUrl);
+  const expiry = escapeHtml(formatInviteDate(input.expiresAt));
+  const titlePrefix = input.isReminder ? "Reminder: " : "";
+  const preheader = `${titlePrefix}${input.inviterName} invited you to the ${input.companyName} CRM workspace.`;
+
+  const subject = input.isReminder
+    ? `Reminder: accept your CRM workspace invite for ${input.companyName}`
+    : `You're invited to the ${input.companyName} CRM workspace`;
+
+  const html = `
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(preheader)}</div>
+    <div style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f4f7fb;padding:24px 0;">
+        <tr>
+          <td align="center" style="padding:24px 12px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;border-collapse:collapse;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+              <tr>
+                <td style="background:#111827;padding:28px 32px;color:#ffffff;">
+                  <div style="font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#93c5fd;">The One Branding CRM</div>
+                  <h1 style="margin:12px 0 0;font-size:26px;line-height:1.25;font-weight:700;">${titlePrefix}Join ${companyName}</h1>
+                  <p style="margin:10px 0 0;color:#d1d5db;font-size:15px;line-height:1.6;">You have been invited to access the CRM workspace for leads, customers, tasks, campaigns, and team collaboration.</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:30px 32px;">
+                  <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi${recipientName ? ` ${recipientName}` : ""},</p>
+                  <p style="margin:0 0 18px;font-size:16px;line-height:1.6;"><strong>${inviterName}</strong> invited you to join <strong>${companyName}</strong> on The One Branding CRM.</p>
+                  ${inviteMessage ? `<div style="margin:20px 0;padding:14px 16px;background:#f8fafc;border-left:4px solid #4f46e5;color:#334155;font-size:15px;line-height:1.6;">${inviteMessage}</div>` : ""}
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:22px 0;border-collapse:collapse;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;">
+                    <tr>
+                      <td style="padding:14px 16px;color:#6b7280;font-size:13px;border-bottom:1px solid #e5e7eb;">Workspace</td>
+                      <td style="padding:14px 16px;color:#111827;font-size:14px;font-weight:700;text-align:right;border-bottom:1px solid #e5e7eb;">${companyName}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:14px 16px;color:#6b7280;font-size:13px;border-bottom:1px solid #e5e7eb;">Role</td>
+                      <td style="padding:14px 16px;color:#111827;font-size:14px;font-weight:700;text-align:right;border-bottom:1px solid #e5e7eb;">${role}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:14px 16px;color:#6b7280;font-size:13px;border-bottom:1px solid #e5e7eb;">Branch access</td>
+                      <td style="padding:14px 16px;color:#111827;font-size:14px;font-weight:700;text-align:right;border-bottom:1px solid #e5e7eb;">${branchName}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:14px 16px;color:#6b7280;font-size:13px;">Invited email</td>
+                      <td style="padding:14px 16px;color:#111827;font-size:14px;font-weight:700;text-align:right;">${recipientEmail}</td>
+                    </tr>
+                  </table>
+                  <p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">Accept the invite to create your account and start working inside the CRM workspace.</p>
+                  <div style="margin:28px 0;">
+                    <a href="${inviteUrl}" style="background:#4f46e5;color:#ffffff;padding:14px 22px;text-decoration:none;border-radius:10px;display:inline-block;font-size:15px;font-weight:700;">Accept CRM Invite</a>
+                  </div>
+                  <p style="margin:24px 0 8px;color:#6b7280;font-size:13px;line-height:1.5;">If the button does not work, copy and paste this link into your browser:</p>
+                  <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.5;word-break:break-all;">${inviteUrl}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:18px 32px;background:#f9fafb;color:#6b7280;font-size:12px;line-height:1.5;border-top:1px solid #e5e7eb;">
+                  This invitation expires on ${expiry}. If you were not expecting this invite, you can ignore this email.
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+
+  const text = [
+    `${titlePrefix}You are invited to ${input.companyName} on The One Branding CRM.`,
+    "",
+    `${input.inviterName} invited you to access the CRM workspace for leads, customers, tasks, campaigns, and team collaboration.`,
+    `Workspace: ${input.companyName}`,
+    `Role: ${formatInviteRole(input.role)}`,
+    `Branch access: ${input.branchName ?? "Company-wide access"}`,
+    `Invited email: ${input.recipientEmail}`,
+    input.inviteMessage?.trim() ? `Message: ${input.inviteMessage.trim()}` : null,
+    "",
+    `Accept your invite: ${input.inviteUrl}`,
+    `This invitation expires on ${formatInviteDate(input.expiresAt)}.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return { subject, html, text };
+}
+
 async function queueAndDispatchInviteEmail(input: {
   companyId: string;
   createdBy: string;
@@ -1039,37 +1224,14 @@ async function queueAndDispatchInviteEmail(input: {
     };
   }
 
-  await processQueuedEmailMessages(1, {
+  void processQueuedEmailMessages(1, {
     companyId: input.companyId,
     messageIds: [message.id],
+  }).catch((error) => {
+    console.error("Background invite email dispatch failed:", error);
   });
 
-  const [processedMessage] = await db
-    .select({
-      status: emailMessages.status,
-      lastError: emailMessages.lastError,
-    })
-    .from(emailMessages)
-    .where(eq(emailMessages.id, message.id))
-    .limit(1);
-
-  if (!processedMessage) {
-    return { status: "failed", messageId: message.id, error: "Queued invite email could not be found after dispatch" };
-  }
-
-  if (processedMessage.status === "sent" || processedMessage.status === "delivered") {
-    return { status: "sent", messageId: message.id };
-  }
-
-  if (processedMessage.status === "queued" || processedMessage.status === "sending") {
-    return { status: "queued", messageId: message.id };
-  }
-
-  return {
-    status: "failed",
-    messageId: message.id,
-    error: processedMessage.lastError ?? "Invite email dispatch failed",
-  };
+  return { status: "queued", messageId: message.id };
 }
 
 export async function inviteMember(c: Context<AppEnv>) {
@@ -1198,22 +1360,22 @@ export async function inviteMember(c: Context<AppEnv>) {
     .where(eq(companies.id, tenant.companyId))
     .limit(1);
 
-  const emailSubject = `You're invited to join ${company?.name || "our team"}`;
-  const emailHtml = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2>You've been invited!</h2>
-      <p>Hi${body.fullName ? ` ${body.fullName}` : ''},</p>
-      <p>${inviterProfile?.fullName || inviterProfile?.email || 'Someone'} has invited you to join <strong>${company?.name || 'their team'}</strong>.</p>
-      ${createdInvite.inviteMessage ? `<p><em>"${createdInvite.inviteMessage}"</em></p>` : ''}
-      <p>Click the button below to accept the invitation and create your account:</p>
-      <div style="margin: 30px 0;">
-        <a href="${inviteUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a>
-      </div>
-      <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
-      <p style="color: #666; font-size: 14px; word-break: break-all;">${inviteUrl}</p>
-      <p style="color: #999; font-size: 12px; margin-top: 40px;">This invitation expires on ${createdInvite.expiresAt.toLocaleDateString()}.</p>
-    </div>
-  `;
+  const [store] = createdInvite.storeId
+    ? await db.select({ name: stores.name }).from(stores).where(eq(stores.id, createdInvite.storeId)).limit(1)
+    : [];
+
+  const emailContent = buildTeamInviteEmail({
+    isReminder: false,
+    companyName: company?.name || "your company",
+    inviterName: inviterProfile?.fullName || inviterProfile?.email || "Your team admin",
+    recipientName: body.fullName,
+    recipientEmail: createdInvite.email,
+    role: createdInvite.role,
+    branchName: store?.name ?? null,
+    inviteMessage: createdInvite.inviteMessage,
+    inviteUrl,
+    expiresAt: createdInvite.expiresAt,
+  });
 
   let emailDelivery: { status: InviteEmailDispatchStatus; messageId?: string; error?: string } = { status: "failed" };
   try {
@@ -1221,9 +1383,9 @@ export async function inviteMember(c: Context<AppEnv>) {
       companyId: tenant.companyId,
       recipientEmail: createdInvite.email,
       recipientName: body.fullName ?? null,
-      subject: emailSubject,
-      htmlContent: emailHtml,
-      textContent: `You've been invited to join ${company?.name || 'a team'}. Accept your invitation here: ${inviteUrl}`,
+      subject: emailContent.subject,
+      htmlContent: emailContent.html,
+      textContent: emailContent.text,
       createdBy: user.id,
       metadata: {
         inviteId: createdInvite.id,
@@ -1330,32 +1492,32 @@ export async function resendInvite(c: Context<AppEnv>) {
     .where(eq(companies.id, tenant.companyId))
     .limit(1);
 
-  const emailSubject = `Reminder: You're invited to join ${company?.name || "our team"}`;
-  const emailHtml = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2>Reminder: You've been invited!</h2>
-      <p>Hi,</p>
-      <p>This is a reminder that ${inviterProfile?.fullName || inviterProfile?.email || 'someone'} has invited you to join <strong>${company?.name || 'their team'}</strong>.</p>
-      ${updatedInvite.inviteMessage ? `<p><em>"${updatedInvite.inviteMessage}"</em></p>` : ''}
-      <p>Click the button below to accept the invitation and create your account:</p>
-      <div style="margin: 30px 0;">
-        <a href="${inviteUrl}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a>
-      </div>
-      <p style="color: #666; font-size: 14px;">Or copy and paste this link into your browser:</p>
-      <p style="color: #666; font-size: 14px; word-break: break-all;">${inviteUrl}</p>
-      <p style="color: #999; font-size: 12px; margin-top: 40px;">This invitation expires on ${updatedInvite.expiresAt.toLocaleDateString()}.</p>
-    </div>
-  `;
+  const [store] = updatedInvite.storeId
+    ? await db.select({ name: stores.name }).from(stores).where(eq(stores.id, updatedInvite.storeId)).limit(1)
+    : [];
+  const recipientName = getInviteMetadataString(updatedInvite.metadata, "fullName");
+  const emailContent = buildTeamInviteEmail({
+    isReminder: true,
+    companyName: company?.name || "your company",
+    inviterName: inviterProfile?.fullName || inviterProfile?.email || "Your team admin",
+    recipientName,
+    recipientEmail: updatedInvite.email,
+    role: updatedInvite.role,
+    branchName: store?.name ?? null,
+    inviteMessage: updatedInvite.inviteMessage,
+    inviteUrl,
+    expiresAt: updatedInvite.expiresAt,
+  });
 
   let emailDelivery: { status: InviteEmailDispatchStatus; messageId?: string; error?: string } = { status: "failed" };
   try {
     emailDelivery = await queueAndDispatchInviteEmail({
       companyId: tenant.companyId,
       recipientEmail: updatedInvite.email,
-      recipientName: null,
-      subject: emailSubject,
-      htmlContent: emailHtml,
-      textContent: `Reminder: You've been invited to join ${company?.name || 'a team'}. Accept your invitation here: ${inviteUrl}`,
+      recipientName,
+      subject: emailContent.subject,
+      htmlContent: emailContent.html,
+      textContent: emailContent.text,
       createdBy: user.id,
       metadata: {
         inviteId: updatedInvite.id,
@@ -1667,12 +1829,30 @@ export async function getInviteLookup(c: Context<AppEnv>) {
     });
   }
 
+  const [company] = await db
+    .select({ name: companies.name })
+    .from(companies)
+    .where(eq(companies.id, invite.companyId))
+    .limit(1);
+  const [store] = invite.storeId
+    ? await db.select({ name: stores.name }).from(stores).where(eq(stores.id, invite.storeId)).limit(1)
+    : [];
+  const [inviterProfile] = await db
+    .select({ fullName: profiles.fullName, email: profiles.email })
+    .from(profiles)
+    .where(eq(profiles.id, invite.invitedBy))
+    .limit(1);
+
   return ok(c, {
     valid: true,
     invite: {
       email: invite.email,
       role: invite.role,
       storeId: invite.storeId,
+      companyName: company?.name ?? null,
+      storeName: store?.name ?? null,
+      fullName: getInviteMetadataString(invite.metadata, "fullName"),
+      inviterName: inviterProfile?.fullName ?? inviterProfile?.email ?? null,
       referralCode: invite.referralCode,
       inviteMessage: invite.inviteMessage,
       expiresAt: invite.expiresAt,

@@ -12,6 +12,7 @@ import { fetchAuthMe } from "@/lib/auth-client";
 import { getFrontendEnv } from "@/lib/env";
 import { clearPendingIntegrationOauthContext, readPendingIntegrationOauthContext } from "@/lib/integration-oauth";
 import { clearPendingInviteReferralContext, readPendingInviteReferralContext, savePendingInviteReferralContext } from "@/lib/invite-referral";
+import { clearCachedMe } from "@/lib/me-cache";
 import { resolveAuthenticatedRouteFromMe } from "@/lib/partner-access";
 import { supabase } from "@/lib/supabase";
 
@@ -182,14 +183,16 @@ function AuthCallbackContent() {
         if (!exchangeResponse.ok) {
           throw new Error(await readApiError(exchangeResponse, "Backend session exchange failed"));
         }
+        const exchangePayload = (await exchangeResponse.json()) as { data?: { inviteAccepted?: boolean; inviteError?: string | null } };
 
         await supabase.auth.signOut();
         clearPendingIntegrationOauthContext();
         clearPendingInviteReferralContext();
+        clearCachedMe();
 
         const me = await fetchAuthMe();
         if (!disposed) {
-          router.replace(resolveAuthenticatedRouteFromMe(me));
+          router.replace(exchangePayload.data?.inviteAccepted ? "/company-onboarding-tour" : resolveAuthenticatedRouteFromMe(me));
         }
       } catch (caughtError) {
         clearPendingIntegrationOauthContext();

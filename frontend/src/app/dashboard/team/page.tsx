@@ -247,6 +247,15 @@ const roleModuleOptions = [
   { key: "documents", label: "Documents" },
   { key: "notifications", label: "Notifications" },
   { key: "integrations", label: "Integrations" },
+  { key: "whatsapp-crm", label: "WhatsApp CRM Dashboard" },
+  { key: "whatsapp-integrations", label: "WhatsApp Integrations" },
+  { key: "whatsapp-inbox", label: "WhatsApp Inbox" },
+  { key: "whatsapp-contacts", label: "WhatsApp Contacts" },
+  { key: "whatsapp-campaigns", label: "WhatsApp Campaigns" },
+  { key: "whatsapp-templates", label: "WhatsApp Templates" },
+  { key: "whatsapp-flow-builder", label: "WhatsApp Flow Builder" },
+  { key: "whatsapp-analytics", label: "WhatsApp Analytics" },
+  { key: "whatsapp-settings", label: "WhatsApp Settings" },
 ] as const;
 
 const roleModuleLabelByKey = roleModuleOptions.reduce<Record<string, string>>((acc, item) => {
@@ -391,6 +400,18 @@ function normalizeMembershipStatus(value: string): MembershipStatus {
   return value === "disabled" ? "disabled" : "active";
 }
 
+function RequiredFieldLabel({ children }: { children: ReactNode }) {
+  return (
+    <FieldLabel>
+      {children}
+      <span className="text-destructive" aria-hidden="true">
+        *
+      </span>
+      <span className="sr-only">required</span>
+    </FieldLabel>
+  );
+}
+
 function Modal({
   title,
   description,
@@ -523,9 +544,9 @@ export default function TeamPage() {
     setError(null);
     try {
       const [mePayload, companyPayload, rolesPayload] = await Promise.all([
-        apiRequest<AuthMePayload>("/auth/me"),
-        apiRequest<CompanySnapshot>("/companies/current"),
-        apiRequest<{ roles: RoleDefinition[] }>("/companies/current/roles"),
+        apiRequest<AuthMePayload>("/auth/me", { skipCache: true }),
+        apiRequest<CompanySnapshot>("/companies/current", { skipCache: true }),
+        apiRequest<{ roles: RoleDefinition[] }>("/companies/current/roles", { skipCache: true }),
       ]);
       setMe(mePayload);
       setSnapshot(companyPayload);
@@ -603,8 +624,8 @@ export default function TeamPage() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      if (response.emailDelivery?.status === "sent") {
-        toast.success("Invite email resent.");
+      if (response.emailDelivery?.status === "sent" || response.emailDelivery?.status === "queued") {
+        toast.success(response.emailDelivery.status === "queued" ? "Invite email queued." : "Invite email resent.");
       } else {
         toast.warning(response.emailDelivery?.error ?? "Invite link updated, but email was not sent. Check email integration settings.");
       }
@@ -764,6 +785,19 @@ export default function TeamPage() {
 
   const handleInviteSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const trimmedFullName = inviteFullName.trim();
+    const trimmedEmail = inviteEmail.trim();
+
+    if (!trimmedFullName) {
+      toast.error("Full name is required.");
+      return;
+    }
+
+    if (!trimmedEmail) {
+      toast.error("Email is required.");
+      return;
+    }
+
     setSendingInvite(true);
     setError(null);
 
@@ -784,8 +818,8 @@ export default function TeamPage() {
       }>("/auth/invite", {
         method: "POST",
         body: JSON.stringify({
-          fullName: inviteFullName,
-          email: inviteEmail,
+          fullName: trimmedFullName,
+          email: trimmedEmail,
           role: inviteRole,
           customRoleId,
           storeId: inviteStoreId || null,
@@ -819,13 +853,21 @@ export default function TeamPage() {
       );
 
       setInviteOpen(false);
-      if (response.emailDelivery?.status === "sent") {
-        toast.success("Invite email sent.");
+      if (response.emailDelivery?.status === "sent" || response.emailDelivery?.status === "queued") {
+        toast.success(response.emailDelivery.status === "queued" ? "Invite email queued." : "Invite email sent.");
       } else {
-        toast.warning(response.emailDelivery?.error ?? "Invite created, but email was not sent. Check email integration settings.");
+        toast.warning(
+          response.emailDelivery?.error ??
+            "Invite was created but email was not sent. Fix SMTP settings, then use Resend from Pending Invites.",
+        );
       }
     } catch (caughtError) {
-      const message = caughtError instanceof ApiError ? caughtError.message : "Unable to send invite.";
+      const message =
+        caughtError instanceof ApiError && caughtError.code === "CONFLICT"
+          ? "An active invite already exists for this email. Use Resend from Pending Invites after fixing SMTP settings."
+          : caughtError instanceof ApiError
+            ? caughtError.message
+            : "Unable to send invite.";
       setError(message);
       toast.error(message);
     } finally {
@@ -1587,8 +1629,9 @@ export default function TeamPage() {
         >
           <form id="invite-team-form" onSubmit={handleInviteSubmit} className="grid gap-4">
             <Field>
-              <FieldLabel>Role</FieldLabel>
+              <RequiredFieldLabel>Role</RequiredFieldLabel>
               <NativeSelect
+                required
                 value={inviteRoleSelection}
                 onChange={(event) => setInviteRoleSelection(event.target.value)}
                 className="h-10 rounded-xl px-3 text-sm"
@@ -1606,8 +1649,9 @@ export default function TeamPage() {
             </Field>
 
             <Field>
-              <FieldLabel>Full Name</FieldLabel>
+              <RequiredFieldLabel>Full Name</RequiredFieldLabel>
               <Input
+                required
                 value={inviteFullName}
                 onChange={(event) => setInviteFullName(event.target.value)}
                 className="h-10"
@@ -1616,8 +1660,9 @@ export default function TeamPage() {
             </Field>
 
             <Field>
-              <FieldLabel>Branch</FieldLabel>
+              <RequiredFieldLabel>Branch</RequiredFieldLabel>
               <NativeSelect
+                required
                 value={inviteStoreId || "__company__"}
                 onChange={(event) => setInviteStoreId(event.target.value === "__company__" ? "" : event.target.value)}
                 className="h-10 rounded-xl px-3 text-sm"
@@ -1632,7 +1677,7 @@ export default function TeamPage() {
             </Field>
 
             <Field>
-              <FieldLabel>Email</FieldLabel>
+              <RequiredFieldLabel>Email</RequiredFieldLabel>
               <Input
                 type="email"
                 required

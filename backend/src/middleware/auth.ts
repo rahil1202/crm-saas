@@ -146,6 +146,31 @@ export const requireModuleAccess = (moduleKey: CompanyModuleKey): MiddlewareHand
   };
 };
 
+export const requireAnyModuleAccess = (moduleKeys: CompanyModuleKey[]): MiddlewareHandler => {
+  return async (c, next) => {
+    const tenant = c.get("tenant");
+    if (!tenant) {
+      throw AppError.forbidden("Missing tenant context");
+    }
+
+    if (tenant.role === "owner" || tenant.role === "admin") {
+      await next();
+      return;
+    }
+
+    if (!tenant.customRoleId) {
+      await next();
+      return;
+    }
+
+    if (!moduleKeys.some((moduleKey) => tenant.customRoleModules.includes(moduleKey))) {
+      throw AppError.forbidden(`Your custom role does not allow access to ${moduleKeys.join(" or ")}`);
+    }
+
+    await next();
+  };
+};
+
 export const requireRole = (minimumRole: CompanyRole): MiddlewareHandler => {
   return async (c, next) => {
     const tenant = c.get("tenant") as { role: CompanyRole } | undefined;
