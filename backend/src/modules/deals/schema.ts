@@ -72,6 +72,13 @@ export const createDealTimelineSchema = z.object({
   message: z.string().trim().min(1).max(1000),
 });
 
+export const convertDealToLeadSchema = z.object({
+  leadTitle: z.string().trim().min(1).max(180).optional(),
+  source: z.string().trim().max(100).optional(),
+  status: z.enum(["new", "qualified", "proposal", "won", "lost"]).default("new"),
+  createCustomer: z.boolean().default(true),
+});
+
 export type ListDealsQuery = z.infer<typeof listDealsSchema>;
 export type BoardDealsQuery = z.infer<typeof boardDealsSchema>;
 export type DealForecastQuery = z.infer<typeof dealForecastQuerySchema>;
@@ -80,3 +87,4 @@ export type UpdateDealInput = z.infer<typeof updateDealSchema>;
 export type BulkUpdateDealsInput = z.infer<typeof bulkUpdateDealsSchema>;
 export type DealTimelineQuery = z.infer<typeof dealTimelineQuerySchema>;
 export type CreateDealTimelineInput = z.infer<typeof createDealTimelineSchema>;
+export type ConvertDealToLeadInput = z.infer<typeof convertDealToLeadSchema>;

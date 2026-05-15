@@ -99,6 +99,14 @@ type LeadFormState = {
   notes: string;
 };
 
+type ConvertLeadFormState = {
+  dealTitle: string;
+  pipeline: string;
+  stage: string;
+  value: string;
+  createCustomer: boolean;
+};
+
 const leadStatuses: LeadStatus[] = ["new", "qualified", "proposal", "won", "lost"];
 
 function formatDateTime(value: string | null | undefined) {
@@ -219,8 +227,16 @@ export default function LeadProfilePage() {
   const [submitting, setSubmitting] = useState(false);
   const [converting, setConverting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [convertOpen, setConvertOpen] = useState(false);
   const [form, setForm] = useState<LeadFormState | null>(null);
   const [note, setNote] = useState("");
+  const [convertForm, setConvertForm] = useState<ConvertLeadFormState>({
+    dealTitle: "",
+    pipeline: "default",
+    stage: "new",
+    value: "0",
+    createCustomer: true,
+  });
 
   const loadProfile = useCallback(async () => {
     if (!leadId) return;
@@ -306,12 +322,19 @@ export default function LeadProfilePage() {
     if (!leadId) return;
     setConverting(true);
     try {
-      await apiRequest(`/leads/${leadId}/convert`, {
+      const result = await apiRequest<{ deal: { id: string } }>(`/leads/${leadId}/convert`, {
         method: "POST",
-        body: JSON.stringify({ createCustomer: true, value: 0 }),
+        body: JSON.stringify({
+          dealTitle: convertForm.dealTitle.trim() || undefined,
+          pipeline: convertForm.pipeline.trim() || "default",
+          stage: convertForm.stage.trim() || "new",
+          value: Number(convertForm.value) || 0,
+          createCustomer: convertForm.createCustomer,
+        }),
       });
-      toast.success("Lead converted.");
-      await loadProfile();
+      toast.success("Lead converted to deal.");
+      setConvertOpen(false);
+      window.location.href = `/dashboard/deals/${result.deal.id}`;
     } catch (caughtError) {
       toast.error(caughtError instanceof ApiError ? caughtError.message : "Unable to convert lead.");
     } finally {
@@ -392,7 +415,7 @@ export default function LeadProfilePage() {
                   <PencilLine className="size-4" />
                   <span className="text-xs">Edit</span>
                 </Button>
-                <Button type="button" className="h-auto flex-col gap-2 py-3" onClick={() => void handleConvert()} disabled={converting}>
+                <Button type="button" className="h-auto flex-col gap-2 py-3" onClick={() => { setConvertForm({ dealTitle: `Converted: ${data.lead.title}`, pipeline: "default", stage: "new", value: "0", createCustomer: true }); setConvertOpen(true); }} disabled={converting}>
                   <Target className="size-4" />
                   <span className="text-xs">{converting ? "..." : "Convert"}</span>
                 </Button>
@@ -658,6 +681,28 @@ export default function LeadProfilePage() {
           if (!submitting) setDeleteOpen(false);
         }}
       />
+
+      {convertOpen ? (
+        <OverlayModal title="Convert Lead to Deal" description="Create a deal (and optionally a contact) from this lead." onClose={() => setConvertOpen(false)}>
+          <div className="grid gap-4">
+            <FieldGroup className="grid gap-4 md:grid-cols-2">
+              <Field><FieldLabel>Deal title</FieldLabel><Input value={convertForm.dealTitle} onChange={(event) => setConvertForm((current) => ({ ...current, dealTitle: event.target.value }))} /></Field>
+              <Field><FieldLabel>Value</FieldLabel><Input type="number" min={0} value={convertForm.value} onChange={(event) => setConvertForm((current) => ({ ...current, value: event.target.value }))} /></Field>
+              <Field><FieldLabel>Pipeline</FieldLabel><Input value={convertForm.pipeline} onChange={(event) => setConvertForm((current) => ({ ...current, pipeline: event.target.value }))} /></Field>
+              <Field><FieldLabel>Stage</FieldLabel><Input value={convertForm.stage} onChange={(event) => setConvertForm((current) => ({ ...current, stage: event.target.value }))} /></Field>
+            </FieldGroup>
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+              <input type="checkbox" checked={convertForm.createCustomer} onChange={(event) => setConvertForm((current) => ({ ...current, createCustomer: event.target.checked }))} className="rounded" />
+              Also create a contact record from this lead
+            </label>
+            <p className="text-sm text-slate-500">Lead details (name, email, phone, notes, tags) will be copied to the new deal. The lead record is kept.</p>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setConvertOpen(false)}>Cancel</Button>
+              <Button type="button" onClick={() => void handleConvert()} disabled={converting}>{converting ? "Converting..." : "Convert to Deal"}</Button>
+            </div>
+          </div>
+        </OverlayModal>
+      ) : null}
     </>
   );
 }

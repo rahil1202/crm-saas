@@ -3,7 +3,7 @@ import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { customers, dealActivities, deals, leads, partnerCompanies, profiles, tasks } from "@/db/schema";
+import { customers, dealActivities, deals, leadActivities, leads, partnerCompanies, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { getCompanySettings } from "@/lib/company-settings";
 import { assertNonEmptyUpdate, paginationMeta } from "@/lib/controller-utils";
@@ -14,6 +14,7 @@ import { dealParamSchema } from "@/modules/deals/schema";
 import type {
   BulkUpdateDealsInput,
   BoardDealsQuery,
+  ConvertDealToLeadInput,
   CreateDealInput,
   CreateDealTimelineInput,
   DealForecastQuery,
@@ -589,4 +590,78 @@ export async function deleteDeal(c: Context<AppEnv>) {
   });
 
   return ok(c, { deleted: true, id: deleted.id });
+}
+
+export async function convertDealToLead(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const params = dealParamSchema.parse(c.req.param());
+  const body = c.get("validatedBody") as ConvertDealToLeadInput;
+
+  const [deal] = await db
+    .select()
+    .from(deals)
+    .where(and(eq(deals.id, params.dealId), eq(deals.companyId, tenant.companyId), isNull(deals.deletedAt)))
+    .limit(1);
+
+  if (!deal) {
+    throw AppError.notFound("Deal not found");
+  }
+
+  // If deal already has a linked lead, return it
+  if (deal.leadId) {
+    const [existingLead] = await db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.id, deal.leadId), isNull(leads.deletedAt)))
+      .limit(1);
+
+    if (existingLead) {
+      throw AppError.conflict("Deal is already linked to a lead", { leadId: existingLead.id });
+    }
+  }
+
+  const [createdLead] = await db
+    .insert(leads)
+    .values({
+      companyId: tenant.companyId,
+      storeId: deal.storeId,
+      assignedToUserId: deal.assignedToUserId,
+      title: body.leadTitle ?? deal.title,
+      associatedCompany: deal.associatedCompany,
+      source: body.source ?? deal.referralSource ?? null,
+      status: body.status,
+      score: 0,
+      notes: deal.notes,
+      tags: [],
+      createdBy: user.id,
+    })
+    .returning();
+
+  // Link the deal back to the new lead
+  await db.update(deals).set({ leadId: createdLead.id }).where(eq(deals.id, deal.id));
+
+  await db.insert(leadActivities).values({
+    companyId: tenant.companyId,
+    leadId: createdLead.id,
+    actorUserId: user.id,
+    type: "lead_created",
+    payload: { source: "deal_conversion", dealId: deal.id },
+  });
+
+  // Optionally create a customer from the deal's linked customer or deal info
+  if (body.createCustomer && deal.customerId) {
+    // Already has a customer, just link it to the new lead
+    await db.update(customers).set({ leadId: createdLead.id }).where(eq(customers.id, deal.customerId));
+  }
+
+  await db.insert(dealActivities).values({
+    companyId: tenant.companyId,
+    dealId: deal.id,
+    actorUserId: user.id,
+    type: "lead_linked",
+    payload: { source: "deal_to_lead_conversion", leadId: createdLead.id },
+  });
+
+  return ok(c, { lead: createdLead }, 201);
 }

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "@/app/route";
 import {
   bulkUpdateDeals,
+  convertDealToLead,
   createDeal,
   createDealTimeline,
   deleteDeal,
@@ -16,6 +17,7 @@ import {
 import {
   boardDealsSchema,
   bulkUpdateDealsSchema,
+  convertDealToLeadSchema,
   createDealSchema,
   createDealTimelineSchema,
   dealForecastQuerySchema,
@@ -39,3 +41,4 @@ dealRoutes.patch("/:dealId", validateJson(updateDealSchema), updateDeal);
 dealRoutes.get("/:dealId/timeline", validateQuery(dealTimelineQuerySchema), getDealTimeline);
 dealRoutes.post("/:dealId/timeline", validateJson(createDealTimelineSchema), createDealTimeline);
 dealRoutes.delete("/:dealId", deleteDeal);
+dealRoutes.post("/:dealId/convert-to-lead", validateJson(convertDealToLeadSchema), convertDealToLead);

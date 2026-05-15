@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Circle, Copy, Plug, Shield, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,6 +29,16 @@ interface FacebookLoginResponse {
 interface FacebookSdk {
   init(config: Record<string, unknown>): void;
   login(callback: (response: FacebookLoginResponse) => void, options: Record<string, unknown>): void;
+}
+
+// Meta session_info_response payload shape
+interface MetaSessionInfoResponse {
+  event: "FINISH" | "CANCEL" | "ERROR";
+  data?: {
+    phone_number_id?: string;
+    waba_id?: string;
+    business_id?: string;
+  };
 }
 
 function getFacebookSdkWindow() {
@@ -92,6 +102,8 @@ export function WhatsappCrmIntegrationsPage() {
   const [lastWebhookUrl, setLastWebhookUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Tracks whether session_info_response auto-filled the IDs
+  const sessionListenerRef = useRef<((event: MessageEvent) => void) | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -111,6 +123,12 @@ export function WhatsappCrmIntegrationsPage() {
 
   useEffect(() => {
     void refresh();
+    // Cleanup session listener on unmount
+    return () => {
+      if (sessionListenerRef.current) {
+        window.removeEventListener("message", sessionListenerRef.current);
+      }
+    };
   }, [refresh]);
 
   const launchEmbeddedSignup = async () => {
@@ -122,6 +140,46 @@ export function WhatsappCrmIntegrationsPage() {
     }
 
     setWorking("launch");
+
+    // Remove any previous session_info_response listener
+    if (sessionListenerRef.current) {
+      window.removeEventListener("message", sessionListenerRef.current);
+      sessionListenerRef.current = null;
+    }
+
+    // Listen for Meta's session_info_response — fires with phone/WABA IDs
+    const sessionListener = (event: MessageEvent) => {
+      if (event.origin !== "https://www.facebook.com" && event.origin !== "https://web.facebook.com") return;
+      try {
+        const data = typeof event.data === "string" ? (JSON.parse(event.data) as MetaSessionInfoResponse) : null;
+        if (!data) return;
+
+        if (data.event === "FINISH" && data.data) {
+          const phoneNumberId = data.data.phone_number_id ?? "";
+          const wabaId = data.data.waba_id ?? "";
+          const businessId = data.data.business_id ?? "";
+          setDraft((current) => ({
+            ...current,
+            phoneNumberId: phoneNumberId || current.phoneNumberId,
+            businessAccountId: wabaId || current.businessAccountId,
+            businessId: businessId || current.businessId,
+          }));
+          if (phoneNumberId || wabaId) {
+            toast.success("Phone number and WABA IDs captured automatically from Meta.");
+          }
+        } else if (data.event === "CANCEL") {
+          toast.warning("Embedded Signup was cancelled.");
+        } else if (data.event === "ERROR") {
+          toast.error("Embedded Signup returned an error from Meta.");
+        }
+      } catch {
+        // not a Meta message — ignore
+      }
+    };
+
+    sessionListenerRef.current = sessionListener;
+    window.addEventListener("message", sessionListener);
+
     try {
       const sdk = await loadFacebookSdk(appId);
       sdk.login(
@@ -132,9 +190,9 @@ export function WhatsappCrmIntegrationsPage() {
               code: response.authResponse?.code ?? current.code,
               accessToken: response.authResponse?.accessToken ?? current.accessToken,
             }));
-            toast.success("Embedded Signup returned credentials. Fill in the WABA and phone number IDs from session logging and exchange.");
+            toast.success("Credentials received from Meta. Review the pre-filled fields and click Exchange and connect.");
           } else {
-            toast.warning("Embedded Signup did not return credentials.");
+            toast.warning("Embedded Signup closed without returning credentials.");
           }
           setWorking(null);
         },
@@ -142,7 +200,7 @@ export function WhatsappCrmIntegrationsPage() {
           config_id: configId,
           response_type: "code",
           override_default_response_type: true,
-          extras: { setup: {} },
+          extras: { setup: {}, featureType: "", sessionInfoVersion: "3" },
         },
       );
     } catch (caught) {
@@ -313,7 +371,11 @@ export function WhatsappCrmIntegrationsPage() {
                         <AlertCircle className="size-3.5" />
                         Set WHATSAPP_META_APP_ID and WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID in backend env.
                       </span>
-                    ) : null}
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        A Meta popup will open. Complete the flow — phone number and WABA IDs are captured automatically.
+                      </span>
+                    )}
                   </div>
 
                   <FieldGroup>

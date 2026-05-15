@@ -6,13 +6,13 @@ import * as XLSX from "xlsx";
 
 import type { AppEnv } from "@/app/route";
 import { db } from "@/db/client";
-import { campaignCustomers, campaigns, customers, deals, leads, profiles, tasks } from "@/db/schema";
+import { campaignCustomers, campaigns, customers, dealActivities, deals, leadActivities, leads, profiles, tasks } from "@/db/schema";
 import { ok } from "@/lib/api";
 import { assertNonEmptyUpdate, normalizeDelimitedHeader, paginationMeta, parseDelimitedRows, parseDelimitedTags } from "@/lib/controller-utils";
 import { AppError } from "@/lib/errors";
 import { assertTenantLead, assertTenantMember, assertTenantStore } from "@/lib/tenant-isolation";
 import { customerParamSchema } from "@/modules/customers/schema";
-import type { CreateCustomerInput, ImportCustomerCsvInput, ListCustomersQuery, UpdateCustomerInput } from "@/modules/customers/schema";
+import type { ConvertCustomerToDealInput, ConvertCustomerToLeadInput, CreateCustomerInput, ImportCustomerCsvInput, ListCustomersQuery, UpdateCustomerInput } from "@/modules/customers/schema";
 
 
 function parsePdfTextToRows(text: string) {
@@ -527,4 +527,141 @@ export async function permanentlyDeleteCustomer(c: Context<AppEnv>) {
   }
 
   return ok(c, { deleted: true, permanent: true, id: deleted.id });
+}
+
+export async function convertCustomerToLead(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const params = customerParamSchema.parse(c.req.param());
+  const body = c.get("validatedBody") as ConvertCustomerToLeadInput;
+
+  const [customer] = await db
+    .select()
+    .from(customers)
+    .where(and(eq(customers.id, params.customerId), eq(customers.companyId, tenant.companyId), isNull(customers.deletedAt)))
+    .limit(1);
+
+  if (!customer) {
+    throw AppError.notFound("Contact not found");
+  }
+
+  // Check if a lead already exists for this customer
+  const [existingLead] = await db
+    .select({ id: leads.id })
+    .from(leads)
+    .where(and(eq(leads.companyId, tenant.companyId), isNull(leads.deletedAt), eq(leads.email, customer.email ?? "")))
+    .limit(1);
+
+  if (existingLead && customer.email) {
+    throw AppError.conflict("A lead with this email already exists", { leadId: existingLead.id });
+  }
+
+  const [createdLead] = await db
+    .insert(leads)
+    .values({
+      companyId: tenant.companyId,
+      storeId: customer.storeId,
+      assignedToUserId: customer.assignedToUserId,
+      title: body.leadTitle ?? customer.fullName,
+      fullName: customer.fullName,
+      associatedCompany: customer.associatedCompany,
+      email: customer.email,
+      phone: customer.phone,
+      source: body.source ?? null,
+      status: body.status,
+      score: 0,
+      notes: customer.notes,
+      tags: customer.tags,
+      createdBy: user.id,
+    })
+    .returning();
+
+  // Link the customer back to the new lead
+  await db
+    .update(customers)
+    .set({ leadId: createdLead.id })
+    .where(eq(customers.id, customer.id));
+
+  await db.insert(leadActivities).values({
+    companyId: tenant.companyId,
+    leadId: createdLead.id,
+    actorUserId: user.id,
+    type: "lead_created",
+    payload: { source: "contact_conversion", customerId: customer.id },
+  });
+
+  return ok(c, { lead: createdLead }, 201);
+}
+
+export async function convertCustomerToDeal(c: Context<AppEnv>) {
+  const tenant = c.get("tenant");
+  const user = c.get("user");
+  const params = customerParamSchema.parse(c.req.param());
+  const body = c.get("validatedBody") as ConvertCustomerToDealInput;
+
+  const [customer] = await db
+    .select()
+    .from(customers)
+    .where(and(eq(customers.id, params.customerId), eq(customers.companyId, tenant.companyId), isNull(customers.deletedAt)))
+    .limit(1);
+
+  if (!customer) {
+    throw AppError.notFound("Contact not found");
+  }
+
+  let leadId: string | null = customer.leadId ?? null;
+
+  // Optionally create a lead first
+  if (body.createLead && !leadId) {
+    const [createdLead] = await db
+      .insert(leads)
+      .values({
+        companyId: tenant.companyId,
+        storeId: customer.storeId,
+        assignedToUserId: customer.assignedToUserId,
+        title: customer.fullName,
+        fullName: customer.fullName,
+        associatedCompany: customer.associatedCompany,
+        email: customer.email,
+        phone: customer.phone,
+        status: "qualified",
+        score: 0,
+        notes: customer.notes,
+        tags: customer.tags,
+        createdBy: user.id,
+      })
+      .returning();
+
+    leadId = createdLead.id;
+
+    await db.update(customers).set({ leadId: createdLead.id }).where(eq(customers.id, customer.id));
+  }
+
+  const [createdDeal] = await db
+    .insert(deals)
+    .values({
+      companyId: tenant.companyId,
+      storeId: customer.storeId,
+      customerId: customer.id,
+      leadId,
+      assignedToUserId: customer.assignedToUserId,
+      title: body.dealTitle ?? `Deal: ${customer.fullName}`,
+      pipeline: body.pipeline,
+      stage: body.stage,
+      status: "open",
+      value: body.value,
+      notes: customer.notes,
+      createdBy: user.id,
+    })
+    .returning();
+
+  await db.insert(dealActivities).values({
+    companyId: tenant.companyId,
+    dealId: createdDeal.id,
+    actorUserId: user.id,
+    type: "deal_created",
+    payload: { source: "contact_conversion", customerId: customer.id },
+  });
+
+  return ok(c, { deal: createdDeal }, 201);
 }

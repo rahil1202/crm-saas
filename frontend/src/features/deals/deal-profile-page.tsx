@@ -79,6 +79,13 @@ type TaskFormState = {
   dueAt: string;
 };
 
+type ConvertToLeadFormState = {
+  leadTitle: string;
+  source: string;
+  status: "new" | "qualified" | "proposal" | "won" | "lost";
+  createCustomer: boolean;
+};
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Not Available";
   return new Date(value).toLocaleString();
@@ -188,7 +195,9 @@ export default function DealProfilePage() {
   const [editOpen, setEditOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
+  const [convertToLeadOpen, setConvertToLeadOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [form, setForm] = useState<DealFormState | null>(null);
   const [note, setNote] = useState("");
   const [taskForm, setTaskForm] = useState<TaskFormState>({
@@ -197,6 +206,12 @@ export default function DealProfilePage() {
     status: "todo",
     priority: "medium",
     dueAt: "",
+  });
+  const [convertToLeadForm, setConvertToLeadForm] = useState<ConvertToLeadFormState>({
+    leadTitle: "",
+    source: "",
+    status: "new",
+    createCustomer: true,
   });
 
   const activePipeline = useMemo(
@@ -316,6 +331,29 @@ export default function DealProfilePage() {
     }
   };
 
+  const handleConvertToLead = async () => {
+    if (!dealId) return;
+    setConverting(true);
+    try {
+      const result = await apiRequest<{ lead: { id: string } }>(`/deals/${dealId}/convert-to-lead`, {
+        method: "POST",
+        body: JSON.stringify({
+          leadTitle: convertToLeadForm.leadTitle.trim() || undefined,
+          source: convertToLeadForm.source.trim() || undefined,
+          status: convertToLeadForm.status,
+          createCustomer: convertToLeadForm.createCustomer,
+        }),
+      });
+      toast.success("Deal converted to lead.");
+      setConvertToLeadOpen(false);
+      window.location.href = `/dashboard/leads/${result.lead.id}`;
+    } catch (caughtError) {
+      toast.error(caughtError instanceof ApiError ? caughtError.message : "Unable to convert deal to lead.");
+    } finally {
+      setConverting(false);
+    }
+  };
+
   if (loading) {
     return <div className="rounded-[1.6rem] border border-dashed border-border/70 bg-white/70 px-5 py-4 text-sm text-muted-foreground">Loading deal profile...</div>;
   }
@@ -373,6 +411,10 @@ export default function DealProfilePage() {
                 <Button type="button" className="h-auto flex-col gap-2 py-3" onClick={() => setEditOpen(true)}>
                   <PencilLine className="size-4" />
                   <span className="text-xs">Edit</span>
+                </Button>
+                <Button type="button" variant="outline" className="h-auto flex-col gap-2 py-3 sm:col-span-3" onClick={() => { setConvertToLeadForm({ leadTitle: data.deal.title, source: data.deal.referralSource ?? "", status: "new", createCustomer: true }); setConvertToLeadOpen(true); }} disabled={converting}>
+                  <Target className="size-4" />
+                  <span className="text-xs">{converting ? "..." : "Convert to Lead"}</span>
                 </Button>
               </div>
             </div>
@@ -616,6 +658,36 @@ export default function DealProfilePage() {
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setTaskOpen(false)}>Cancel</Button>
               <Button type="button" onClick={() => void handleAddTask()} disabled={submitting}>{submitting ? "Saving..." : "Add task"}</Button>
+            </div>
+          </div>
+        </OverlayModal>
+      ) : null}
+
+      {convertToLeadOpen ? (
+        <OverlayModal title="Convert Deal to Lead" description="Create a new lead from this deal's information." onClose={() => setConvertToLeadOpen(false)} maxWidth="max-w-2xl">
+          <div className="grid gap-4">
+            <FieldGroup className="grid gap-4 md:grid-cols-2">
+              <Field><FieldLabel>Lead title</FieldLabel><Input value={convertToLeadForm.leadTitle} onChange={(event) => setConvertToLeadForm((current) => ({ ...current, leadTitle: event.target.value }))} /></Field>
+              <Field><FieldLabel>Source</FieldLabel><Input value={convertToLeadForm.source} onChange={(event) => setConvertToLeadForm((current) => ({ ...current, source: event.target.value }))} placeholder="e.g. website, referral" /></Field>
+              <Field>
+                <FieldLabel>Initial status</FieldLabel>
+                <NativeSelect value={convertToLeadForm.status} onChange={(event) => setConvertToLeadForm((current) => ({ ...current, status: event.target.value as ConvertToLeadFormState["status"] }))} className="h-10 rounded-xl px-3 text-sm">
+                  <option value="new">New</option>
+                  <option value="qualified">Qualified</option>
+                  <option value="proposal">Proposal</option>
+                  <option value="won">Won</option>
+                  <option value="lost">Lost</option>
+                </NativeSelect>
+              </Field>
+            </FieldGroup>
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+              <input type="checkbox" checked={convertToLeadForm.createCustomer} onChange={(event) => setConvertToLeadForm((current) => ({ ...current, createCustomer: event.target.checked }))} className="rounded" />
+              Link existing contact to the new lead
+            </label>
+            <p className="text-sm text-slate-500">Deal details (title, notes, source) will be copied to the new lead. The deal record is kept and linked to the new lead.</p>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" className="hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" onClick={() => setConvertToLeadOpen(false)}>Cancel</Button>
+              <Button type="button" onClick={() => void handleConvertToLead()} disabled={converting}>{converting ? "Converting..." : "Convert to Lead"}</Button>
             </div>
           </div>
         </OverlayModal>

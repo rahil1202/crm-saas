@@ -56,7 +56,23 @@ export const importCustomerCsvSchema = z.object({
   csv: z.string().trim().min(1).max(100_000),
 });
 
+export const convertCustomerToLeadSchema = z.object({
+  leadTitle: z.string().trim().min(1).max(180).optional(),
+  source: z.string().trim().max(100).optional(),
+  status: z.enum(["new", "qualified", "proposal", "won", "lost"]).default("new"),
+});
+
+export const convertCustomerToDealSchema = z.object({
+  dealTitle: z.string().trim().min(1).max(180).optional(),
+  pipeline: z.string().trim().min(1).max(100).default("default"),
+  stage: z.string().trim().min(1).max(100).default("new"),
+  value: z.number().int().min(0).default(0),
+  createLead: z.boolean().default(false),
+});
+
 export type ListCustomersQuery = z.infer<typeof listCustomersSchema>;
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 export type ImportCustomerCsvInput = z.infer<typeof importCustomerCsvSchema>;
+export type ConvertCustomerToLeadInput = z.infer<typeof convertCustomerToLeadSchema>;
+export type ConvertCustomerToDealInput = z.infer<typeof convertCustomerToDealSchema>;

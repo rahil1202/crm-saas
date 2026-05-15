@@ -2,6 +2,8 @@ import { Hono } from "hono";
 
 import type { AppEnv } from "@/app/route";
 import {
+  convertCustomerToDeal,
+  convertCustomerToLead,
   createCustomer,
   deleteCustomer,
   getCustomerHistory,
@@ -13,7 +15,14 @@ import {
   restoreCustomer,
   updateCustomer,
 } from "@/modules/customers/controller";
-import { createCustomerSchema, importCustomerCsvSchema, listCustomersSchema, updateCustomerSchema } from "@/modules/customers/schema";
+import {
+  convertCustomerToDealSchema,
+  convertCustomerToLeadSchema,
+  createCustomerSchema,
+  importCustomerCsvSchema,
+  listCustomersSchema,
+  updateCustomerSchema,
+} from "@/modules/customers/schema";
 import { requireAuth, requireModuleAccess, requireTenant } from "@/middleware/auth";
 import { validateJson, validateQuery } from "@/middleware/common";
 
@@ -30,3 +39,5 @@ customerRoutes.patch("/:customerId", validateJson(updateCustomerSchema), updateC
 customerRoutes.delete("/:customerId", deleteCustomer);
 customerRoutes.post("/:customerId/restore", restoreCustomer);
 customerRoutes.delete("/:customerId/permanent", permanentlyDeleteCustomer);
+customerRoutes.post("/:customerId/convert-to-lead", validateJson(convertCustomerToLeadSchema), convertCustomerToLead);
+customerRoutes.post("/:customerId/convert-to-deal", validateJson(convertCustomerToDealSchema), convertCustomerToDeal);
