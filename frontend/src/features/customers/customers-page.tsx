@@ -85,6 +85,7 @@ interface ImportResponse {
 
 type CustomerFormState = {
   fullName: string;
+  associatedCompany: string;
   email: string;
   phone: string;
   tagsInput: string;
@@ -447,6 +448,7 @@ function customerToEditForm(customer: Customer): CustomerEditFormState {
   const details = parseContactNotes(customer.notes);
   return {
     fullName: customer.fullName,
+    associatedCompany: customer.associatedCompany ?? "",
     email: customer.email ?? "",
     phone: customer.phone ?? "",
     tagsInput: (customer.tags ?? []).join(", "),

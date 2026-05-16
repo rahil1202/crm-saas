@@ -330,6 +330,8 @@ export default function TasksListPage() {
       priority: params.get("priority") ?? "",
       taskType: params.get("taskType") ?? "",
       assignedToUserId: params.get("assignedToUserId") ?? "",
+      associatedEntityType: params.get("associatedEntityType") ?? "",
+      associatedEntityId: params.get("associatedEntityId") ?? "",
       overdueOnly: params.get("overdueOnly") ?? "",
     }),
     writeFilters: (params, nextFilters) => {
