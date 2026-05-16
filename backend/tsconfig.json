@@ -1,19 +1,23 @@
 {
   "compilerOptions": {
     "rootDir": "./src",
-    "outDir" : "./dist",
+    "outDir": "./dist",
+
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+
     "strict": true,
-    "noEmit": true,
+    "noEmit": false,
     "skipLibCheck": true,
+
     "types": ["bun", "node"],
-    "baseUrl": ".",
+
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "drizzle.config.ts"],
+
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

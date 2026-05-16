@@ -87,7 +87,7 @@ async function uploadToSupabase(objectPath: string, buffer: Buffer, contentType?
     {
       method: "POST",
       headers: buildSupabaseHeaders(contentType ?? "application/octet-stream"),
-      body: buffer,
+      body: new Uint8Array(buffer).buffer,
     },
   );
   if (!response.ok) {

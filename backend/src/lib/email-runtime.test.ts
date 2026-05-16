@@ -52,6 +52,11 @@ const mockEnv: Record<string, unknown> = {
 let lastSendMailArgs: Record<string, unknown> | null = null;
 let sendMailImpl: () => Promise<{ messageId?: string }> = async () => ({ messageId: "<test-id@example.com>" });
 
+function lastSendMailFrom(): string {
+  expect(lastSendMailArgs).not.toBeNull();
+  return (lastSendMailArgs as Record<string, unknown>).from as string;
+}
+
 // Mock nodemailer
 mock.module("nodemailer", () => ({
   default: {
@@ -194,7 +199,7 @@ describe("Property 8: SMTP from-address override", () => {
           const provider = new SmtpEmailProvider();
           await provider.send(request);
 
-          const from = lastSendMailArgs?.from as string;
+          const from = lastSendMailFrom();
           // The from field must contain the SMTP_FROM_EMAIL, not request.fromEmail
           expect(from).toContain(smtpFromEmail);
           // When no fromName at all, from should equal smtpFromEmail exactly
@@ -220,7 +225,7 @@ describe("Property 8: SMTP from-address override", () => {
           const provider = new SmtpEmailProvider();
           await provider.send(request);
 
-          const from = lastSendMailArgs?.from as string;
+          const from = lastSendMailFrom();
           expect(from).toBe(`${smtpFromName} <${smtpFromEmail}>`);
         },
       ),
@@ -239,7 +244,7 @@ describe("Property 8: SMTP from-address override", () => {
         const provider = new SmtpEmailProvider();
         await provider.send(request);
 
-        const from = lastSendMailArgs?.from as string;
+        const from = lastSendMailFrom();
         expect(from).toContain(request.fromEmail);
       }),
       { numRuns: 100 },
@@ -259,7 +264,7 @@ describe("Property 8: SMTP from-address override", () => {
           const provider = new SmtpEmailProvider();
           await provider.send(request);
 
-          const from = lastSendMailArgs?.from as string;
+          const from = lastSendMailFrom();
           expect(from).toBe(`${request.fromName} <${request.fromEmail}>`);
         },
       ),

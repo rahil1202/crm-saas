@@ -12,6 +12,12 @@ const encoder = new TextEncoder();
 const accessSecret = encoder.encode(env.ACCESS_TOKEN_SECRET);
 const refreshSecret = encoder.encode(env.REFRESH_TOKEN_SECRET);
 const jwks = createRemoteJWKSet(new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`));
+const bunPassword = (Bun as typeof Bun & {
+  password: {
+    hash(password: string, options: { algorithm: "bcrypt"; cost: number }): Promise<string>;
+    verify(password: string, hash: string): Promise<boolean>;
+  };
+}).password;
 
 export interface SupabaseIdentity {
   userId: string;
@@ -503,7 +509,7 @@ export async function unenrollSupabaseMfaFactor(accessToken: string, factorId: s
  * hash in sync so we can fall back to it when Supabase is unreachable.
  */
 export async function hashLocalPassword(password: string): Promise<string> {
-  return Bun.password.hash(password, { algorithm: "bcrypt", cost: 12 });
+  return bunPassword.hash(password, { algorithm: "bcrypt", cost: 12 });
 }
 
 /**
@@ -511,7 +517,7 @@ export async function hashLocalPassword(password: string): Promise<string> {
  */
 export async function verifyLocalPassword(password: string, hash: string): Promise<boolean> {
   try {
-    return await Bun.password.verify(password, hash);
+    return await bunPassword.verify(password, hash);
   } catch {
     return false;
   }
