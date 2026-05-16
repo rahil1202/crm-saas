@@ -10,6 +10,7 @@ import { AppError } from "@/lib/errors";
 import { getCompanySettings } from "@/lib/company-settings";
 import { consumeRateLimit, recordSecurityAuditLog, type RateLimitPolicy } from "@/lib/security";
 import {
+  formResponseSettingsSchema,
   formParamSchema,
   publicFormSlugSchema,
   type CreateFormInput,
@@ -96,6 +97,20 @@ async function getFormOrThrow(companyId: string, formId: string, options?: { inc
 function normalizeWebsiteDomain(value?: string | null) {
   if (!value) return null;
   return value.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "") || null;
+}
+
+function resolveResponseSettings(value: unknown) {
+  const parsed = formResponseSettingsSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  return {
+    mode: "message" as const,
+    messageTitle: "Thank you",
+    messageBody: "Your response has been submitted successfully.",
+    captchaEnabled: false,
+  };
 }
 
 function readFieldValue(values: Record<string, unknown>, ...keys: string[]) {
@@ -455,6 +470,8 @@ export async function getPublicForm(c: Context<AppEnv>) {
     throw AppError.notFound("Published form not found");
   }
 
+  const responseSettings = resolveResponseSettings(item.responseSettings);
+
   return ok(c, {
     id: item.id,
     name: item.name,
@@ -462,7 +479,7 @@ export async function getPublicForm(c: Context<AppEnv>) {
     websiteDomain: item.websiteDomain,
     schema: item.schema,
     themeSettings: item.themeSettings,
-    responseSettings: item.responseSettings,
+    responseSettings,
   });
 }
 
@@ -490,6 +507,8 @@ export async function submitPublicForm(c: Context<AppEnv>) {
   if (!item) {
     throw AppError.notFound("Published form not found");
   }
+
+  const responseSettings = resolveResponseSettings(item.responseSettings);
 
   const origin = c.req.header("origin");
   const normalizedDomain = normalizeWebsiteDomain(item.websiteDomain);
@@ -617,8 +636,8 @@ export async function submitPublicForm(c: Context<AppEnv>) {
   });
 
   return ok(c, {
-    messageTitle: item.responseSettings.messageTitle,
-    messageBody: item.responseSettings.messageBody,
+    messageTitle: responseSettings.messageTitle,
+    messageBody: responseSettings.messageBody,
     responseId: response.id,
     leadId: createdLead.id,
   }, 201);
