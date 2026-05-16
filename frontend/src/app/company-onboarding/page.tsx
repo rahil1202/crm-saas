@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle2, LoaderCircle, Plus, Trash2, UserRound, Users } from "lucide-react";
+import { Country, State, City } from "country-state-city";
+import { find as findTimezoneFromGeo } from "geo-tz";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -64,67 +66,22 @@ const STEP_META = [
 const FALLBACK_TIMEZONES = ["Asia/Kolkata", "UTC", "America/New_York", "America/Los_Angeles", "Europe/London", "Europe/Berlin", "Asia/Dubai", "Asia/Singapore", "Australia/Sydney"];
 const CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED", "SAR", "SGD", "AUD", "CAD"];
 
-const LOCATION_DATA: Record<
-  string,
-  {
-    timezone: string;
-    currency: string;
-    states: Record<string, string[]>;
-  }
-> = {
-  India: {
-    timezone: "Asia/Kolkata",
-    currency: "INR",
-    states: {
-      Maharashtra: ["Mumbai", "Pune", "Nagpur"],
-      Karnataka: ["Bengaluru", "Mysuru", "Hubli"],
-      Delhi: ["New Delhi"],
-      "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai"],
-      Gujarat: ["Ahmedabad", "Surat", "Vadodara"],
-    },
-  },
-  "United States": {
-    timezone: "America/New_York",
-    currency: "USD",
-    states: {
-      California: ["Los Angeles", "San Francisco", "San Diego"],
-      Texas: ["Houston", "Dallas", "Austin"],
-      Florida: ["Miami", "Orlando", "Tampa"],
-      "New York": ["New York City", "Buffalo", "Rochester"],
-    },
-  },
-  "United Arab Emirates": {
-    timezone: "Asia/Dubai",
-    currency: "AED",
-    states: {
-      Dubai: ["Dubai"],
-      AbuDhabi: ["Abu Dhabi"],
-      Sharjah: ["Sharjah"],
-    },
-  },
-  Singapore: {
-    timezone: "Asia/Singapore",
-    currency: "SGD",
-    states: {
-      Singapore: ["Singapore"],
-    },
-  },
-  "United Kingdom": {
-    timezone: "Europe/London",
-    currency: "GBP",
-    states: {
-      England: ["London", "Manchester", "Birmingham"],
-      Scotland: ["Edinburgh", "Glasgow", "Aberdeen"],
-    },
-  },
+type CountryOption = {
+  name: string;
+  isoCode: string;
+  currency: string;
+  timezones: string[];
 };
 
-const COUNTRY_CODE_MAP: Record<string, string> = {
-  IN: "India",
-  US: "United States",
-  AE: "United Arab Emirates",
-  SG: "Singapore",
-  GB: "United Kingdom",
+type StateOption = {
+  name: string;
+  isoCode: string;
+};
+
+type CityOption = {
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 function createInviteRow(): InviteRow {
@@ -174,32 +131,27 @@ function getTimezones() {
   return FALLBACK_TIMEZONES;
 }
 
-function getDefaultState(country: string) {
-  const states = Object.keys(LOCATION_DATA[country]?.states ?? {});
-  return states[0] ?? "";
-}
-
-function getDefaultCity(country: string, state: string) {
-  const cities = LOCATION_DATA[country]?.states[state] ?? [];
-  return cities[0] ?? "";
-}
-
-function detectBrowserCountry() {
-  if (typeof navigator === "undefined") {
-    return null;
+function resolveTimezone(input: { browserTimezone: string | null; country?: CountryOption; city?: CityOption | null }) {
+  if (input.city?.latitude != null && input.city.longitude != null) {
+    try {
+      const fromGeo = findTimezoneFromGeo(input.city.latitude, input.city.longitude);
+      if (Array.isArray(fromGeo) && fromGeo.length > 0) {
+        return fromGeo[0];
+      }
+    } catch {
+      // fallback below
+    }
   }
 
-  const regionFromLocale = Intl.DateTimeFormat().resolvedOptions().locale.match(/-([A-Z]{2})$/i)?.[1]?.toUpperCase() ?? null;
-  if (regionFromLocale && COUNTRY_CODE_MAP[regionFromLocale]) {
-    return COUNTRY_CODE_MAP[regionFromLocale];
+  if (input.browserTimezone) {
+    return input.browserTimezone;
   }
 
-  const languageRegion = navigator.language.match(/-([A-Z]{2})$/i)?.[1]?.toUpperCase() ?? null;
-  if (languageRegion && COUNTRY_CODE_MAP[languageRegion]) {
-    return COUNTRY_CODE_MAP[languageRegion];
+  if (input.country?.timezones[0]) {
+    return input.country.timezones[0];
   }
 
-  return null;
+  return "UTC";
 }
 
 function draftStorageKey(userId: string) {
@@ -240,13 +192,69 @@ function CompanyOnboardingContent() {
   const [inviteErrors, setInviteErrors] = useState<Array<{ email: string; message: string }>>([]);
   const timezoneAutofilledRef = useRef(false);
   const timezones = useMemo(() => getTimezones(), []);
-  const countries = useMemo(() => Object.keys(LOCATION_DATA), []);
-  const companyStates = useMemo(() => Object.keys(LOCATION_DATA[draft.country]?.states ?? {}), [draft.country]);
-  const companyCities = useMemo(() => LOCATION_DATA[draft.country]?.states[draft.state] ?? [], [draft.country, draft.state]);
+  const countries = useMemo<CountryOption[]>(() => Country.getAllCountries().map((country) => ({
+    name: country.name,
+    isoCode: country.isoCode,
+    currency: country.currency ?? "",
+    timezones: country.timezones?.map((item) => item.zoneName).filter(Boolean) ?? [],
+  })), []);
+  const selectedCountry = useMemo(() => countries.find((country) => country.name === draft.country) ?? null, [countries, draft.country]);
+  const companyStates = useMemo<StateOption[]>(() => {
+    if (!selectedCountry) {
+      return [];
+    }
+
+    return State.getStatesOfCountry(selectedCountry.isoCode).map((state) => ({
+      name: state.name,
+      isoCode: state.isoCode,
+    }));
+  }, [selectedCountry]);
+  const selectedState = useMemo(() => companyStates.find((state) => state.name === draft.state) ?? null, [companyStates, draft.state]);
+  const companyCities = useMemo<CityOption[]>(() => {
+    if (!selectedCountry) {
+      return [];
+    }
+
+    const cities = (selectedState
+      ? City.getCitiesOfState(selectedCountry.isoCode, selectedState.isoCode)
+      : City.getCitiesOfCountry(selectedCountry.isoCode)) ?? [];
+
+    return cities.map((city) => ({
+      name: city.name,
+      latitude: city.latitude ? Number(city.latitude) : null,
+      longitude: city.longitude ? Number(city.longitude) : null,
+    }));
+  }, [selectedCountry, selectedState]);
+  const selectedCity = useMemo(() => companyCities.find((city) => city.name === draft.city) ?? null, [companyCities, draft.city]);
   const branchCountry = draft.branchCountry || draft.country;
-  const branchStates = useMemo(() => Object.keys(LOCATION_DATA[branchCountry]?.states ?? {}), [branchCountry]);
+  const selectedBranchCountry = useMemo(() => countries.find((country) => country.name === branchCountry) ?? null, [countries, branchCountry]);
+  const branchStates = useMemo<StateOption[]>(() => {
+    if (!selectedBranchCountry) {
+      return [];
+    }
+
+    return State.getStatesOfCountry(selectedBranchCountry.isoCode).map((state) => ({
+      name: state.name,
+      isoCode: state.isoCode,
+    }));
+  }, [selectedBranchCountry]);
   const branchState = draft.branchState || draft.state;
-  const branchCities = useMemo(() => LOCATION_DATA[branchCountry]?.states[branchState] ?? [], [branchCountry, branchState]);
+  const selectedBranchState = useMemo(() => branchStates.find((state) => state.name === branchState) ?? null, [branchStates, branchState]);
+  const branchCities = useMemo<CityOption[]>(() => {
+    if (!selectedBranchCountry) {
+      return [];
+    }
+
+    const cities = (selectedBranchState
+      ? City.getCitiesOfState(selectedBranchCountry.isoCode, selectedBranchState.isoCode)
+      : City.getCitiesOfCountry(selectedBranchCountry.isoCode)) ?? [];
+
+    return cities.map((city) => ({
+      name: city.name,
+      latitude: city.latitude ? Number(city.latitude) : null,
+      longitude: city.longitude ? Number(city.longitude) : null,
+    }));
+  }, [selectedBranchCountry, selectedBranchState]);
   const progress = Math.round((step / STEP_COUNT) * 100);
   const StepIcon = STEP_META[step - 1]?.icon ?? Building2;
 
@@ -302,22 +310,40 @@ function CompanyOnboardingContent() {
   }, [authMe, draft, loading]);
 
   useEffect(() => {
-    if (loading || timezoneAutofilledRef.current) {
+    if (loading || timezoneAutofilledRef.current || countries.length === 0) {
       return;
     }
 
     const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const browserCountry = detectBrowserCountry();
+    const localeRegion = Intl.DateTimeFormat().resolvedOptions().locale.match(/-([A-Z]{2})$/i)?.[1]?.toUpperCase() ?? null;
+    const browserCountry = localeRegion ? countries.find((country) => country.isoCode === localeRegion) ?? null : null;
 
     setDraft((current) => {
-      const nextCountry = browserCountry && LOCATION_DATA[browserCountry] ? browserCountry : current.country;
-      const nextState = current.state || getDefaultState(nextCountry);
-      const nextCity = current.city || getDefaultCity(nextCountry, nextState);
-      const nextTimezone = browserTimezone || LOCATION_DATA[nextCountry]?.timezone || current.timezone;
-      const nextCurrency = LOCATION_DATA[nextCountry]?.currency || current.currency;
+      const fallbackCountry = countries.find((country) => country.name === current.country) ?? countries[0];
+      const nextCountry = browserCountry ?? fallbackCountry;
+      const states = State.getStatesOfCountry(nextCountry.isoCode);
+      const nextState = current.state || states[0]?.name || "";
+      const matchedState = states.find((state) => state.name === nextState) ?? states[0] ?? null;
+      const cities = (matchedState
+        ? City.getCitiesOfState(nextCountry.isoCode, matchedState.isoCode)
+        : City.getCitiesOfCountry(nextCountry.isoCode)) ?? [];
+      const nextCity = current.city || cities[0]?.name || "";
+      const matchedCity = cities.find((city) => city.name === nextCity) ?? null;
+      const nextTimezone = resolveTimezone({
+        browserTimezone,
+        country: nextCountry,
+        city: matchedCity
+          ? {
+              name: matchedCity.name,
+              latitude: matchedCity.latitude ? Number(matchedCity.latitude) : null,
+              longitude: matchedCity.longitude ? Number(matchedCity.longitude) : null,
+            }
+          : null,
+      });
+      const nextCurrency = nextCountry.currency || current.currency;
       return {
         ...current,
-        country: nextCountry,
+        country: nextCountry.name,
         state: nextState,
         city: nextCity,
         timezone: nextTimezone,
@@ -326,7 +352,7 @@ function CompanyOnboardingContent() {
     });
 
     timezoneAutofilledRef.current = true;
-  }, [loading]);
+  }, [countries, loading]);
 
   useEffect(() => {
     if (loading) {
@@ -348,46 +374,108 @@ function CompanyOnboardingContent() {
     setDraft((current) => ({ ...current, ...values }));
   };
 
-  const handleCountryChange = (country: string) => {
-    const state = getDefaultState(country);
-    const city = getDefaultCity(country, state);
-    updateDraft({
-      country,
-      state,
-      city,
-      timezone: LOCATION_DATA[country]?.timezone ?? draft.timezone,
-      currency: LOCATION_DATA[country]?.currency ?? draft.currency,
-    });
-  };
-
-  const handleStateChange = (state: string) => {
-    const city = getDefaultCity(draft.country, state);
-    updateDraft({
-      state,
-      city,
-      timezone: LOCATION_DATA[draft.country]?.timezone ?? draft.timezone,
-    });
-  };
-
-  const handleBranchCountryChange = (country: string) => {
+  const handleCountryChange = (countryName: string) => {
+    const country = countries.find((item) => item.name === countryName);
     if (!country) {
+      return;
+    }
+
+    const states = State.getStatesOfCountry(country.isoCode);
+    const nextState = states[0]?.name ?? "";
+    const cities = (states[0] ? City.getCitiesOfState(country.isoCode, states[0].isoCode) : City.getCitiesOfCountry(country.isoCode)) ?? [];
+    const nextCity = cities[0]?.name ?? "";
+    const timezone = resolveTimezone({
+      browserTimezone: null,
+      country,
+      city: cities[0]
+        ? {
+            name: cities[0].name,
+            latitude: cities[0].latitude ? Number(cities[0].latitude) : null,
+            longitude: cities[0].longitude ? Number(cities[0].longitude) : null,
+          }
+        : null,
+    });
+
+    updateDraft({
+      country: country.name,
+      state: nextState,
+      city: nextCity,
+      timezone,
+      currency: country.currency || draft.currency,
+    });
+  };
+
+  const handleStateChange = (stateName: string) => {
+    if (!selectedCountry) {
+      return;
+    }
+
+    const state = companyStates.find((item) => item.name === stateName) ?? null;
+    const cities = (state ? City.getCitiesOfState(selectedCountry.isoCode, state.isoCode) : City.getCitiesOfCountry(selectedCountry.isoCode)) ?? [];
+    const nextCity = cities[0]?.name ?? "";
+    const timezone = resolveTimezone({
+      browserTimezone: null,
+      country: selectedCountry,
+      city: cities[0]
+        ? {
+            name: cities[0].name,
+            latitude: cities[0].latitude ? Number(cities[0].latitude) : null,
+            longitude: cities[0].longitude ? Number(cities[0].longitude) : null,
+          }
+        : null,
+    });
+
+    updateDraft({
+      state: stateName,
+      city: nextCity,
+      timezone,
+    });
+  };
+
+  const handleCityChange = (cityName: string) => {
+    const city = companyCities.find((item) => item.name === cityName) ?? null;
+    const timezone = resolveTimezone({
+      browserTimezone: null,
+      country: selectedCountry ?? undefined,
+      city,
+    });
+
+    updateDraft({ city: cityName, timezone });
+  };
+
+  const handleBranchCountryChange = (countryName: string) => {
+    if (!countryName) {
       updateDraft({ branchCountry: "", branchState: "", branchCity: "" });
       return;
     }
 
-    const state = getDefaultState(country);
-    const city = getDefaultCity(country, state);
-    updateDraft({ branchCountry: country, branchState: state, branchCity: city });
+    const country = countries.find((item) => item.name === countryName);
+    if (!country) {
+      return;
+    }
+
+    const states = State.getStatesOfCountry(country.isoCode);
+    const nextState = states[0]?.name ?? "";
+    const cities = (states[0] ? City.getCitiesOfState(country.isoCode, states[0].isoCode) : City.getCitiesOfCountry(country.isoCode)) ?? [];
+    const nextCity = cities[0]?.name ?? "";
+    updateDraft({ branchCountry: country.name, branchState: nextState, branchCity: nextCity });
   };
 
-  const handleBranchStateChange = (state: string) => {
-    if (!state) {
+  const handleBranchStateChange = (stateName: string) => {
+    if (!stateName) {
       updateDraft({ branchState: "", branchCity: "" });
       return;
     }
 
-    const city = getDefaultCity(branchCountry, state);
-    updateDraft({ branchState: state, branchCity: city });
+    if (!selectedBranchCountry) {
+      return;
+    }
+
+    const state = branchStates.find((item) => item.name === stateName) ?? null;
+    const cities = (state
+      ? City.getCitiesOfState(selectedBranchCountry.isoCode, state.isoCode)
+      : City.getCitiesOfCountry(selectedBranchCountry.isoCode)) ?? [];
+    updateDraft({ branchState: stateName, branchCity: cities[0]?.name ?? "" });
   };
 
   const goToStep = (nextStep: number) => {
@@ -590,7 +678,7 @@ function CompanyOnboardingContent() {
                       <FieldLabel>Country *</FieldLabel>
                       <NativeSelect value={draft.country} onChange={(event) => handleCountryChange(event.target.value)} required>
                         {countries.map((country) => (
-                          <option key={country} value={country}>{country}</option>
+                          <option key={country.isoCode} value={country.name}>{country.name}</option>
                         ))}
                       </NativeSelect>
                     </Field>
@@ -598,15 +686,15 @@ function CompanyOnboardingContent() {
                       <FieldLabel>State *</FieldLabel>
                       <NativeSelect value={draft.state} onChange={(event) => handleStateChange(event.target.value)} required>
                         {companyStates.map((state) => (
-                          <option key={state} value={state}>{state}</option>
+                          <option key={`${state.isoCode}-${state.name}`} value={state.name}>{state.name}</option>
                         ))}
                       </NativeSelect>
                     </Field>
                     <Field>
                       <FieldLabel>City *</FieldLabel>
-                      <NativeSelect value={draft.city} onChange={(event) => updateDraft({ city: event.target.value })} required>
+                      <NativeSelect value={draft.city} onChange={(event) => handleCityChange(event.target.value)} required>
                         {companyCities.map((city) => (
-                          <option key={city} value={city}>{city}</option>
+                          <option key={`${city.name}-${city.latitude ?? "x"}-${city.longitude ?? "x"}`} value={city.name}>{city.name}</option>
                         ))}
                       </NativeSelect>
                     </Field>
@@ -675,7 +763,7 @@ function CompanyOnboardingContent() {
                       <NativeSelect value={draft.branchCountry} onChange={(event) => handleBranchCountryChange(event.target.value)}>
                         <option value="">Uses company country ({draft.country})</option>
                         {countries.map((country) => (
-                          <option key={country} value={country}>{country}</option>
+                          <option key={country.isoCode} value={country.name}>{country.name}</option>
                         ))}
                       </NativeSelect>
                     </Field>
@@ -684,7 +772,7 @@ function CompanyOnboardingContent() {
                       <NativeSelect value={draft.branchState} onChange={(event) => handleBranchStateChange(event.target.value)}>
                         <option value="">Uses company state ({draft.state || "-"})</option>
                         {branchStates.map((state) => (
-                          <option key={state} value={state}>{state}</option>
+                          <option key={`${state.isoCode}-${state.name}`} value={state.name}>{state.name}</option>
                         ))}
                       </NativeSelect>
                     </Field>
@@ -693,7 +781,7 @@ function CompanyOnboardingContent() {
                       <NativeSelect value={draft.branchCity} onChange={(event) => updateDraft({ branchCity: event.target.value })}>
                         <option value="">Uses company city ({draft.city || "-"})</option>
                         {branchCities.map((city) => (
-                          <option key={city} value={city}>{city}</option>
+                          <option key={`${city.name}-${city.latitude ?? "x"}-${city.longitude ?? "x"}`} value={city.name}>{city.name}</option>
                         ))}
                       </NativeSelect>
                     </Field>
