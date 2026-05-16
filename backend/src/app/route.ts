@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
+import { logger } from "hono/logger";
 
 import { env } from "@/lib/config";
 import { ok } from "@/lib/api";
-import { errorMiddleware, requestIdMiddleware } from "@/middleware/common";
+import { errorMiddleware, requestIdMiddleware, requestSummaryMiddleware } from "@/middleware/common";
 import { applySecurityHeaders, resolveClientIp } from "@/middleware/security";
 import type { AppVariables } from "@/types/app";
 import { authRoutes } from "@/modules/auth/route";
@@ -45,7 +46,26 @@ export type AppEnv = { Variables: AppVariables };
 export const app = new Hono<AppEnv>();
 
 app.use("*", requestIdMiddleware);
+app.use(
+  "*",
+  logger((message) => {
+    if (!message.includes("-->") && !message.includes("<--")) {
+      return;
+    }
+
+    const logLevel = message.includes(" 5") ? "error" : "info";
+    const timestamp = new Date().toISOString();
+
+    if (logLevel === "error") {
+      console.error(`[http] ${timestamp} ${message}`);
+      return;
+    }
+
+    console.log(`[http] ${timestamp} ${message}`);
+  }),
+);
 app.use("*", resolveClientIp);
+app.use("*", requestSummaryMiddleware);
 app.use("*", applySecurityHeaders);
 app.use("*", compress());
 app.use(

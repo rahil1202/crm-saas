@@ -12,8 +12,45 @@ export const requestIdMiddleware: MiddlewareHandler = async (c, next) => {
   await next();
 };
 
+export const requestSummaryMiddleware: MiddlewareHandler = async (c, next) => {
+  const startedAt = performance.now();
+  await next();
+
+  const durationMs = Math.round(performance.now() - startedAt);
+  const status = c.res.status;
+  const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
+  const requestId = c.get("requestId");
+  const clientIp = c.get("clientIp") ?? "unknown";
+  const timestamp = new Date().toISOString();
+  const line = `[request] ${timestamp} ${c.req.method} ${c.req.path} status=${status} durationMs=${durationMs} requestId=${requestId} ip=${clientIp}`;
+
+  if (level === "error") {
+    console.error(line);
+    return;
+  }
+
+  if (level === "warn") {
+    console.warn(line);
+    return;
+  }
+
+  console.log(line);
+};
+
 export const errorMiddleware = async (error: Error, c: Parameters<MiddlewareHandler>[0]) => {
   if (error instanceof AppError) {
+    const timestamp = new Date().toISOString();
+    const requestId = c.get("requestId");
+    const companyId = c.get("tenant")?.companyId ?? "-";
+    const userId = c.get("user")?.id ?? "-";
+    const message = `[error] ${timestamp} requestId=${requestId} method=${c.req.method} path=${c.req.path} status=${error.status} code=${error.code} companyId=${companyId} userId=${userId} message=${error.message}`;
+
+    if (error.status >= 500) {
+      console.error(message);
+    } else {
+      console.warn(message);
+    }
+
     if (error.status === 401 || error.status === 403 || error.status === 429 || (c.req.path.startsWith("/api/v1/public/") && error.status >= 400)) {
       await recordSecurityAuditLog({
         requestId: c.get("requestId"),

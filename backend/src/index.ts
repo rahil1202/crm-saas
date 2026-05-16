@@ -6,12 +6,15 @@ import { env } from "@/lib/config";
 
 await runMigrations();
 
+const runtimeEnv = process.env.NODE_ENV ?? "development";
+
 Bun.serve({
   port: env.PORT,
   fetch: app.fetch,
 });
 
 console.log(`crm-saas backend listening on http://localhost:${env.PORT}`);
+console.log(`[startup] environment=${runtimeEnv} port=${env.PORT}`);
 
 if (env.RUNTIME_WORKER_ENABLED) {
   startAutomationRuntimeWorker(env.RUNTIME_POLL_INTERVAL_MS);

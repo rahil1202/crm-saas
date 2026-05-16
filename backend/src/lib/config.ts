@@ -53,9 +53,9 @@ const envSchema = z.object({
     ),
   COOKIE_SECURE: z
     .enum(["0", "1", "true", "false"])
-    .default("0")
+    .default("true")
     .transform((value) => value === "1" || value === "true"),
-  COOKIE_SAME_SITE: z.enum(["lax", "strict", "none", "Lax", "Strict", "None"]).default("lax").transform((value) => {
+  COOKIE_SAME_SITE: z.enum(["lax", "strict", "none", "Lax", "Strict", "None"]).default("none").transform((value) => {
     const normalized = value.toLowerCase();
     if (normalized === "strict") return "Strict";
     if (normalized === "none") return "None";
