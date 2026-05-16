@@ -215,7 +215,6 @@ export default function FormDetailPage() {
                 <div className="font-medium text-slate-900">Thank-you response</div>
                 <div>{form.responseSettings.messageTitle}</div>
                 <div>{form.responseSettings.messageBody}</div>
-                <div className="mt-2">CAPTCHA: {form.responseSettings.captchaEnabled ? "enabled" : "disabled"}</div>
               </div>
             </CardContent>
           </Card>

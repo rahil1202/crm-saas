@@ -22,7 +22,7 @@ export type FormResponseSettings = {
   mode: "message";
   messageTitle: string;
   messageBody: string;
-  captchaEnabled: boolean;
+  captchaEnabled?: boolean;
 };
 
 export type FormDefinition = {

@@ -79,23 +79,6 @@ function buildEmbedSnippet(slug: string) {
   return `<iframe src="${src}" width="100%" height="720" frameborder="0" style="border:0;max-width:100%;"></iframe>`;
 }
 
-async function verifyTurnstile(input: { token: string; remoteIp?: string | null }) {
-  const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      secret: env.TURNSTILE_SECRET_KEY,
-      response: input.token,
-      ...(input.remoteIp ? { remoteip: input.remoteIp } : {}),
-    }),
-  });
-
-  const payload = await response.json() as { success?: boolean };
-  return payload.success === true;
-}
-
 async function getFormOrThrow(companyId: string, formId: string, options?: { includeDeleted?: boolean }) {
   const [item] = await db
     .select()
@@ -506,31 +489,6 @@ export async function submitPublicForm(c: Context<AppEnv>) {
 
   if (!item) {
     throw AppError.notFound("Published form not found");
-  }
-
-  if (item.responseSettings.captchaEnabled) {
-    if (!env.TURNSTILE_SECRET_KEY) {
-      throw AppError.badRequest("Captcha is enabled for this form but the server captcha secret is not configured");
-    }
-    if (!body.captchaToken) {
-      throw AppError.badRequest("Captcha verification is required");
-    }
-    const captchaValid = await verifyTurnstile({
-      token: body.captchaToken,
-      remoteIp: c.get("clientIp") ?? null,
-    });
-    if (!captchaValid) {
-      await recordSecurityAuditLog({
-        requestId: c.get("requestId"),
-        route: c.req.path,
-        action: "form_submit.captcha",
-        result: "blocked",
-        ipAddress: c.get("clientIp") ?? null,
-        userAgent: c.get("userAgent") ?? null,
-        metadata: { slug },
-      });
-      throw AppError.badRequest("Captcha verification failed");
-    }
   }
 
   const origin = c.req.header("origin");

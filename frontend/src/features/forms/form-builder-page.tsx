@@ -28,7 +28,7 @@ function createField(index: number): FormFieldDefinition {
 }
 
 const defaultTheme: FormThemeSettings = { heading: "Reach out to us", subheading: "Get in touch for help and information.", submitButtonText: "Submit", primaryColor: "#0ea5e9", backgroundColor: "#ffffff" };
-const defaultResponse: FormResponseSettings = { mode: "message", messageTitle: "Thank you", messageBody: "Your response has been submitted successfully.", captchaEnabled: true };
+const defaultResponse: FormResponseSettings = { mode: "message", messageTitle: "Thank you", messageBody: "Your response has been submitted successfully." };
 
 export default function FormBuilderPage() {
   const searchParams = useSearchParams();

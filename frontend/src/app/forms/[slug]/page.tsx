@@ -2,41 +2,21 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import Script from "next/script";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ApiError, buildApiUrl } from "@/lib/api";
 import type { PublicFormResponse } from "@/features/forms/types";
-import { getFrontendEnv } from "@/lib/env";
-
-declare global {
-  interface Window {
-    turnstile?: {
-      render: (container: string | HTMLElement, options: {
-        sitekey: string;
-        callback?: (token: string) => void;
-        "expired-callback"?: () => void;
-        "error-callback"?: () => void;
-      }) => string;
-      reset: (widgetId?: string) => void;
-    };
-  }
-}
 
 export default function PublicHostedFormPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug;
-  const env = getFrontendEnv();
   const [form, setForm] = useState<PublicFormResponse | null>(null);
   const [values, setValues] = useState<Record<string, string | boolean>>({});
   const [submitted, setSubmitted] = useState<{ title: string; body: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [captchaToken, setCaptchaToken] = useState("");
-  const [captchaReady, setCaptchaReady] = useState(false);
-  const [captchaWidgetId, setCaptchaWidgetId] = useState<string | null>(null);
   const load = useCallback(async () => {
     if (!slug) return;
     setLoading(true);
@@ -61,33 +41,9 @@ export default function PublicHostedFormPage() {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (!form?.responseSettings.captchaEnabled || !env.turnstileSiteKey || !window.turnstile || captchaWidgetId) {
-      return;
-    }
-
-    const element = document.getElementById("turnstile-container");
-    if (!element) {
-      return;
-    }
-
-    const widgetId = window.turnstile.render(element, {
-      sitekey: env.turnstileSiteKey,
-      callback: (token) => setCaptchaToken(token),
-      "expired-callback": () => setCaptchaToken(""),
-      "error-callback": () => setCaptchaToken(""),
-    });
-    setCaptchaWidgetId(widgetId);
-    setCaptchaReady(true);
-  }, [captchaWidgetId, env.turnstileSiteKey, form?.responseSettings.captchaEnabled]);
-
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!form) return;
-    if (form.responseSettings.captchaEnabled && !captchaToken) {
-      setError("Complete the captcha before submitting.");
-      return;
-    }
     setSubmitting(true);
     setError(null);
     try {
@@ -99,7 +55,6 @@ export default function PublicHostedFormPage() {
           sourceUrl: typeof window !== "undefined" ? window.location.href : undefined,
           websiteDomain: typeof window !== "undefined" ? window.location.hostname : undefined,
           honey: "",
-          captchaToken,
         }),
       });
       const payload = await response.json();
@@ -110,10 +65,6 @@ export default function PublicHostedFormPage() {
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to submit form.");
     } finally {
-      if (window.turnstile && captchaWidgetId) {
-        window.turnstile.reset(captchaWidgetId);
-      }
-      setCaptchaToken("");
       setSubmitting(false);
     }
   };
@@ -146,9 +97,6 @@ export default function PublicHostedFormPage() {
 
   return (
     <main className="min-h-screen p-5 md:p-10" style={{ backgroundColor: form.themeSettings.backgroundColor }}>
-      {form.responseSettings.captchaEnabled && env.turnstileSiteKey ? (
-        <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" strategy="afterInteractive" />
-      ) : null}
       <form onSubmit={onSubmit} className="mx-auto max-w-5xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
         <input type="text" name="company_website" autoComplete="off" tabIndex={-1} className="hidden" aria-hidden="true" />
         <div className="mb-8 grid gap-2">
@@ -191,19 +139,6 @@ export default function PublicHostedFormPage() {
             <AlertTitle>Submission failed</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
-        ) : null}
-        {form.responseSettings.captchaEnabled ? (
-          env.turnstileSiteKey ? (
-            <div className="mt-5">
-              <div id="turnstile-container" />
-              {!captchaReady ? <div className="mt-2 text-sm text-slate-500">Loading captcha...</div> : null}
-            </div>
-          ) : (
-            <Alert className="mt-5" variant="destructive">
-              <AlertTitle>Captcha unavailable</AlertTitle>
-              <AlertDescription>This form requires captcha, but the public site key is not configured.</AlertDescription>
-            </Alert>
-          )
         ) : null}
         <Button type="submit" disabled={submitting} className="mt-5 h-12 w-full text-lg" style={{ backgroundColor: form.themeSettings.primaryColor }}>
           {submitting ? "Submitting..." : form.themeSettings.submitButtonText}

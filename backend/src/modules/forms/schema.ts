@@ -34,7 +34,7 @@ export const formResponseSettingsSchema = z.object({
   mode: z.literal("message").default("message"),
   messageTitle: z.string().trim().min(1).max(160).default("Thank you"),
   messageBody: z.string().trim().min(1).max(500).default("Your response has been submitted successfully."),
-  captchaEnabled: z.boolean().default(true),
+  captchaEnabled: z.boolean().default(false),
 });
 
 export const listFormsSchema = z.object({
@@ -62,7 +62,7 @@ const baseFormSchema = z.object({
     mode: "message",
     messageTitle: "Thank you",
     messageBody: "Your response has been submitted successfully.",
-    captchaEnabled: true,
+    captchaEnabled: false,
   }),
 });
 
@@ -117,7 +117,6 @@ export const publicSubmitSchema = z.object({
   sourceUrl: z.string().trim().url().optional(),
   websiteDomain: z.string().trim().max(255).optional(),
   honey: z.string().max(0).optional(),
-  captchaToken: z.string().trim().max(4096).optional(),
 });
 
 export type CreateFormInput = z.infer<typeof createFormSchema>;
