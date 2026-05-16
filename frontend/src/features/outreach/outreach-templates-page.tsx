@@ -425,7 +425,7 @@ export function OutreachTemplatesPage() {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({ type: "email", limit: "200", offset: "0" });
+        const params = new URLSearchParams({ type: "email", limit: "100", offset: "0" });
         if (q.trim()) params.set("q", q.trim());
         const response = await apiRequest<{ items: Template[] }>(`/templates/list?${params.toString()}`);
         if (!disposed) {
