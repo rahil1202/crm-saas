@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle2, LoaderCircle, Plus, Trash2, UserRound, Users } from "lucide-react";
 import { Country, State, City } from "country-state-city";
-import { find as findTimezoneFromGeo } from "geo-tz";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -132,17 +131,6 @@ function getTimezones() {
 }
 
 function resolveTimezone(input: { browserTimezone: string | null; country?: CountryOption; city?: CityOption | null }) {
-  if (input.city?.latitude != null && input.city.longitude != null) {
-    try {
-      const fromGeo = findTimezoneFromGeo(input.city.latitude, input.city.longitude);
-      if (Array.isArray(fromGeo) && fromGeo.length > 0) {
-        return fromGeo[0];
-      }
-    } catch {
-      // fallback below
-    }
-  }
-
   if (input.browserTimezone) {
     return input.browserTimezone;
   }
