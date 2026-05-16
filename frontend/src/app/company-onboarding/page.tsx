@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle2, LoaderCircle, Plus, Trash2, UserRound, Users } from "lucide-react";
 import { toast } from "sonner";
 
@@ -64,6 +64,69 @@ const STEP_META = [
 const FALLBACK_TIMEZONES = ["Asia/Kolkata", "UTC", "America/New_York", "America/Los_Angeles", "Europe/London", "Europe/Berlin", "Asia/Dubai", "Asia/Singapore", "Australia/Sydney"];
 const CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED", "SAR", "SGD", "AUD", "CAD"];
 
+const LOCATION_DATA: Record<
+  string,
+  {
+    timezone: string;
+    currency: string;
+    states: Record<string, string[]>;
+  }
+> = {
+  India: {
+    timezone: "Asia/Kolkata",
+    currency: "INR",
+    states: {
+      Maharashtra: ["Mumbai", "Pune", "Nagpur"],
+      Karnataka: ["Bengaluru", "Mysuru", "Hubli"],
+      Delhi: ["New Delhi"],
+      "Tamil Nadu": ["Chennai", "Coimbatore", "Madurai"],
+      Gujarat: ["Ahmedabad", "Surat", "Vadodara"],
+    },
+  },
+  "United States": {
+    timezone: "America/New_York",
+    currency: "USD",
+    states: {
+      California: ["Los Angeles", "San Francisco", "San Diego"],
+      Texas: ["Houston", "Dallas", "Austin"],
+      Florida: ["Miami", "Orlando", "Tampa"],
+      "New York": ["New York City", "Buffalo", "Rochester"],
+    },
+  },
+  "United Arab Emirates": {
+    timezone: "Asia/Dubai",
+    currency: "AED",
+    states: {
+      Dubai: ["Dubai"],
+      AbuDhabi: ["Abu Dhabi"],
+      Sharjah: ["Sharjah"],
+    },
+  },
+  Singapore: {
+    timezone: "Asia/Singapore",
+    currency: "SGD",
+    states: {
+      Singapore: ["Singapore"],
+    },
+  },
+  "United Kingdom": {
+    timezone: "Europe/London",
+    currency: "GBP",
+    states: {
+      England: ["London", "Manchester", "Birmingham"],
+      Scotland: ["Edinburgh", "Glasgow", "Aberdeen"],
+    },
+  },
+};
+
+const COUNTRY_CODE_MAP: Record<string, string> = {
+  IN: "India",
+  US: "United States",
+  AE: "United Arab Emirates",
+  SG: "Singapore",
+  GB: "United Kingdom",
+};
+
 function createInviteRow(): InviteRow {
   return { id: crypto.randomUUID(), email: "", role: "member", storeScope: "company" };
 }
@@ -111,6 +174,34 @@ function getTimezones() {
   return FALLBACK_TIMEZONES;
 }
 
+function getDefaultState(country: string) {
+  const states = Object.keys(LOCATION_DATA[country]?.states ?? {});
+  return states[0] ?? "";
+}
+
+function getDefaultCity(country: string, state: string) {
+  const cities = LOCATION_DATA[country]?.states[state] ?? [];
+  return cities[0] ?? "";
+}
+
+function detectBrowserCountry() {
+  if (typeof navigator === "undefined") {
+    return null;
+  }
+
+  const regionFromLocale = Intl.DateTimeFormat().resolvedOptions().locale.match(/-([A-Z]{2})$/i)?.[1]?.toUpperCase() ?? null;
+  if (regionFromLocale && COUNTRY_CODE_MAP[regionFromLocale]) {
+    return COUNTRY_CODE_MAP[regionFromLocale];
+  }
+
+  const languageRegion = navigator.language.match(/-([A-Z]{2})$/i)?.[1]?.toUpperCase() ?? null;
+  if (languageRegion && COUNTRY_CODE_MAP[languageRegion]) {
+    return COUNTRY_CODE_MAP[languageRegion];
+  }
+
+  return null;
+}
+
 function draftStorageKey(userId: string) {
   return `crm.company-onboarding-draft:${userId}`;
 }
@@ -147,7 +238,15 @@ function CompanyOnboardingContent() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inviteErrors, setInviteErrors] = useState<Array<{ email: string; message: string }>>([]);
+  const timezoneAutofilledRef = useRef(false);
   const timezones = useMemo(() => getTimezones(), []);
+  const countries = useMemo(() => Object.keys(LOCATION_DATA), []);
+  const companyStates = useMemo(() => Object.keys(LOCATION_DATA[draft.country]?.states ?? {}), [draft.country]);
+  const companyCities = useMemo(() => LOCATION_DATA[draft.country]?.states[draft.state] ?? [], [draft.country, draft.state]);
+  const branchCountry = draft.branchCountry || draft.country;
+  const branchStates = useMemo(() => Object.keys(LOCATION_DATA[branchCountry]?.states ?? {}), [branchCountry]);
+  const branchState = draft.branchState || draft.state;
+  const branchCities = useMemo(() => LOCATION_DATA[branchCountry]?.states[branchState] ?? [], [branchCountry, branchState]);
   const progress = Math.round((step / STEP_COUNT) * 100);
   const StepIcon = STEP_META[step - 1]?.icon ?? Building2;
 
@@ -203,6 +302,33 @@ function CompanyOnboardingContent() {
   }, [authMe, draft, loading]);
 
   useEffect(() => {
+    if (loading || timezoneAutofilledRef.current) {
+      return;
+    }
+
+    const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const browserCountry = detectBrowserCountry();
+
+    setDraft((current) => {
+      const nextCountry = browserCountry && LOCATION_DATA[browserCountry] ? browserCountry : current.country;
+      const nextState = current.state || getDefaultState(nextCountry);
+      const nextCity = current.city || getDefaultCity(nextCountry, nextState);
+      const nextTimezone = browserTimezone || LOCATION_DATA[nextCountry]?.timezone || current.timezone;
+      const nextCurrency = LOCATION_DATA[nextCountry]?.currency || current.currency;
+      return {
+        ...current,
+        country: nextCountry,
+        state: nextState,
+        city: nextCity,
+        timezone: nextTimezone,
+        currency: nextCurrency,
+      };
+    });
+
+    timezoneAutofilledRef.current = true;
+  }, [loading]);
+
+  useEffect(() => {
     if (loading) {
       return;
     }
@@ -220,6 +346,48 @@ function CompanyOnboardingContent() {
 
   const updateDraft = (values: Partial<OnboardingDraft>) => {
     setDraft((current) => ({ ...current, ...values }));
+  };
+
+  const handleCountryChange = (country: string) => {
+    const state = getDefaultState(country);
+    const city = getDefaultCity(country, state);
+    updateDraft({
+      country,
+      state,
+      city,
+      timezone: LOCATION_DATA[country]?.timezone ?? draft.timezone,
+      currency: LOCATION_DATA[country]?.currency ?? draft.currency,
+    });
+  };
+
+  const handleStateChange = (state: string) => {
+    const city = getDefaultCity(draft.country, state);
+    updateDraft({
+      state,
+      city,
+      timezone: LOCATION_DATA[draft.country]?.timezone ?? draft.timezone,
+    });
+  };
+
+  const handleBranchCountryChange = (country: string) => {
+    if (!country) {
+      updateDraft({ branchCountry: "", branchState: "", branchCity: "" });
+      return;
+    }
+
+    const state = getDefaultState(country);
+    const city = getDefaultCity(country, state);
+    updateDraft({ branchCountry: country, branchState: state, branchCity: city });
+  };
+
+  const handleBranchStateChange = (state: string) => {
+    if (!state) {
+      updateDraft({ branchState: "", branchCity: "" });
+      return;
+    }
+
+    const city = getDefaultCity(branchCountry, state);
+    updateDraft({ branchState: state, branchCity: city });
   };
 
   const goToStep = (nextStep: number) => {
@@ -420,15 +588,27 @@ function CompanyOnboardingContent() {
                     </Field>
                     <Field>
                       <FieldLabel>Country *</FieldLabel>
-                      <Input value={draft.country} onChange={(event) => updateDraft({ country: event.target.value })} required />
+                      <NativeSelect value={draft.country} onChange={(event) => handleCountryChange(event.target.value)} required>
+                        {countries.map((country) => (
+                          <option key={country} value={country}>{country}</option>
+                        ))}
+                      </NativeSelect>
                     </Field>
                     <Field>
                       <FieldLabel>State *</FieldLabel>
-                      <Input value={draft.state} onChange={(event) => updateDraft({ state: event.target.value })} required />
+                      <NativeSelect value={draft.state} onChange={(event) => handleStateChange(event.target.value)} required>
+                        {companyStates.map((state) => (
+                          <option key={state} value={state}>{state}</option>
+                        ))}
+                      </NativeSelect>
                     </Field>
                     <Field>
                       <FieldLabel>City *</FieldLabel>
-                      <Input value={draft.city} onChange={(event) => updateDraft({ city: event.target.value })} required />
+                      <NativeSelect value={draft.city} onChange={(event) => updateDraft({ city: event.target.value })} required>
+                        {companyCities.map((city) => (
+                          <option key={city} value={city}>{city}</option>
+                        ))}
+                      </NativeSelect>
                     </Field>
                     <Field>
                       <FieldLabel>Timezone *</FieldLabel>
@@ -492,15 +672,30 @@ function CompanyOnboardingContent() {
                     </Field>
                     <Field>
                       <FieldLabel>Country</FieldLabel>
-                      <Input value={draft.branchCountry} onChange={(event) => updateDraft({ branchCountry: event.target.value })} placeholder={draft.country || "Uses company country"} />
+                      <NativeSelect value={draft.branchCountry} onChange={(event) => handleBranchCountryChange(event.target.value)}>
+                        <option value="">Uses company country ({draft.country})</option>
+                        {countries.map((country) => (
+                          <option key={country} value={country}>{country}</option>
+                        ))}
+                      </NativeSelect>
                     </Field>
                     <Field>
                       <FieldLabel>State</FieldLabel>
-                      <Input value={draft.branchState} onChange={(event) => updateDraft({ branchState: event.target.value })} placeholder={draft.state || "Uses company state"} />
+                      <NativeSelect value={draft.branchState} onChange={(event) => handleBranchStateChange(event.target.value)}>
+                        <option value="">Uses company state ({draft.state || "-"})</option>
+                        {branchStates.map((state) => (
+                          <option key={state} value={state}>{state}</option>
+                        ))}
+                      </NativeSelect>
                     </Field>
                     <Field>
                       <FieldLabel>City</FieldLabel>
-                      <Input value={draft.branchCity} onChange={(event) => updateDraft({ branchCity: event.target.value })} placeholder={draft.city || "Uses company city"} />
+                      <NativeSelect value={draft.branchCity} onChange={(event) => updateDraft({ branchCity: event.target.value })}>
+                        <option value="">Uses company city ({draft.city || "-"})</option>
+                        {branchCities.map((city) => (
+                          <option key={city} value={city}>{city}</option>
+                        ))}
+                      </NativeSelect>
                     </Field>
                   </FieldGroup>
                   <div className="flex justify-between">
