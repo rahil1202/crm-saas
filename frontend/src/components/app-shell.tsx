@@ -158,7 +158,7 @@ const navGroupItemOverrides: Record<string, Record<string, { label?: string; ico
     "/dashboard/campaigns": { label: "Campaigns", icon: Megaphone },
     "/dashboard/templates": { label: "Templates", icon: FileText },
     "/dashboard/documents": { label: "Files", icon: FileBox },
-    "/dashboard/social": { label: "Social", icon: MessageSquareShare },
+    // "/dashboard/social": { label: "Social", icon: MessageSquareShare },
   },
   users: {
     "/dashboard/meetings": { label: "Meetings", icon: CalendarClock },

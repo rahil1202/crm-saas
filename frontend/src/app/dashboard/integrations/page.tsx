@@ -20,6 +20,9 @@ export default function IntegrationsPage() {
   const [settings, setSettings] = useState<IntegrationSettings["integrations"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const visibleIntegrations = integrationsCatalog.filter(
+    (integration) => integration.key !== "linkedin" && integration.key !== "documents" && integration.key !== "webhooks",
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -74,13 +77,14 @@ export default function IntegrationsPage() {
       </Card>
 
       <div className="grid gap-3">
-        {integrationsCatalog.map((integration) => {
+        {visibleIntegrations.map((integration) => {
           const Icon = integration.icon;
           const status = getIntegrationStatus(integration.key, hub, settings);
           const completed = status === "completed";
+          const href = integration.key === "whatsapp" ? "/dashboard/whatsapp-crm/integrations" : `/dashboard/integrations/${integration.key}`;
 
           return (
-            <Link key={integration.key} href={`/dashboard/integrations/${integration.key}`} className="group">
+            <Link key={integration.key} href={href} className="group">
               <Card className="border-border/60 transition-colors group-hover:border-primary/40" size="sm">
                 <CardContent className="flex flex-col gap-3 py-1 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">

@@ -33,8 +33,6 @@ interface EmailAccount {
 }
 
 const gmailProvider = oauthProviders.find((p) => p.provider === "google")!;
-const outlookProvider = oauthProviders.find((p) => p.provider === "azure")!;
-
 function ProviderIcon({ provider }: { provider: string }) {
   if (provider === "google") {
     return (
@@ -46,20 +44,11 @@ function ProviderIcon({ provider }: { provider: string }) {
       </svg>
     );
   }
-  if (provider === "azure") {
-    return (
-      <svg className="size-5" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M11.5 2L2 7.5v9L11.5 22 21 16.5v-9L11.5 2z" fill="#0078D4"/>
-        <path d="M11.5 2v20M2 7.5l9.5 5.5M21 7.5l-9.5 5.5" stroke="white" strokeWidth="1" fill="none" opacity="0.4"/>
-      </svg>
-    );
-  }
   return <Mail className="size-5 text-slate-400" />;
 }
 
 function providerLabel(provider: string) {
   if (provider === "google") return "Gmail / Google Workspace";
-  if (provider === "azure") return "Outlook / Microsoft 365";
   if (provider === "resend") return "Resend (system)";
   return provider;
 }
@@ -92,7 +81,7 @@ export function EmailIntegrationPage() {
           const params = new URLSearchParams(window.location.search);
           if (params.get("oauth") === "success") {
             const provider = params.get("provider");
-            setOauthSuccess(provider === "google" ? "Gmail connected successfully." : provider === "azure" ? "Outlook connected successfully." : "Email account connected.");
+            setOauthSuccess(provider === "google" ? "Gmail connected successfully." : "Email account connected.");
             // Clean URL
             window.history.replaceState(null, "", window.location.pathname);
           }
@@ -228,7 +217,7 @@ export function EmailIntegrationPage() {
               </span>
               <div>
                 <CardTitle>Email Integration</CardTitle>
-                <CardDescription>Connect your Gmail or Outlook account to send outreach emails on your behalf.</CardDescription>
+                <CardDescription>Connect your Gmail account to send outreach emails on your behalf.</CardDescription>
               </div>
             </div>
             <Badge variant={hasConnected ? "secondary" : "outline"}>
@@ -246,7 +235,7 @@ export function EmailIntegrationPage() {
             <CardHeader>
               <CardTitle className="text-base">Connect your email account</CardTitle>
               <CardDescription>
-                Each team member or company can connect their own Gmail or Outlook account. Emails will be sent from that address — not a shared system address.
+                Each team member or company can connect their own Gmail account. Emails will be sent from that address — not a shared system address.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3">
@@ -276,38 +265,6 @@ export function EmailIntegrationPage() {
                     <>
                       <ProviderIcon provider="google" />
                       Connect Gmail
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              {/* Outlook */}
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-white p-4 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-blue-50">
-                    <ProviderIcon provider="azure" />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-900">Outlook / Microsoft 365</div>
-                    <div className="text-xs text-slate-500">Send from your @outlook.com or @yourcompany.com address</div>
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void startOauth(outlookProvider)}
-                  disabled={oauthLoading === "azure"}
-                  className="gap-2 shrink-0"
-                >
-                  {oauthLoading === "azure" ? (
-                    <>
-                      <RefreshCw className="size-4 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <ProviderIcon provider="azure" />
-                      Connect Outlook
                     </>
                   )}
                 </Button>
@@ -345,7 +302,7 @@ export function EmailIntegrationPage() {
                 <div className="rounded-2xl border border-dashed border-border/60 py-10 text-center">
                   <Mail className="mx-auto mb-3 size-8 text-slate-300" />
                   <div className="text-sm font-medium text-slate-600">No email accounts connected</div>
-                  <p className="mt-1 text-xs text-slate-400">Connect Gmail or Outlook above to get started.</p>
+                  <p className="mt-1 text-xs text-slate-400">Connect Gmail above to get started.</p>
                 </div>
               ) : (
                 <div className="grid gap-2">
@@ -462,7 +419,7 @@ export function EmailIntegrationPage() {
             <CardContent className="grid gap-3 text-sm text-slate-600">
               <div className="flex gap-2">
                 <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-xs font-bold text-sky-700">1</span>
-                <span>Click "Connect Gmail" or "Connect Outlook" and sign in with your Google or Microsoft account.</span>
+                <span>Click "Connect Gmail" and sign in with your Google account.</span>
               </div>
               <div className="flex gap-2">
                 <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-xs font-bold text-sky-700">2</span>
