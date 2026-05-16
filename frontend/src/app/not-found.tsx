@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function UnknownRoutePage() {
+export default function NotFoundPage() {
   redirect("/auth/login");
 }
