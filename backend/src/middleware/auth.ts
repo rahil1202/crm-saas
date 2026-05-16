@@ -5,6 +5,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db/client";
 import { companyCustomRoles, companyMemberships, superAdmins } from "@/db/schema";
 import { verifyAccessToken } from "@/lib/auth";
+import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { ensurePartnerMembershipAssignmentsForUser } from "@/lib/partner-role-access";
 import { requireActiveAuthSession } from "@/lib/security";
@@ -17,14 +18,32 @@ const ACCESS_COOKIE = "crm_access_token";
 export const requireAuth: MiddlewareHandler = async (c, next) => {
   const authorization = c.req.header("authorization");
   const bearerToken = authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : null;
+  const cookieHeader = c.req.header("cookie") ?? "";
   const cookieToken = getCookie(c, ACCESS_COOKIE) ?? null;
   const token = bearerToken ?? cookieToken;
 
+  if (env.AUTH_DEBUG_LOGS) {
+    const authPreview = authorization ? `${authorization.slice(0, 16)}...` : "none";
+    console.log(
+      `[auth.debug] requestId=${c.get("requestId")} method=${c.req.method} path=${c.req.path} cookieHeader=${cookieHeader || "none"} hasAccessCookie=${cookieToken !== null} authorization=${authPreview}`,
+    );
+  }
+
   if (!token) {
+    if (env.AUTH_DEBUG_LOGS) {
+      console.warn(`[auth.debug] requestId=${c.get("requestId")} token=missing`);
+    }
     throw AppError.unauthorized("Missing access token");
   }
 
   const verified = await verifyAccessToken(token);
+
+  if (env.AUTH_DEBUG_LOGS) {
+    console.log(
+      `[auth.debug] requestId=${c.get("requestId")} token=verified userId=${verified.userId} sessionId=${verified.sessionId}`,
+    );
+  }
+
   await requireActiveAuthSession({
     sessionId: verified.sessionId,
     userId: verified.userId,

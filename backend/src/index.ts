@@ -13,7 +13,7 @@ Bun.serve({
   fetch: app.fetch,
 });
 
-console.log(`crm-saas backend listening on http://localhost:${env.PORT}`);
+console.log(`crm-saas backend listening on ${env.BACKEND_URL}`);
 console.log(`[startup] environment=${runtimeEnv} port=${env.PORT}`);
 
 if (env.RUNTIME_WORKER_ENABLED) {

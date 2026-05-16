@@ -28,8 +28,8 @@ function normalizeSupabaseUrl(rawValue: string) {
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(8787),
-  FRONTEND_URL: z.string().url().default("http://localhost:3000"),
-  BACKEND_URL: z.string().url().default("http://localhost:8787"),
+  FRONTEND_URL: z.string().url().default("https://crm.theonebranding.com"),
+  BACKEND_URL: z.string().url().default("https://apicrm.theonebranding.com"),
   DATABASE_URL: z.string().min(1).default("postgres://postgres:postgres@localhost:5432/crm_saas"),
   SUPABASE_URL: z.string().min(1).default("http://localhost:54321").transform(normalizeSupabaseUrl),
   SUPABASE_ANON_KEY: z.string().min(1).default("dev-anon-key"),
@@ -61,7 +61,12 @@ const envSchema = z.object({
     if (normalized === "none") return "None";
     return "Lax";
   }),
-  AUTH_CALLBACK_URL: z.string().url().default("http://localhost:3000/auth/callback"),
+  COOKIE_DOMAIN: z.string().optional(),
+  AUTH_DEBUG_LOGS: z
+    .enum(["0", "1", "true", "false"])
+    .default("0")
+    .transform((value) => value === "1" || value === "true"),
+  AUTH_CALLBACK_URL: z.string().url().default("https://crm.theonebranding.com/auth/callback"),
   RUNTIME_WORKER_ENABLED: z
     .enum(["0", "1", "true", "false"])
     .default("1")
@@ -97,8 +102,36 @@ const envSchema = z.object({
   // Google OAuth — Gmail outreach connection (separate from Supabase login)
   GOOGLE_CLIENT_ID: z.string().default(""),
   GOOGLE_CLIENT_SECRET: z.string().default(""),
-  GOOGLE_GMAIL_REDIRECT_URI: z.string().url().default("http://localhost:8787/api/v1/google/callback"),
+  GOOGLE_GMAIL_REDIRECT_URI: z.string().url().default("https://apicrm.theonebranding.com/api/v1/google/callback"),
 }).superRefine((data, ctx) => {
+  const frontendProtocol = new URL(data.FRONTEND_URL).protocol;
+  const backendProtocol = new URL(data.BACKEND_URL).protocol;
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (data.COOKIE_SAME_SITE === "None" && !data.COOKIE_SECURE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "COOKIE_SECURE must be enabled when COOKIE_SAME_SITE=None.",
+      path: ["COOKIE_SECURE"],
+    });
+  }
+
+  if (isProduction && !data.COOKIE_SECURE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "COOKIE_SECURE must be enabled in production.",
+      path: ["COOKIE_SECURE"],
+    });
+  }
+
+  if (isProduction && (frontendProtocol !== "https:" || backendProtocol !== "https:")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "FRONTEND_URL and BACKEND_URL must both use https in production.",
+      path: ["FRONTEND_URL"],
+    });
+  }
+
   if (data.SMTP_HOST) {
     const hasUser = data.SMTP_USER !== undefined && data.SMTP_USER !== "";
     const hasPass = data.SMTP_PASS !== undefined && data.SMTP_PASS !== "";

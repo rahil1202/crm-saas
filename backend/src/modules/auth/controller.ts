@@ -86,6 +86,7 @@ const authCookieBase = {
   path: "/",
   sameSite: env.COOKIE_SAME_SITE as "lax" | "strict" | "none" | "Lax" | "Strict" | "None",
   secure: env.COOKIE_SECURE,
+  domain: env.COOKIE_DOMAIN,
 };
 
 function generateReferralCode(seed: string) {
@@ -297,14 +298,14 @@ function setAuthCookies(c: Parameters<typeof setCookie>[0], input: { accessToken
   setCookie(c, SESSION_COOKIE, "1", {
     ...authCookieBase,
     maxAge: env.REFRESH_TOKEN_TTL_SECONDS,
-    httpOnly: false,
+    httpOnly: true,
   });
 }
 
 function clearAuthCookies(c: Parameters<typeof setCookie>[0]) {
-  deleteCookie(c, ACCESS_COOKIE, { path: "/" });
-  deleteCookie(c, REFRESH_COOKIE, { path: "/" });
-  deleteCookie(c, SESSION_COOKIE, { path: "/" });
+  deleteCookie(c, ACCESS_COOKIE, authCookieBase);
+  deleteCookie(c, REFRESH_COOKIE, authCookieBase);
+  deleteCookie(c, SESSION_COOKIE, authCookieBase);
 }
 
 async function upsertProfile(userId: string, email: string | null) {

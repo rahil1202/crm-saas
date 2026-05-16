@@ -21,8 +21,11 @@ export const requestSummaryMiddleware: MiddlewareHandler = async (c, next) => {
   const level = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
   const requestId = c.get("requestId");
   const clientIp = c.get("clientIp") ?? "unknown";
+  const user = c.get("user");
+  const authStatus = user?.id ? "authenticated" : "anonymous";
+  const userId = user?.id ?? "-";
   const timestamp = new Date().toISOString();
-  const line = `[request] ${timestamp} ${c.req.method} ${c.req.path} status=${status} durationMs=${durationMs} requestId=${requestId} ip=${clientIp}`;
+  const line = `[request] ${timestamp} ${c.req.method} ${c.req.path} status=${status} auth=${authStatus} userId=${userId} durationMs=${durationMs} requestId=${requestId} ip=${clientIp}`;
 
   if (level === "error") {
     console.error(line);

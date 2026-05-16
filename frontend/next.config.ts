@@ -13,11 +13,7 @@ const nextConfig: NextConfig = {
   compiler: {
     removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
   },
-  allowedDevOrigins : [
-    "http://localhost:3000",
-    "*.ngrok-free.app",
-    "*.theonebranding.com"
-  ],
+  allowedDevOrigins: ["https://crm.theonebranding.com", "https://apicrm.theonebranding.com", "*.theonebranding.com"],
 };
 
 export default nextConfig;
