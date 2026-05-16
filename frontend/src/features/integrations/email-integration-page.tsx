@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ApiError, apiRequest } from "@/lib/api";
+import { getAuthCallbackUrl } from "@/lib/env";
 import { cn } from "@/lib/utils";
 import {
   clearPendingIntegrationOauthContext,
@@ -124,7 +125,7 @@ export function EmailIntegrationPage() {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: providerConfig.provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: getAuthCallbackUrl(),
         scopes: providerConfig.scopes.join(" "),
         queryParams: providerConfig.queryParams,
       },

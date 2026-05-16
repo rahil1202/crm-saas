@@ -21,7 +21,7 @@ import { clearCachedMe } from "@/lib/me-cache";
 import { resolveAuthenticatedRouteFromMe } from "@/lib/partner-access";
 import { useAsyncForm } from "@/hooks/use-async-form";
 import { apiRequest } from "@/lib/api";
-import { getFrontendEnv } from "@/lib/env";
+import { getAuthCallbackUrl, getFrontendEnv } from "@/lib/env";
 import { clearPendingIntegrationOauthContext } from "@/lib/integration-oauth";
 import { clearPendingInviteReferralContext, readPendingInviteReferralContext, savePendingInviteReferralContext } from "@/lib/invite-referral";
 import { supabase } from "@/lib/supabase";
@@ -173,7 +173,7 @@ function LoginPageContent() {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: getAuthCallbackUrl(),
       },
     });
 

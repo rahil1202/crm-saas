@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest, buildApiUrl } from "@/lib/api";
+import { getAuthCallbackUrl } from "@/lib/env";
 import { cn } from "@/lib/utils";
 import {
   clearPendingIntegrationOauthContext,
@@ -713,7 +714,7 @@ export function IntegrationDetailPage({ integrationKey }: { integrationKey: Inte
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: providerConfig.provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: getAuthCallbackUrl(),
         scopes: providerConfig.scopes.join(" "),
         queryParams: providerConfig.queryParams,
       },

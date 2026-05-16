@@ -20,6 +20,7 @@ import { Progress, ProgressLabel } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { apiRequest } from "@/lib/api";
 import { evaluatePasswordStrength } from "@/lib/auth-ui";
+import { getAuthCallbackUrl } from "@/lib/env";
 import { clearPendingIntegrationOauthContext } from "@/lib/integration-oauth";
 import { savePendingInviteReferralContext } from "@/lib/invite-referral";
 import { supabase } from "@/lib/supabase";
@@ -246,7 +247,7 @@ function RegisterPageContent() {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: getAuthCallbackUrl(),
       },
     });
 
