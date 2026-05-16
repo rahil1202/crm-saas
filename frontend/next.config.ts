@@ -16,6 +16,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins : [
     "http://localhost:3000",
     "*.ngrok-free.app",
+    "*.theonebranding.com"
   ],
 };
 
