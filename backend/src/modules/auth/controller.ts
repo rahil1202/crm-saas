@@ -751,6 +751,12 @@ export async function refreshSession(c: Context<AppEnv>) {
   const verified = await verifyRefreshToken(refreshToken);
   const tokenHash = hashToken(refreshToken);
 
+  // Look up the token regardless of revocation status. A presented refresh
+  // token that is already revoked but still cryptographically valid is the
+  // canonical sign of token theft (the legitimate client refreshed, the
+  // attacker is now replaying the old token), so we burn the entire session
+  // chain rather than silently 401ing and letting the attacker keep using
+  // their newer rotated token.
   const [storedToken] = await db
     .select()
     .from(authRefreshTokens)
@@ -759,13 +765,41 @@ export async function refreshSession(c: Context<AppEnv>) {
         eq(authRefreshTokens.userId, verified.userId),
         eq(authRefreshTokens.tokenHash, tokenHash),
         eq(authRefreshTokens.jti, verified.jti),
-        isNull(authRefreshTokens.revokedAt),
-        gt(authRefreshTokens.expiresAt, new Date()),
       ),
     )
     .limit(1);
 
   if (!storedToken) {
+    // Token was never issued by us, or has been deleted. Treat as a normal
+    // auth failure — there is no chain to revoke.
+    throw AppError.unauthorized("Refresh token is invalid or revoked");
+  }
+
+  if (storedToken.revokedAt) {
+    // Reuse of a revoked refresh token. Tear down the whole session.
+    await revokeAuthSession({
+      sessionId: verified.sessionId,
+      reason: "refresh_token_reuse",
+    });
+    clearAuthCookies(c);
+    await recordSecurityAuditLog({
+      requestId: c.get("requestId"),
+      userId: verified.userId,
+      sessionId: verified.sessionId,
+      route: c.req.path,
+      action: "auth.refresh.reuse_detected",
+      result: "blocked",
+      ipAddress: c.get("clientIp") ?? null,
+      userAgent: c.get("userAgent") ?? null,
+      metadata: {
+        tokenId: storedToken.id,
+        revokedAt: storedToken.revokedAt,
+      },
+    });
+    throw AppError.unauthorized("Refresh token has already been used");
+  }
+
+  if (storedToken.expiresAt <= new Date()) {
     throw AppError.unauthorized("Refresh token is invalid or revoked");
   }
 

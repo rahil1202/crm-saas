@@ -21,6 +21,7 @@ import {
 import { env } from "@/lib/config";
 import { AppError } from "@/lib/errors";
 import { decryptIntegrationSecret } from "@/lib/integration-crypto";
+import { safeExternalFetch } from "@/lib/safe-fetch";
 import { guardWebhookReplay } from "@/lib/security";
 import { renderTemplateContent } from "@/lib/template-renderer";
 import { getWhatsappWorkspaceByPhoneNumberId, normalizePhoneToE164, resolvePhoneMapping } from "@/lib/whatsapp-workspace";
@@ -2008,6 +2009,10 @@ function fallbackMimeType(mediaType: "image" | "document" | "video" | "audio") {
   return "application/octet-stream";
 }
 
+// Meta WhatsApp Cloud API caps a single media upload at 100 MB; we stay below that.
+const WHATSAPP_MEDIA_MAX_BYTES = 95 * 1024 * 1024;
+const WHATSAPP_MEDIA_FETCH_TIMEOUT_MS = 30_000;
+
 async function uploadWhatsappMediaFromUrl(input: {
   workspaceId?: string | null;
   sourceUrl?: string | null;
@@ -2023,14 +2028,25 @@ async function uploadWhatsappMediaFromUrl(input: {
     return null;
   }
 
-  const mediaResponse = await fetch(input.sourceUrl);
+  // SSRF guard: sourceUrl is tenant-controlled. safeExternalFetch enforces
+  // https-only, blocks loopback / RFC1918 / link-local / cloud-metadata
+  // ranges, follows redirects manually with re-validation, and caps the
+  // response body so a hostile origin cannot exhaust memory.
+  const mediaResponse = await safeExternalFetch(input.sourceUrl, {}, {
+    maxBytes: WHATSAPP_MEDIA_MAX_BYTES,
+    timeoutMs: WHATSAPP_MEDIA_FETCH_TIMEOUT_MS,
+  });
   if (!mediaResponse.ok) {
     throw AppError.conflict(`Unable to fetch media source: ${mediaResponse.status}`);
   }
 
   const contentType = mediaResponse.headers.get("content-type") ?? fallbackMimeType(input.mediaType);
-  const blob = new Blob([await mediaResponse.arrayBuffer()], { type: contentType });
-  const filename = new URL(input.sourceUrl).pathname.split("/").filter(Boolean).pop() ?? `whatsapp-media-${Date.now()}`;
+  // Copy into a fresh ArrayBuffer so Blob's type contract is satisfied across the
+  // Bun / Node typings boundary (Buffer's underlying buffer can be SharedArrayBuffer-typed).
+  const bodyCopy = new ArrayBuffer(mediaResponse.body.byteLength);
+  new Uint8Array(bodyCopy).set(mediaResponse.body);
+  const blob = new Blob([bodyCopy], { type: contentType });
+  const filename = new URL(mediaResponse.finalUrl).pathname.split("/").filter(Boolean).pop() ?? `whatsapp-media-${Date.now()}`;
   const form = new FormData();
   form.set("messaging_product", "whatsapp");
   form.set("file", blob, filename);
