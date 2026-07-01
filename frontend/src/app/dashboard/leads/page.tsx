@@ -147,6 +147,12 @@ const rowsPerPageOptions = [10, 20, 50, 100] as const;
 const leadColumnStorageKey = "crm-saas-leads-columns";
 const leadDocumentColumnStorageKey = "crm-saas-lead-documents-columns";
 const leadStatuses: LeadStatus[] = ["new", "qualified", "proposal", "won", "lost"];
+const leadPriorityOptions: Array<{ key: LeadPriority; label: string; score: string }> = [
+  { key: "hot", label: "Hot", score: "75" },
+  { key: "warm", label: "Warm", score: "50" },
+  { key: "nurture", label: "Nurture", score: "25" },
+  { key: "cold", label: "Cold", score: "0" },
+];
 const importSample = `title,full_name,email,phone,source,status,score,tags,notes
 Acme HQ fit-out,Riya Mehta,riya@acme.com,+91 9988816709,website,new,78,enterprise|priority,Inbound lead
 North zone referral,Vikram Singh,,+91 9876543210,referral,qualified,62,partner,Requested callback`;
@@ -219,21 +225,6 @@ const defaultDocumentColumnVisibility: DocumentColumnVisibility = {
 };
 
 const lockedLeadColumns: Exclude<LeadColumnKey, "actions">[] = ["title"];
-const leadColumnOrder: LeadColumnKey[] = [
-  "id",
-  "title",
-  "fullName",
-  "email",
-  "phone",
-  "source",
-  "status",
-  "score",
-  "priority",
-  "createdAt",
-  "updatedAt",
-  "actions",
-];
-
 function parseTags(value: string) {
   return value
     .split(/[|,;]/)
@@ -271,6 +262,15 @@ function getPriorityTone(priority: LeadPriority) {
   if (priority === "warm") return "default";
   if (priority === "nurture") return "secondary";
   return "outline";
+}
+
+function getPriorityFromScore(score: string) {
+  const parsed = Number(score);
+  const boundedScore = Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 0;
+  if (boundedScore >= 75) return "hot";
+  if (boundedScore >= 50) return "warm";
+  if (boundedScore >= 25) return "nurture";
+  return "cold";
 }
 
 function compareValues(left: string | number, right: string | number, direction: SortDirection) {
@@ -640,10 +640,6 @@ export default function LeadsPage() {
 
   const handleSort = (key: LeadSortKey) => {
     requestSort(key, key === "createdAt" || key === "updatedAt" ? "desc" : "asc");
-  };
-
-  const renderSortIcon = (key: LeadSortKey) => {
-    return null;
   };
 
   const applyFilters = () => {
@@ -1105,8 +1101,9 @@ export default function LeadsPage() {
             onSort={handleSort}
             actionColumn={{
               header: "Actions",
+              className: "text-right",
               renderCell: (lead) => (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-end gap-2">
                   {filters.lifecycle === "deleted" ? (
                     <>
                       <Button type="button" variant="ghost" size="sm" className="rounded-lg" onClick={() => void handleRestore(lead)} disabled={deletingId === lead.id}>
@@ -1207,6 +1204,23 @@ export default function LeadsPage() {
                 <Field>
                   <FieldLabel>Score</FieldLabel>
                   <Input value={form.score} onChange={(event) => setForm((current) => ({ ...current, score: event.target.value }))} className="h-10 text-sm" type="number" min={0} />
+                </Field>
+                <Field>
+                  <FieldLabel>Priority</FieldLabel>
+                  <NativeSelect
+                    value={getPriorityFromScore(form.score)}
+                    onChange={(event) => {
+                      const selectedPriority = leadPriorityOptions.find((priority) => priority.key === event.target.value);
+                      setForm((current) => ({ ...current, score: selectedPriority?.score ?? current.score }));
+                    }}
+                    className="h-10 rounded-xl px-3 text-sm"
+                  >
+                    {leadPriorityOptions.map((priority) => (
+                      <option key={priority.key} value={priority.key}>
+                        {priority.label}
+                      </option>
+                    ))}
+                  </NativeSelect>
                 </Field>
                 <Field>
                   <FieldLabel>Partner Pool</FieldLabel>

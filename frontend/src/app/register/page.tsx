@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowRight, CheckCircle2, MailCheck, UserPlus, X } from "lucide-react";
+import { AlertCircle, ArrowRight, CheckCircle2, MailCheck, UserPlus, X, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthShell } from "@/components/auth/auth-shell";
@@ -565,6 +565,14 @@ function RegisterPageContent() {
                 <ProgressLabel>{passwordStrength.label}</ProgressLabel>
                 <span className="ml-auto text-sm text-muted-foreground tabular-nums">{password.length === 0 ? "0%" : `${passwordStrength.score}%`}</span>
               </Progress>
+              <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+                {passwordStrength.requirements.map((requirement) => (
+                  <div key={requirement.key} className={requirement.passed ? "flex items-center gap-2 text-emerald-700" : "flex items-center gap-2 text-slate-500"}>
+                    {requirement.passed ? <CheckCircle2 className="size-4 shrink-0" /> : <XCircle className="size-4 shrink-0" />}
+                    <span>{requirement.label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <Button type="submit" size="lg" disabled={submitting || !acknowledged || !policyConfirmed}>

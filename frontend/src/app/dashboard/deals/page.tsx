@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Import, PencilLine, Plus, Trash2, Download } from "lucide-react";
+import { Download, Import, PencilLine, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -21,7 +21,7 @@ import { SuggestionInputField } from "@/components/crm/crm-form-fields";
 import { useCrmFormSuggestions } from "@/components/crm/use-crm-form-suggestions";
 import { downloadCsvFile, toCsvCell } from "@/components/crm/csv-export";
 import type { ColumnDefinition } from "@/components/crm/types";
-import { useCrmListState, usePersistedColumnVisibility } from "@/components/crm/use-crm-list-state";
+import { useCrmListState } from "@/components/crm/use-crm-list-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,16 +30,7 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError, apiRequest } from "@/lib/api";
-import { getCompanyCookie } from "@/lib/cookies";
 import { loadMe } from "@/lib/me-cache";
-import { buildDocumentsCsv } from "@/features/documents/helpers";
-import {
-  createRelatedDocumentTableColumns,
-  relatedDocumentColumns,
-  RelatedDocumentsTable,
-  type RelatedDocumentColumnKey,
-} from "@/features/documents/related-documents-table";
-import type { DocumentItem, DocumentListResponse } from "@/features/documents/types";
 
 type DealStatus = "open" | "won" | "lost";
 type SortDirection = "asc" | "desc";
@@ -57,7 +48,6 @@ type DealSortKey =
   | "status";
 type DealColumnKey = DealSortKey | "actions";
 type DealColumnVisibility = Record<DealColumnKey, boolean>;
-type DocumentColumnVisibility = Record<RelatedDocumentColumnKey, boolean>;
 
 interface Deal {
   id: string;
@@ -148,7 +138,6 @@ type DealFilters = {
   status: string;
   pipeline: string;
   stage: string;
-  documentFolder: string;
 };
 
 type DealFilterKey = keyof DealFilters;
@@ -161,7 +150,6 @@ type DealFilterChip = {
 
 const rowsPerPageOptions = [10, 20, 50, 100] as const;
 const dealColumnStorageKey = "crm-saas-deals-columns";
-const dealDocumentColumnStorageKey = "crm-saas-deal-documents-columns";
 const dealStatuses: DealStatus[] = ["open", "won", "lost"];
 
 const emptyFilters: DealFilters = {
@@ -169,7 +157,6 @@ const emptyFilters: DealFilters = {
   status: "",
   pipeline: "",
   stage: "",
-  documentFolder: "",
 };
 
 const emptyDealForm: DealFormState = {
@@ -218,14 +205,6 @@ const defaultDealColumnVisibility: DealColumnVisibility = {
   actions: true,
 };
 
-const defaultDocumentColumnVisibility: DocumentColumnVisibility = {
-  name: true,
-  folder: true,
-  type: true,
-  size: true,
-  createdAt: true,
-};
-
 const dealColumnOrder: DealColumnKey[] = [
   "title",
   "amount",
@@ -247,10 +226,6 @@ function formatDate(value: string | null | undefined) {
   return new Date(value).toLocaleDateString();
 }
 
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString();
-}
-
 function compareValues(left: string | number, right: string | number, direction: SortDirection) {
   if (typeof left === "number" && typeof right === "number") {
     return direction === "asc" ? left - right : right - left;
@@ -267,20 +242,6 @@ function parseNoteField(notes: string | null | undefined, label: string) {
   const raw = notes ?? "";
   const match = raw.match(new RegExp(`^${label}:\\s*(.+)$`, "im"));
   return match?.[1]?.trim() ?? "";
-}
-
-function buildNotes(form: DealFormState) {
-  const lines = [
-    ["Deal Type", form.dealType],
-    ["Priority", form.priority],
-    ["Referral Source", form.referralSource],
-    ["Product Tags", form.productTags],
-    ["Deal Owner", form.ownerLabel],
-  ]
-    .filter(([, value]) => value.trim())
-    .map(([label, value]) => `${label}: ${value}`);
-
-  return [form.notes.trim(), lines.length ? lines.join("\n") : null].filter(Boolean).join("\n\n");
 }
 
 function parseTags(value: string) {
@@ -315,7 +276,6 @@ function getFilterChips(filters: DealFilters) {
   if (filters.status.trim()) chips.push({ key: "status", label: "Status", value: filters.status.trim() });
   if (filters.pipeline.trim()) chips.push({ key: "pipeline", label: "Pipeline", value: filters.pipeline.trim() });
   if (filters.stage.trim()) chips.push({ key: "stage", label: "Stage", value: filters.stage.trim() });
-  if (filters.documentFolder.trim()) chips.push({ key: "documentFolder", label: "Folder", value: filters.documentFolder.trim() });
 
   return chips;
 }
@@ -326,7 +286,6 @@ function readFiltersFromSearchParams(params: Pick<URLSearchParams, "get">): Deal
     status: params.get("status") ?? "",
     pipeline: params.get("pipeline") ?? "",
     stage: params.get("stage") ?? "",
-    documentFolder: params.get("documentFolder") ?? "",
   };
 }
 
@@ -335,7 +294,6 @@ function writeFiltersToSearchParams(params: URLSearchParams, filters: DealFilter
   if (filters.status.trim()) params.set("status", filters.status.trim());
   if (filters.pipeline.trim()) params.set("pipeline", filters.pipeline.trim());
   if (filters.stage.trim()) params.set("stage", filters.stage.trim());
-  if (filters.documentFolder.trim()) params.set("documentFolder", filters.documentFolder.trim());
 }
 
 function normalizeSortKey(value: string | null): DealSortKey {
@@ -368,9 +326,7 @@ function buildDealsCsv(items: Deal[]) {
 }
 
 export default function DealsPage() {
-  const companyId = getCompanyCookie();
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [total, setTotal] = useState(0);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -385,14 +341,6 @@ export default function DealsPage() {
   const [contacts, setContacts] = useState<ContactListResponse["items"]>([]);
   const [leadOptions, setLeadOptions] = useState<LeadListResponse["items"]>([]);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
-  const {
-    columnVisibility: documentColumnVisibility,
-    toggleColumn: toggleDocumentColumn,
-    resetColumns: resetDocumentColumns,
-  } = usePersistedColumnVisibility<RelatedDocumentColumnKey>({
-    storageKey: dealDocumentColumnStorageKey,
-    defaultVisibility: defaultDocumentColumnVisibility,
-  });
   const [selectedDealIds, setSelectedDealIds] = useState<string[]>([]);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkStatus, setBulkStatus] = useState("");
@@ -435,13 +383,7 @@ export default function DealsPage() {
 
   const activePipeline =
     pipelineSettings?.dealPipelines.find((pipeline) => pipeline.key === (form.pipeline || pipelineSettings.defaultDealPipeline)) ?? null;
-  const activeFilterChips = useMemo(
-    () =>
-      getFilterChips(filters).filter((chip) =>
-        tab === "documents" ? chip.key === "q" || chip.key === "documentFolder" : chip.key !== "documentFolder",
-      ),
-    [filters, tab],
-  );
+  const activeFilterChips = useMemo(() => getFilterChips(filters), [filters]);
 
   const loadReferenceData = useCallback(async () => {
     try {
@@ -479,50 +421,22 @@ export default function DealsPage() {
     if (filters.q.trim()) params.set("q", filters.q.trim());
     if (filters.status.trim()) params.set("status", filters.status.trim());
     if (filters.pipeline.trim()) params.set("pipeline", filters.pipeline.trim());
+    if (filters.stage.trim()) params.set("stage", filters.stage.trim());
     if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
     params.set("limit", String(limit));
     params.set("offset", String((page - 1) * limit));
 
     try {
       const response = await apiRequest<ListResponse>(`/deals?${params.toString()}`);
-      let items = response.items;
-
-      if (filters.stage.trim()) {
-        const stageNeedle = filters.stage.trim().toLowerCase();
-        items = items.filter((deal) => deal.stage.toLowerCase().includes(stageNeedle));
-      }
-
-      setDeals(items);
+      setDeals(response.items);
       setTotal(response.total);
-      setSelectedDealIds((current) => current.filter((id) => items.some((deal) => deal.id === id)));
+      setSelectedDealIds((current) => current.filter((id) => response.items.some((deal) => deal.id === id)));
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Unable to load deals");
     } finally {
       setLoading(false);
     }
   }, [filters, limit, myUserId, page, tab]);
-
-  const loadDocuments = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    const params = new URLSearchParams();
-    params.set("entityType", "deal");
-    params.set("limit", String(limit));
-    params.set("offset", String((page - 1) * limit));
-    if (filters.q.trim()) params.set("q", filters.q.trim());
-    if (filters.documentFolder.trim()) params.set("folder", filters.documentFolder.trim());
-
-    try {
-      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`);
-      setDocuments(response.items);
-      setTotal(response.total);
-    } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : "Unable to load deal documents");
-    } finally {
-      setLoading(false);
-    }
-  }, [filters.documentFolder, filters.q, limit, page]);
 
   useEffect(() => {
     void loadReferenceData();
@@ -535,13 +449,17 @@ export default function DealsPage() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (tab === "documents") {
-        void loadDocuments();
-        return;
-      }
+    if (tab === "documents") {
+      setTab("all");
+      return;
+    }
 
+    const timer = window.setTimeout(() => {
       if (tab === "mine" && !myUserId) {
+        setDeals([]);
+        setTotal(0);
+        setSelectedDealIds([]);
+        setLoading(false);
         return;
       }
 
@@ -549,7 +467,7 @@ export default function DealsPage() {
     }, 180);
 
     return () => window.clearTimeout(timer);
-  }, [loadDeals, loadDocuments, myUserId, tab]);
+  }, [loadDeals, myUserId, setTab, tab]);
 
   const sortedDeals = useMemo(() => {
     const getSortValue = (deal: Deal) => {
@@ -835,8 +753,6 @@ export default function DealsPage() {
     },
   ];
 
-  const documentColumns = useMemo(() => createRelatedDocumentTableColumns(formatDateTime), []);
-
   const loadAllDealsForExport = useCallback(async () => {
     const items: Deal[] = [];
     let nextOffset = 0;
@@ -848,16 +764,11 @@ export default function DealsPage() {
       if (filters.q.trim()) params.set("q", filters.q.trim());
       if (filters.status.trim()) params.set("status", filters.status.trim());
       if (filters.pipeline.trim()) params.set("pipeline", filters.pipeline.trim());
+      if (filters.stage.trim()) params.set("stage", filters.stage.trim());
       if (tab === "mine" && myUserId) params.set("assignedToUserId", myUserId);
 
       const response = await apiRequest<ListResponse>(`/deals?${params.toString()}`, { skipCache: true });
-      let pageItems = response.items;
-      if (filters.stage.trim()) {
-        const stageNeedle = filters.stage.trim().toLowerCase();
-        pageItems = pageItems.filter((deal) => deal.stage.toLowerCase().includes(stageNeedle));
-      }
-
-      items.push(...pageItems);
+      items.push(...response.items);
       nextOffset += response.items.length;
       if (response.items.length === 0 || nextOffset >= response.total) break;
     }
@@ -865,56 +776,15 @@ export default function DealsPage() {
     return items;
   }, [filters, myUserId, tab]);
 
-  const loadAllDealDocumentsForExport = useCallback(async () => {
-    const items: DocumentItem[] = [];
-    let nextOffset = 0;
-
-    while (true) {
-      const params = new URLSearchParams();
-      params.set("entityType", "deal");
-      params.set("limit", "100");
-      params.set("offset", String(nextOffset));
-      if (filters.q.trim()) params.set("q", filters.q.trim());
-      if (filters.documentFolder.trim()) params.set("folder", filters.documentFolder.trim());
-
-      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`, { skipCache: true });
-      items.push(...response.items);
-      nextOffset += response.items.length;
-      if (response.items.length === 0 || nextOffset >= response.total) break;
-    }
-
-    return items;
-  }, [filters.documentFolder, filters.q]);
-
   const handleExport = async () => {
     try {
-      const csv =
-        tab === "documents"
-          ? buildDocumentsCsv(await loadAllDealDocumentsForExport())
-          : buildDealsCsv(await loadAllDealsForExport());
-      downloadCsvFile(csv, tab === "documents" ? "deal-documents.csv" : "deals.csv");
-      toast.success(tab === "documents" ? "Documents exported" : "Deals exported");
+      const csv = buildDealsCsv(await loadAllDealsForExport());
+      downloadCsvFile(csv, "deals.csv");
+      toast.success("Deals exported");
     } catch (requestError) {
       const message = requestError instanceof ApiError ? requestError.message : "Unable to export data";
       setError(message);
       toast.error(message);
-    }
-  };
-
-  const handleDeleteDocument = async (documentId: string) => {
-    setDeletingId(documentId);
-    setError(null);
-
-    try {
-      await apiRequest(`/documents/${documentId}`, { method: "DELETE" });
-      toast.success("Document deleted");
-      await loadDocuments();
-    } catch (requestError) {
-      const message = requestError instanceof ApiError ? requestError.message : "Unable to delete document";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setDeletingId(null);
     }
   };
 
@@ -949,13 +819,13 @@ export default function DealsPage() {
           <CrmListViewTabs
             value={tab}
             onValueChange={setTab}
-            labels={{ all: "All Deals", mine: "My Deals", documents: "Uploaded Docs" }}
+            labels={{ all: "All Deals", mine: "My Deals" }}
           />
         </div>
 
         <CrmListToolbar
           searchValue={filters.q}
-          searchPlaceholder={tab === "documents" ? "Search uploaded documents" : "Search by deal name"}
+          searchPlaceholder="Search by deal name"
           onSearchChange={(value) => {
             setPage(1);
             setFilters((current) => ({ ...current, q: value }));
@@ -965,98 +835,78 @@ export default function DealsPage() {
           filterCount={activeFilterChips.length}
           onOpenColumns={() => setColumnSettingsOpen(true)}
           onRefresh={() => {
-            if (tab === "documents") {
-              void loadDocuments();
-              return;
-            }
             void loadDeals();
           }}
           extraContent={
-            tab !== "documents" ? (
-              <>
-                <NativeSelect value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className="h-10 w-40 rounded-xl px-3 text-sm">
-                  <option value="">Keep status</option>
-                  {dealStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-                </NativeSelect>
-                <NativeSelect
-                  value={bulkPipeline}
-                  onChange={(event) => {
-                    setBulkPipeline(event.target.value);
-                    setBulkStage("");
-                  }}
-                  className="h-10 w-44 rounded-xl px-3 text-sm"
-                >
-                  <option value="">Keep pipeline</option>
-                  {(pipelineSettings?.dealPipelines ?? []).map((pipeline) => <option key={pipeline.key} value={pipeline.key}>{pipeline.label}</option>)}
-                </NativeSelect>
-                <NativeSelect value={bulkStage} onChange={(event) => setBulkStage(event.target.value)} className="h-10 w-44 rounded-xl px-3 text-sm">
-                  <option value="">Keep stage</option>
-                  {((pipelineSettings?.dealPipelines.find((item) => item.key === bulkPipeline)?.stages) ?? pipelineSettings?.dealPipelines[0]?.stages ?? []).map((stage) => (
-                    <option key={stage.key} value={stage.key}>{stage.label}</option>
-                  ))}
-                </NativeSelect>
-                <Button type="button" disabled={bulkUpdating || selectedDealIds.length === 0 || (!bulkStatus && !bulkPipeline && !bulkStage)} onClick={() => void handleBulkUpdate()}>
-                  {bulkUpdating ? "Updating..." : "Apply bulk update"}
-                </Button>
-              </>
-            ) : null
+            <>
+              <NativeSelect value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value)} className="h-10 w-40 rounded-xl px-3 text-sm">
+                <option value="">Keep status</option>
+                {dealStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+              </NativeSelect>
+              <NativeSelect
+                value={bulkPipeline}
+                onChange={(event) => {
+                  setBulkPipeline(event.target.value);
+                  setBulkStage("");
+                }}
+                className="h-10 w-44 rounded-xl px-3 text-sm"
+              >
+                <option value="">Keep pipeline</option>
+                {(pipelineSettings?.dealPipelines ?? []).map((pipeline) => <option key={pipeline.key} value={pipeline.key}>{pipeline.label}</option>)}
+              </NativeSelect>
+              <NativeSelect value={bulkStage} onChange={(event) => setBulkStage(event.target.value)} className="h-10 w-44 rounded-xl px-3 text-sm">
+                <option value="">Keep stage</option>
+                {((pipelineSettings?.dealPipelines.find((item) => item.key === bulkPipeline)?.stages) ?? pipelineSettings?.dealPipelines[0]?.stages ?? []).map((stage) => (
+                  <option key={stage.key} value={stage.key}>{stage.label}</option>
+                ))}
+              </NativeSelect>
+              <Button type="button" disabled={bulkUpdating || selectedDealIds.length === 0 || (!bulkStatus && !bulkPipeline && !bulkStage)} onClick={() => void handleBulkUpdate()}>
+                {bulkUpdating ? "Updating..." : "Apply bulk update"}
+              </Button>
+            </>
           }
           selectionBar={
-            tab !== "documents" ? (
-              <CrmBulkSelectionBar
-                selectedCount={selectedDealIds.length}
-                allVisibleSelected={paginatedDeals.length > 0 && paginatedDeals.every((deal) => selectedDealIds.includes(deal.id))}
-                onToggleAllVisible={toggleSelectAllVisible}
-                onClose={() => setSelectedDealIds([])}
-                onDelete={() => setBulkDeleteOpen(true)}
-                deleteDisabled={deletingId === "bulk"}
-              />
-            ) : null
+            <CrmBulkSelectionBar
+              selectedCount={selectedDealIds.length}
+              allVisibleSelected={paginatedDeals.length > 0 && paginatedDeals.every((deal) => selectedDealIds.includes(deal.id))}
+              onToggleAllVisible={toggleSelectAllVisible}
+              onClose={() => setSelectedDealIds([])}
+              onDelete={() => setBulkDeleteOpen(true)}
+              deleteDisabled={deletingId === "bulk"}
+            />
           }
         />
 
         <CrmAppliedFiltersBar chips={activeFilterChips} onRemove={removeAppliedFilter} onClear={clearAllFilters} />
 
-        {tab === "documents" ? (
-          <RelatedDocumentsTable
-            columns={documentColumns}
-            rows={documents}
-            loading={loading}
-            columnVisibility={documentColumnVisibility}
-            companyId={companyId}
-            deletingId={deletingId}
-            onDelete={handleDeleteDocument}
-          />
-        ) : (
-          <CrmDataTable
-            columns={dealColumns}
-            rows={paginatedDeals}
-            rowKey={(deal) => deal.id}
-            loading={loading}
-            emptyLabel="No deals found."
-            columnVisibility={columnVisibility}
-            selectable
-            selectedRowIds={selectedDealIds}
-            onToggleRow={toggleDealSelection}
-            onToggleAllVisible={toggleSelectAllVisible}
-            sortBy={sortBy}
-            sortDir={sortDir}
-            onSort={handleSort}
-            actionColumn={{
-              header: "Actions",
-              renderCell: (deal) => (
-                <div className="flex items-center gap-2">
-                  <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => openEditModal(deal)}>
-                    <PencilLine className="size-4" />
-                  </Button>
-                  <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg text-rose-600 hover:text-rose-700" onClick={() => openDeleteModal(deal)}>
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-              ),
-            }}
-          />
-        )}
+        <CrmDataTable
+          columns={dealColumns}
+          rows={paginatedDeals}
+          rowKey={(deal) => deal.id}
+          loading={loading}
+          emptyLabel="No deals found."
+          columnVisibility={columnVisibility}
+          selectable
+          selectedRowIds={selectedDealIds}
+          onToggleRow={toggleDealSelection}
+          onToggleAllVisible={toggleSelectAllVisible}
+          sortBy={sortBy}
+          sortDir={sortDir}
+          onSort={handleSort}
+          actionColumn={{
+            header: "Actions",
+            renderCell: (deal) => (
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => openEditModal(deal)}>
+                  <PencilLine className="size-4" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" className="size-8 rounded-lg text-rose-600 hover:text-rose-700" onClick={() => openDeleteModal(deal)}>
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ),
+          }}
+        />
 
         <CrmPaginationBar
           limit={limit}
@@ -1257,7 +1107,7 @@ export default function DealsPage() {
       <CrmFilterDrawer
         open={modalMode === "filter"}
         title="Filter"
-        description={tab === "documents" ? "Shape the uploaded docs table." : "Shape the deal table with focused filters."}
+        description="Shape the deal table with focused filters."
         onClose={closeModal}
         onClear={clearDealFilterDraft}
         onApply={applyFilters}
@@ -1265,76 +1115,56 @@ export default function DealsPage() {
         <div className="grid gap-4">
           <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-slate-50/70 p-4">
             <div className="text-sm font-semibold text-slate-900">Search</div>
-            <Field>
-              <FieldLabel>Search term</FieldLabel>
-              <Input value={filterDraft.q} onChange={(event) => setFilterDraft((current) => ({ ...current, q: event.target.value }))} className="h-10 text-sm" placeholder={tab === "documents" ? "Filename" : "Deal name"} />
-            </Field>
-            {tab === "documents" ? (
               <Field>
-                <FieldLabel>Folder</FieldLabel>
-                <Input value={filterDraft.documentFolder} onChange={(event) => setFilterDraft((current) => ({ ...current, documentFolder: event.target.value }))} className="h-10 text-sm" placeholder="general" />
-              </Field>
-            ) : null}
-          </div>
-
-          {tab !== "documents" ? (
-            <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
-              <div className="text-sm font-semibold text-slate-900">Deal details</div>
-              <Field>
-                <FieldLabel>Status</FieldLabel>
-                <NativeSelect value={filterDraft.status} onChange={(event) => setFilterDraft((current) => ({ ...current, status: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
-                  <option value="">All statuses</option>
-                  {dealStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </Field>
-              <Field>
-                <FieldLabel>Pipeline</FieldLabel>
-                <NativeSelect value={filterDraft.pipeline} onChange={(event) => setFilterDraft((current) => ({ ...current, pipeline: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
-                  <option value="">All pipelines</option>
-                  {(pipelineSettings?.dealPipelines ?? []).map((pipeline) => (
-                    <option key={pipeline.key} value={pipeline.key}>
-                      {pipeline.label}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </Field>
-              <Field>
-                <FieldLabel>Deal Stage</FieldLabel>
-                <Input value={filterDraft.stage} onChange={(event) => setFilterDraft((current) => ({ ...current, stage: event.target.value }))} className="h-10 text-sm" placeholder="Filter by stage" />
+                <FieldLabel>Search term</FieldLabel>
+                <Input value={filterDraft.q} onChange={(event) => setFilterDraft((current) => ({ ...current, q: event.target.value }))} className="h-10 text-sm" placeholder="Deal name" />
               </Field>
             </div>
-          ) : null}
+
+          <div className="grid gap-4 rounded-[1.35rem] border border-border/60 bg-white p-4">
+            <div className="text-sm font-semibold text-slate-900">Deal details</div>
+            <Field>
+              <FieldLabel>Status</FieldLabel>
+              <NativeSelect value={filterDraft.status} onChange={(event) => setFilterDraft((current) => ({ ...current, status: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                <option value="">All statuses</option>
+                {dealStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel>Pipeline</FieldLabel>
+              <NativeSelect value={filterDraft.pipeline} onChange={(event) => setFilterDraft((current) => ({ ...current, pipeline: event.target.value }))} className="h-10 rounded-xl px-3 text-sm">
+                <option value="">All pipelines</option>
+                {(pipelineSettings?.dealPipelines ?? []).map((pipeline) => (
+                  <option key={pipeline.key} value={pipeline.key}>
+                    {pipeline.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel>Deal Stage</FieldLabel>
+              <Input value={filterDraft.stage} onChange={(event) => setFilterDraft((current) => ({ ...current, stage: event.target.value }))} className="h-10 text-sm" placeholder="Filter by stage" />
+            </Field>
+          </div>
         </div>
       </CrmFilterDrawer>
 
-      {tab === "documents" ? (
-        <CrmColumnSettings
-          open={columnSettingsOpen}
-          description="Choose which document columns stay visible in the table."
-          columns={relatedDocumentColumns.map((column) => ({ key: column.key, label: column.label }))}
-          columnVisibility={documentColumnVisibility}
-          onToggleColumn={toggleDocumentColumn}
-          onReset={resetDocumentColumns}
-          onClose={() => setColumnSettingsOpen(false)}
-        />
-      ) : (
-        <CrmColumnSettings
-          open={columnSettingsOpen}
-          description="Choose which deal columns stay visible in the table."
-          columns={dealColumnOrder
-            .filter((key) => key !== "actions")
-            .map((key) => ({ key: key as Exclude<DealColumnKey, "actions">, label: dealColumnLabels[key as DealSortKey] }))}
-          columnVisibility={columnVisibility}
-          lockedColumns={lockedDealColumns}
-          onToggleColumn={toggleColumn}
-          onReset={resetColumns}
-          onClose={() => setColumnSettingsOpen(false)}
-        />
-      )}
+      <CrmColumnSettings
+        open={columnSettingsOpen}
+        description="Choose which deal columns stay visible in the table."
+        columns={dealColumnOrder
+          .filter((key) => key !== "actions")
+          .map((key) => ({ key: key as Exclude<DealColumnKey, "actions">, label: dealColumnLabels[key as DealSortKey] }))}
+        columnVisibility={columnVisibility}
+        lockedColumns={lockedDealColumns}
+        onToggleColumn={toggleColumn}
+        onReset={resetColumns}
+        onClose={() => setColumnSettingsOpen(false)}
+      />
     </div>
   );
 }

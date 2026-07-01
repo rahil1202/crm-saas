@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Context } from "hono";
 
 import type { AppEnv } from "@/app/route";
@@ -241,7 +241,7 @@ export async function listDocuments(c: Context<AppEnv>) {
     query.entityType ? eq(documents.entityType, query.entityType) : undefined,
     query.entityId ? eq(documents.entityId, query.entityId) : undefined,
     searchTerm
-      ? or(ilike(documents.originalName, `%${searchTerm}%`), ilike(documents.remark, `%${searchTerm}%`))
+      ? or(ilike(documents.originalName, `%${searchTerm}%`), ilike(sql<string>`coalesce(${documents.remark}, '')`, `%${searchTerm}%`))
       : undefined,
   );
 
@@ -379,7 +379,7 @@ export async function uploadDocument(c: Context<AppEnv>) {
         }).catch(() => undefined),
       ),
     );
-    throw error;
+    throw error instanceof AppError ? error : AppError.internal("Unable to persist uploaded document files");
   }
 }
 

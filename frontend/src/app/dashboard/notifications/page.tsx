@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   CrmAppliedFiltersBar,
@@ -129,7 +129,8 @@ export default function NotificationsPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [pageCursors, setPageCursors] = useState<Record<number, string | null>>({ 1: null });
+  const [, setPageCursors] = useState<Record<number, string | null>>({ 1: null });
+  const pageCursorsRef = useRef<Record<number, string | null>>({ 1: null });
 
   const {
     filters,
@@ -168,13 +169,15 @@ export default function NotificationsPage() {
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
   useEffect(() => {
-    setPageCursors({ 1: null });
+    const resetCursors = { 1: null };
+    pageCursorsRef.current = resetCursors;
+    setPageCursors(resetCursors);
     setPage((current) => (current === 1 ? current : 1));
   }, [filters.createdFrom, filters.createdTo, filters.q, filters.status, filters.type, limit, setPage, sortDir]);
 
   const loadNotifications = useCallback(
     async (skipCache = true) => {
-      const cursor = pageCursors[page];
+      const cursor = pageCursorsRef.current[page];
       if (page > 1 && cursor === undefined) {
         setPage(1);
         return;
@@ -206,6 +209,7 @@ export default function NotificationsPage() {
           } else {
             delete next[page + 1];
           }
+          pageCursorsRef.current = next;
           return next;
         });
       } catch (requestError) {
@@ -214,7 +218,7 @@ export default function NotificationsPage() {
         setLoading(false);
       }
     },
-    [filters.createdFrom, filters.createdTo, filters.q, filters.status, filters.type, limit, page, pageCursors, setPage, sortDir],
+    [filters.createdFrom, filters.createdTo, filters.q, filters.status, filters.type, limit, page, setPage, sortDir],
   );
 
   useEffect(() => {

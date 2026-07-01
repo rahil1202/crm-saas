@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle2, LoaderCircle, Plus, Trash2, UserRound, Users } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, Building2, CheckCircle2, LoaderCircle, UserRound } from "lucide-react";
 import { Country, State, City } from "country-state-city";
 import { toast } from "sonner";
 
@@ -14,8 +14,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Progress, ProgressLabel } from "@/components/ui/progress";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ApiError, apiRequest } from "@/lib/api";
+// import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { fetchAuthMe, readApiError, type AuthMePayload } from "@/lib/auth-client";
 import { clearCachedMe } from "@/lib/me-cache";
 import { setCompanyCookie, setStoreCookie } from "@/lib/cookies";
@@ -54,12 +53,12 @@ interface OnboardingDraft {
   invites: InviteRow[];
 }
 
-const STEP_COUNT = 4;
+const STEP_COUNT = 3;
 const STEP_META = [
   { title: "Company Info", icon: Building2 },
   { title: "Owner Info", icon: UserRound },
   { title: "Main Branch", icon: Building2 },
-  { title: "Invite Team", icon: Users },
+  // { title: "Invite Team", icon: Users },
 ];
 
 const FALLBACK_TIMEZONES = ["Asia/Kolkata", "UTC", "America/New_York", "America/Los_Angeles", "Europe/London", "Europe/Berlin", "Asia/Dubai", "Asia/Singapore", "Australia/Sydney"];
@@ -476,20 +475,21 @@ function CompanyOnboardingContent() {
     router.push(`/company-onboarding?step=${Math.min(Math.max(nextStep, 1), STEP_COUNT)}`);
   };
 
-  const handleInviteChange = (inviteId: string, fieldName: keyof InviteRow, value: string) => {
-    updateDraft({
-      invites: draft.invites.map((invite) => (invite.id === inviteId ? { ...invite, [fieldName]: value } : invite)),
-    });
-  };
+  // Team invite onboarding is intentionally disabled for now.
+  // const handleInviteChange = (inviteId: string, fieldName: keyof InviteRow, value: string) => {
+  //   updateDraft({
+  //     invites: draft.invites.map((invite) => (invite.id === inviteId ? { ...invite, [fieldName]: value } : invite)),
+  //   });
+  // };
 
-  const addInvite = () => {
-    updateDraft({ invites: [...draft.invites, createInviteRow()] });
-  };
+  // const addInvite = () => {
+  //   updateDraft({ invites: [...draft.invites, createInviteRow()] });
+  // };
 
-  const removeInvite = (inviteId: string) => {
-    const next = draft.invites.length > 1 ? draft.invites.filter((invite) => invite.id !== inviteId) : [{ ...draft.invites[0]!, email: "" }];
-    updateDraft({ invites: next });
-  };
+  // const removeInvite = (inviteId: string) => {
+  //   const next = draft.invites.length > 1 ? draft.invites.filter((invite) => invite.id !== inviteId) : [{ ...draft.invites[0]!, email: "" }];
+  //   updateDraft({ invites: next });
+  // };
 
   const finalizeSetup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -546,36 +546,37 @@ function CompanyOnboardingContent() {
     setStoreCookie(onboardingData.storeId);
     clearCachedMe();
 
-    const failedInvites: Array<{ email: string; message: string }> = [];
-    for (const invite of draft.invites.filter((row) => row.email.trim())) {
-      try {
-        await apiRequest("/auth/invite", {
-          method: "POST",
-          body: JSON.stringify({
-            email: invite.email.trim(),
-            role: invite.role,
-            storeId: invite.storeScope === "primary" ? onboardingData.storeId : null,
-            expiresInDays: 7,
-          }),
-        });
-      } catch (caughtError) {
-        failedInvites.push({
-          email: invite.email,
-          message: caughtError instanceof ApiError ? caughtError.message : "Unable to send invite.",
-        });
-      }
-    }
+    // Team invite onboarding is intentionally disabled for now.
+    // const failedInvites: Array<{ email: string; message: string }> = [];
+    // for (const invite of draft.invites.filter((row) => row.email.trim())) {
+    //   try {
+    //     await apiRequest("/auth/invite", {
+    //       method: "POST",
+    //       body: JSON.stringify({
+    //         email: invite.email.trim(),
+    //         role: invite.role,
+    //         storeId: invite.storeScope === "primary" ? onboardingData.storeId : null,
+    //         expiresInDays: 7,
+    //       }),
+    //     });
+    //   } catch (caughtError) {
+    //     failedInvites.push({
+    //       email: invite.email,
+    //       message: caughtError instanceof ApiError ? caughtError.message : "Unable to send invite.",
+    //     });
+    //   }
+    // }
 
     if (authMe) {
       window.sessionStorage.removeItem(draftStorageKey(authMe.user.id));
     }
 
-    if (failedInvites.length) {
-      setInviteErrors(failedInvites);
-      toast.error("Workspace created, but some invites failed.");
-      setSubmitting(false);
-      return;
-    }
+    // if (failedInvites.length) {
+    //   setInviteErrors(failedInvites);
+    //   toast.error("Workspace created, but some invites failed.");
+    //   setSubmitting(false);
+    //   return;
+    // }
 
     toast.success("Workspace created.");
     router.replace("/company-onboarding-tour");
@@ -735,7 +736,7 @@ function CompanyOnboardingContent() {
               ) : null}
 
               {!loading && step === 3 ? (
-                <div className="grid gap-6">
+                <form onSubmit={finalizeSetup} className="grid gap-6">
                   <FieldGroup className="grid gap-4 md:grid-cols-2">
                     <Field className="md:col-span-2">
                       <FieldLabel>Main branch name</FieldLabel>
@@ -778,13 +779,15 @@ function CompanyOnboardingContent() {
                     <Button type="button" variant="outline" onClick={() => goToStep(2)}>
                       <ArrowLeft data-icon="inline-start" /> Previous
                     </Button>
-                    <Button type="button" onClick={() => goToStep(4)}>
-                      Next <ArrowRight data-icon="inline-end" />
+                    <Button type="submit" disabled={submitting}>
+                      <CheckCircle2 data-icon="inline-start" />
+                      {submitting ? "Creating workspace..." : "Create workspace and start tour"}
                     </Button>
                   </div>
-                </div>
+                </form>
               ) : null}
 
+              {/* Team invite onboarding is intentionally disabled for now.
               {!loading && step === 4 ? (
                 <form onSubmit={finalizeSetup} className="grid gap-6">
                   <div className="grid gap-3">
@@ -844,7 +847,7 @@ function CompanyOnboardingContent() {
                     </Button>
                   </div>
                 </form>
-              ) : null}
+              ) : null} */}
             </CardContent>
           </Card>
         </section>

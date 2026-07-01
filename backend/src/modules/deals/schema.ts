@@ -4,6 +4,7 @@ export const listDealsSchema = z.object({
   q: z.string().trim().optional(),
   status: z.enum(["open", "won", "lost"]).optional(),
   pipeline: z.string().trim().optional(),
+  stage: z.string().trim().optional(),
   assignedToUserId: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),

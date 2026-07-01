@@ -1,6 +1,6 @@
 "use client"
 
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useMemo } from "react"
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -18,10 +18,8 @@ function Tabs({
 }: TabsPrimitive.Root.Props & { queryKey?: string }) {
   const router = useRouter()
   const pathname = usePathname()
-  const urlValue =
-    queryKey && typeof window !== "undefined"
-      ? new URLSearchParams(window.location.search).get(queryKey)
-      : null
+  const searchParams = useSearchParams()
+  const urlValue = queryKey ? searchParams.get(queryKey) : null
   const resolvedValue = useMemo(() => {
     if (value !== undefined) {
       return value
@@ -37,7 +35,7 @@ function Tabs({
       return
     }
 
-    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "")
+    const params = new URLSearchParams(searchParams.toString())
     if (!nextValue || nextValue === defaultValue) {
       params.delete(queryKey)
     } else {

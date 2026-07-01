@@ -165,7 +165,6 @@ export default function DocumentsPage() {
     lockedColumns: ["name", "actions"],
   });
 
-  const offset = (page - 1) * limit;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const scope = tab === "all" ? "all" : tab === "mine" ? "mine" : "imported";
 
@@ -180,20 +179,20 @@ export default function DocumentsPage() {
     return chips;
   }, [filters]);
 
-  const loadDocuments = useCallback(async () => {
+  const loadDocuments = useCallback(async (options?: { pageOverride?: number; skipCache?: boolean }) => {
     setLoading(true);
     setError(null);
 
     const params = new URLSearchParams();
     params.set("limit", String(limit));
-    params.set("offset", String(offset));
+    params.set("offset", String(((options?.pageOverride ?? page) - 1) * limit));
     params.set("scope", scope);
     if (filters.q.trim()) params.set("q", filters.q.trim());
     if (filters.folder.trim()) params.set("folder", filters.folder.trim());
     if (filters.entityType) params.set("entityType", filters.entityType);
 
     try {
-      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`);
+      const response = await apiRequest<DocumentListResponse>(`/documents/list?${params.toString()}`, { skipCache: options?.skipCache });
       setItems(response.items);
       setTotal(response.total);
       setSelectedDocumentIds((current) => {
@@ -209,7 +208,7 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, limit, myRole, myUserId, offset, scope]);
+  }, [filters, limit, myRole, myUserId, page, scope]);
 
   const loadAssociationOptions = useCallback(async (mode: "upload" | "edit") => {
     const activeType = mode === "upload" ? uploadEntityType : editEntityType;
@@ -370,7 +369,7 @@ export default function DocumentsPage() {
       setUploadEntityQuery("");
       setAddModalOpen(false);
       setPage(1);
-      await loadDocuments();
+      await loadDocuments({ pageOverride: 1, skipCache: true });
     } catch (requestError) {
       toast.error(requestError instanceof ApiError ? requestError.message : "Unable to upload documents");
     } finally {

@@ -264,7 +264,7 @@ export async function listCustomers(c: Context<AppEnv>) {
     conditions.push(ilike(sql<string>`coalesce(array_to_string(${customers.tags}, ', '), '')`, `%${query.productTags}%`));
   }
   if (query.phone) {
-    conditions.push(ilike(customers.phone, `%${query.phone}%`));
+    conditions.push(ilike(sql<string>`coalesce(${customers.phone}, '')`, `%${query.phone}%`));
   }
   if (query.createdFrom) {
     conditions.push(gte(customers.createdAt, new Date(`${query.createdFrom}T00:00:00.000Z`)));

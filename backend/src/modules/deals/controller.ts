@@ -78,6 +78,9 @@ export async function listDeals(c: Context<AppEnv>) {
   if (query.pipeline) {
     conditions.push(eq(deals.pipeline, query.pipeline));
   }
+  if (query.stage) {
+    conditions.push(ilike(deals.stage, `%${query.stage}%`));
+  }
   if (query.assignedToUserId) {
     conditions.push(eq(deals.assignedToUserId, query.assignedToUserId));
   }

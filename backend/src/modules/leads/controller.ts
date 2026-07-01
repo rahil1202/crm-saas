@@ -144,11 +144,11 @@ export async function listLeads(c: Context<AppEnv>) {
   }
 
   if (query.description) {
-    conditions.push(ilike(leads.notes, `%${query.description}%`));
+    conditions.push(ilike(sql<string>`coalesce(${leads.notes}, '')`, `%${query.description}%`));
   }
 
   if (query.fullName) {
-    conditions.push(ilike(leads.fullName, `%${query.fullName}%`));
+    conditions.push(ilike(sql<string>`coalesce(${leads.fullName}, '')`, `%${query.fullName}%`));
   }
 
   if (query.title) {
@@ -161,11 +161,11 @@ export async function listLeads(c: Context<AppEnv>) {
   }
 
   if (query.email) {
-    conditions.push(ilike(leads.email, `%${query.email}%`));
+    conditions.push(ilike(sql<string>`coalesce(${leads.email}, '')`, `%${query.email}%`));
   }
 
   if (query.phone) {
-    conditions.push(ilike(leads.phone, `%${query.phone}%`));
+    conditions.push(ilike(sql<string>`coalesce(${leads.phone}, '')`, `%${query.phone}%`));
   }
 
   if (query.createdFrom) {
@@ -180,12 +180,12 @@ export async function listLeads(c: Context<AppEnv>) {
     conditions.push(
       or(
         ilike(leads.title, `%${query.q}%`),
-        ilike(leads.fullName, `%${query.q}%`),
-        ilike(leads.email, `%${query.q}%`),
-        ilike(leads.phone, `%${query.q}%`),
-        ilike(leads.source, `%${query.q}%`),
-        ilike(leads.notes, `%${query.q}%`),
-        ilike(leads.associatedCompany, `%${query.q}%`),
+        ilike(sql<string>`coalesce(${leads.fullName}, '')`, `%${query.q}%`),
+        ilike(sql<string>`coalesce(${leads.email}, '')`, `%${query.q}%`),
+        ilike(sql<string>`coalesce(${leads.phone}, '')`, `%${query.q}%`),
+        ilike(sql<string>`coalesce(${leads.source}, '')`, `%${query.q}%`),
+        ilike(sql<string>`coalesce(${leads.notes}, '')`, `%${query.q}%`),
+        ilike(sql<string>`coalesce(${leads.associatedCompany}, '')`, `%${query.q}%`),
         ilike(sql<string>`coalesce(array_to_string(${leads.tags}, ', '), '')`, `%${query.q}%`),
       )!,
     );

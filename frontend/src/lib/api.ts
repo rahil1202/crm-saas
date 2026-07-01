@@ -71,7 +71,10 @@ export async function apiRequest<T>(
       ...(init?.headers ?? {}),
     },
   }).then(async (response) => {
-    const payload = (await response.json()) as ApiSuccess<T> | ApiFailure;
+    const payload = (await response.json().catch(() => ({
+      success: false,
+      error: { code: "INVALID_RESPONSE", message: "Invalid API response" },
+    }))) as ApiSuccess<T> | ApiFailure;
 
     if (response.status === 401 && !init?.skipRefresh && path !== "/auth/refresh") {
       const refreshResponse = await fetch(`${env.apiUrl}/api/v1/auth/refresh`, {
@@ -143,11 +146,17 @@ const apiInFlight = new Map<string, Promise<unknown>>();
 export function invalidateCache(pathPrefix?: string) {
   if (!pathPrefix) {
     apiCache.clear();
+    apiInFlight.clear();
     return;
   }
   for (const [key] of apiCache) {
     if (key.includes(pathPrefix)) {
       apiCache.delete(key);
+    }
+  }
+  for (const [key] of apiInFlight) {
+    if (key.includes(pathPrefix)) {
+      apiInFlight.delete(key);
     }
   }
 }

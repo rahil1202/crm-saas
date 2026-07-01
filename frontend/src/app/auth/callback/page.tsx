@@ -113,8 +113,8 @@ function AuthCallbackContent() {
         const { data } = await supabase.auth.getSession();
         const accessToken = data.session?.access_token;
         const pendingIntegrationOauth = readPendingIntegrationOauthContext();
-        const providerAccessToken = data.session?.provider_token;
-        const providerRefreshToken = data.session?.provider_refresh_token;
+        const providerAccessToken = data.session?.provider_token ?? hashParams.get("provider_token");
+        const providerRefreshToken = data.session?.provider_refresh_token ?? hashParams.get("provider_refresh_token");
         if (!accessToken) {
           throw new Error("No verified Supabase session found");
         }
@@ -125,7 +125,7 @@ function AuthCallbackContent() {
 
         if (pendingIntegrationOauth) {
           if (!providerAccessToken) {
-            throw new Error("OAuth provider token was not returned by Supabase");
+            throw new Error("OAuth provider token was not returned by Supabase. Reconnect Gmail and grant all requested permissions.");
           }
 
           const linkResponse = await fetch(`${env.apiUrl}/api/v1/settings/integrations/oauth/link`, {
