@@ -819,7 +819,7 @@ export default function DealsPage() {
           <CrmListViewTabs
             value={tab}
             onValueChange={setTab}
-            labels={{ all: "All Deals", mine: "My Deals" }}
+            labels={{ all: "All Deals", mine: "My Deals", documents: "Documents" }}
           />
         </div>
 

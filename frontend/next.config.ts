@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
   compiler: {
     removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
   },
-  allowedDevOrigins: ["https://crm.theonebranding.com", "https://apicrm.theonebranding.com", "*.theonebranding.com"],
+  allowedDevOrigins: ["https://crm.digoltech.com", "https://apicrm.digoltech.com", "*.digoltech.com"],
 };
 
 export default nextConfig;

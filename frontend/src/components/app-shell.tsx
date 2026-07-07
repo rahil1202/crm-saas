@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, memo, type ReactNode } from "react";
 import {
   Bell,
+  Bug,
   BriefcaseBusiness,
   Building2,
   CalendarClock,
@@ -288,6 +289,10 @@ export function AppShell({
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
+  const [bugReportOpen, setBugReportOpen] = useState(false);
+  const [bugReportSubmitting, setBugReportSubmitting] = useState(false);
+  const [bugReportError, setBugReportError] = useState<string | null>(null);
+  const [bugReportSuccess, setBugReportSuccess] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [activeTab, setActiveTab] = useState<string | null>(null);
 
@@ -542,6 +547,42 @@ export function AppShell({
     router.replace("/auth/login");
   };
 
+  const handleBugReportSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBugReportSubmitting(true);
+    setBugReportError(null);
+    setBugReportSuccess(false);
+
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const files = formData.getAll("attachments").filter((item): item is File => item instanceof File && item.size > 0);
+    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+
+    if (totalBytes > 10 * 1024 * 1024) {
+      setBugReportSubmitting(false);
+      setBugReportError("Attachments must be 10 MB or less in total.");
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      formData.set("pageUrl", window.location.href);
+      formData.set("pagePath", `${window.location.pathname}${window.location.search}`);
+    }
+
+    try {
+      await apiRequest("/feedback/bug-report", {
+        method: "POST",
+        body: formData,
+      });
+      form.reset();
+      setBugReportSuccess(true);
+    } catch (error) {
+      setBugReportError(error instanceof ApiError ? error.message : "Unable to send bug report.");
+    } finally {
+      setBugReportSubmitting(false);
+    }
+  };
+
   const userInitials = useMemo(() => {
     const fullName = me?.user.fullName?.trim();
     if (!fullName) {
@@ -629,6 +670,28 @@ export function AppShell({
                 sidebarExpanded={sidebarExpanded}
               />
             </div>
+
+            <button
+              type="button"
+              title={!sidebarExpanded ? "Report a bug" : undefined}
+              className={cn(
+                "group relative flex items-center rounded-xl border border-sky-200/70 bg-sky-50/80 text-sm font-semibold text-sky-900 transition-colors hover:bg-sky-100",
+                sidebarExpanded ? "gap-2 px-3 py-2" : "justify-center px-0 py-2",
+              )}
+              onClick={() => {
+                setBugReportOpen(true);
+                setBugReportError(null);
+                setBugReportSuccess(false);
+              }}
+            >
+              <Bug className="size-4 text-sky-700" />
+              {sidebarExpanded ? <span>Report a bug</span> : null}
+              {!sidebarExpanded ? (
+                <span className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-20 -translate-y-1/2 rounded-xl border border-sky-200/80 bg-white px-2 py-1.5 text-xs font-semibold text-slate-900 opacity-0 shadow-[0_14px_34px_-20px_rgba(35,86,166,0.35)] transition-opacity group-hover:opacity-100">
+                  Report a bug
+                </span>
+              ) : null}
+            </button>
           </div>
         </aside>
 
@@ -697,6 +760,19 @@ export function AppShell({
                       </Link>
                       <button
                         type="button"
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-900 transition-colors hover:bg-secondary/65"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          setBugReportOpen(true);
+                          setBugReportError(null);
+                          setBugReportSuccess(false);
+                        }}
+                      >
+                        <Bug className="size-4 text-primary" />
+                        Report a bug
+                      </button>
+                      <button
+                        type="button"
                         className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/8"
                         onClick={() => {
                           setProfileMenuOpen(false);
@@ -755,6 +831,108 @@ export function AppShell({
               </div>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {bugReportOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 py-6 backdrop-blur-sm">
+          <form onSubmit={(event) => void handleBugReportSubmit(event)} className="max-h-full w-full max-w-2xl overflow-y-auto rounded-[2rem] border border-white/80 bg-white p-5 shadow-[0_30px_90px_-45px_rgba(15,23,42,0.45)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-lg font-semibold text-slate-900">Report a bug</div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">Send details, page URL, path, screenshots, and videos directly to info@theonebranding.com.</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-border/80 bg-white p-2 text-muted-foreground transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                onClick={() => setBugReportOpen(false)}
+                aria-label="Close bug report form"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <input type="hidden" name="pageUrl" />
+            <input type="hidden" name="pagePath" />
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="grid gap-1.5 sm:col-span-2">
+                <span className="text-sm font-semibold text-slate-900">Bug title</span>
+                <input name="title" required maxLength={140} className="h-10 rounded-xl border border-border bg-white px-3 text-sm outline-none transition-colors focus:border-sky-400" placeholder="Short summary of the issue" />
+              </label>
+
+              <label className="grid gap-1.5">
+                <span className="text-sm font-semibold text-slate-900">Where is the bug?</span>
+                <select name="area" className="h-10 rounded-xl border border-border bg-white px-3 text-sm outline-none transition-colors focus:border-sky-400" defaultValue="">
+                  <option value="" disabled>Select area</option>
+                  <option value="Dashboard">Dashboard</option>
+                  <option value="CRM">CRM</option>
+                  <option value="Forms">Forms</option>
+                  <option value="Campaigns">Campaigns</option>
+                  <option value="Documents">Files</option>
+                  <option value="WhatsApp CRM">WhatsApp CRM</option>
+                  <option value="Settings">Settings</option>
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+
+              <label className="grid gap-1.5">
+                <span className="text-sm font-semibold text-slate-900">What is it?</span>
+                <select name="category" className="h-10 rounded-xl border border-border bg-white px-3 text-sm outline-none transition-colors focus:border-sky-400" defaultValue="Bug">
+                  <option value="Bug">Bug</option>
+                  <option value="Broken UI">Broken UI</option>
+                  <option value="Data issue">Data issue</option>
+                  <option value="Performance">Performance</option>
+                  <option value="Permission issue">Permission issue</option>
+                  <option value="Feature feedback">Feature feedback</option>
+                </select>
+              </label>
+
+              <label className="grid gap-1.5">
+                <span className="text-sm font-semibold text-slate-900">Severity</span>
+                <select name="severity" className="h-10 rounded-xl border border-border bg-white px-3 text-sm outline-none transition-colors focus:border-sky-400" defaultValue="medium">
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </label>
+
+              <label className="grid gap-1.5">
+                <span className="text-sm font-semibold text-slate-900">Screenshot or video</span>
+                <input name="attachments" type="file" multiple accept="image/*,video/mp4,video/webm,video/quicktime" className="rounded-xl border border-border bg-white px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-sky-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-sky-900" />
+                <span className="text-xs text-muted-foreground">Images and videos only. Total upload limit: 10 MB.</span>
+              </label>
+
+              <label className="grid gap-1.5 sm:col-span-2">
+                <span className="text-sm font-semibold text-slate-900">Describe the bug</span>
+                <textarea name="description" required rows={4} className="rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-sky-400" placeholder="What happened? Include any error messages." />
+              </label>
+
+              <label className="grid gap-1.5 sm:col-span-2">
+                <span className="text-sm font-semibold text-slate-900">Steps to reproduce</span>
+                <textarea name="steps" rows={4} className="rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-sky-400" placeholder="1. Open...&#10;2. Click...&#10;3. See..." />
+              </label>
+
+              <label className="grid gap-1.5">
+                <span className="text-sm font-semibold text-slate-900">Expected result</span>
+                <textarea name="expected" rows={3} className="rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-sky-400" />
+              </label>
+
+              <label className="grid gap-1.5">
+                <span className="text-sm font-semibold text-slate-900">Actual result</span>
+                <textarea name="actual" rows={3} className="rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-sky-400" />
+              </label>
+            </div>
+
+            {bugReportError ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{bugReportError}</div> : null}
+            {bugReportSuccess ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Bug report sent successfully.</div> : null}
+
+            <div className="mt-5 flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setBugReportOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={bugReportSubmitting}>{bugReportSubmitting ? "Sending..." : "Send report"}</Button>
+            </div>
+          </form>
         </div>
       ) : null}
 

@@ -52,6 +52,11 @@ interface SendEmailRequest {
   subject: string;
   html: string;
   text?: string | null;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string | null;
+  }>;
 }
 
 interface EmailProviderResult {
@@ -263,6 +268,11 @@ export class SmtpEmailProvider implements EmailProviderAdapter {
         subject: request.subject,
         html: request.html,
         text: request.text ?? undefined,
+        attachments: request.attachments?.map((attachment) => ({
+          filename: attachment.filename,
+          content: attachment.content,
+          contentType: attachment.contentType ?? undefined,
+        })),
       });
 
       // Extract message-id; fall back to a generated UUID if the server returns none

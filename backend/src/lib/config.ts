@@ -28,8 +28,8 @@ function normalizeSupabaseUrl(rawValue: string) {
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(8787),
-  FRONTEND_URL: z.string().url().default("https://crm.theonebranding.com"),
-  BACKEND_URL: z.string().url().default("https://apicrm.theonebranding.com"),
+  FRONTEND_URL: z.string().url().default("https://crm.digoltech.com"),
+  BACKEND_URL: z.string().url().default("https://apicrm.digoltech.com"),
   DATABASE_URL: z.string().min(1).default("postgres://postgres:postgres@localhost:5432/crm_saas"),
   SUPABASE_URL: z.string().min(1).default("http://localhost:54321").transform(normalizeSupabaseUrl),
   SUPABASE_ANON_KEY: z.string().min(1).default("dev-anon-key"),
@@ -66,7 +66,7 @@ const envSchema = z.object({
     .enum(["0", "1", "true", "false"])
     .default("0")
     .transform((value) => value === "1" || value === "true"),
-  AUTH_CALLBACK_URL: z.string().url().default("https://crm.theonebranding.com/auth/callback"),
+  AUTH_CALLBACK_URL: z.string().url().default("https://crm.digoltech.com/auth/callback"),
   RUNTIME_WORKER_ENABLED: z
     .enum(["0", "1", "true", "false"])
     .default("1")
@@ -102,7 +102,7 @@ const envSchema = z.object({
   // Google OAuth — Gmail outreach connection (separate from Supabase login)
   GOOGLE_CLIENT_ID: z.string().default(""),
   GOOGLE_CLIENT_SECRET: z.string().default(""),
-  GOOGLE_GMAIL_REDIRECT_URI: z.string().url().default("https://apicrm.theonebranding.com/api/v1/google/callback"),
+  GOOGLE_GMAIL_REDIRECT_URI: z.string().url().default("https://apicrm.digoltech.com/api/v1/google/callback"),
 }).superRefine((data, ctx) => {
   const frontendProtocol = new URL(data.FRONTEND_URL).protocol;
   const backendProtocol = new URL(data.BACKEND_URL).protocol;
